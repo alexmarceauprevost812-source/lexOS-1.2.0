@@ -392,22 +392,50 @@ PLY_PLUIE="$BRAND/pluie-demarrage.png"
 #  pixel carré, et n'importe quel agrandissement lissé lui ferait perdre son
 #  air d'écran cathodique. Elles sont copiées telles quelles, jamais passées
 #  dans convert.
+#  ON RELÈVE LES MANQUES NOMMÉMENT, PAS SEULEMENT « IL EN MANQUE UN ».
+#  Le repli d'origine disait « lettres ou mascotte absentes, ou convert
+#  manquant » — trois causes possibles, aucune désignée, noyées dans mille
+#  lignes de journal de construction. Alex a gravé une ISO, redémarré, et
+#  découvert le problème À L'ÉCRAN. Une demi-journée pour une information que
+#  la construction avait sous la main.
 PLY_LETTRES_OK=1
+PLY_MANQUANTS=""
 for I in 0 1 2 3 4; do
-	[ -r "$BRAND/lexos-lettre-$I.png" ] || PLY_LETTRES_OK=0
+	if [ ! -r "$BRAND/lexos-lettre-$I.png" ]; then
+		PLY_LETTRES_OK=0
+		PLY_MANQUANTS="$PLY_MANQUANTS lexos-lettre-$I.png"
+	fi
 done
-[ -r "$PLY_MASCOTTE" ] || PLY_LETTRES_OK=0
+if [ ! -r "$PLY_MASCOTTE" ]; then
+	PLY_LETTRES_OK=0
+	PLY_MANQUANTS="$PLY_MANQUANTS mascotte-splash.png"
+fi
 
 if [ -d "$PLY_SRC" ]; then
 	rm -rf "$PLY_DST"
 	cp -a "$PLY_SRC" "$PLY_DST"
 	rm -f "$PLY_DST/spinner.plymouth"
 
+	#  Le filigrane sert AU REPLI STATIQUE, où il est la seule image affichée.
+	#  S'il manque, cet écran de secours est entièrement vide — ça se dit.
 	if [ -n "$LOGO_SRC" ] && have convert; then
-		convert "$LOGO_SRC" -resize 200x200 "$PLY_DST/watermark.png" || true
+		convert "$LOGO_SRC" -resize 200x200 "$PLY_DST/watermark.png" 2>/dev/null \
+			|| echo "[lexos]   !! filigrane non fabriqué — le repli statique serait vide"
+	elif [ -n "$LOGO_SRC" ]; then
+		echo "[lexos]   !! convert absent : pas de filigrane — le repli statique serait vide"
 	fi
 
-	if [ "$PLY_LETTRES_OK" = 1 ] && have convert; then
+	#  ═══ LES LETTRES NE DÉPENDENT PAS D'IMAGEMAGICK, ET C'ÉTAIT LE BOGUE ═══
+	#  Cette condition était « [ "$PLY_LETTRES_OK" = 1 ] && have convert ».
+	#  Or les lettres et la mascotte sont posées par cp : elles n'ont AUCUN
+	#  besoin de convert. Seules les deux images d'un pixel de la barre en ont
+	#  un. Et imagemagick n'est pas au socle — il ne vit que dans trois listes
+	#  facultatives (00-core, 45-capture, 46-studio), que le hook 0250 pose en
+	#  tolérant l'échec, à dessein. Un miroir qui hoquète ce jour-là, et TOUT
+	#  l'écran animé retombait sur la version statique : ni mascotte, ni LEXOS.
+	#  Les deux conditions sont donc séparées, et la barre — la seule qui a
+	#  vraiment besoin de convert — devient facultative comme la pluie.
+	if [ "$PLY_LETTRES_OK" = 1 ]; then
 		# --- Mascotte fixe + logo qui s'écrit lettre par lettre -------------
 		cp "$PLY_MASCOTTE" "$PLY_DST/mascotte-splash.png"
 		for I in 0 1 2 3 4; do
@@ -428,14 +456,31 @@ if [ -d "$PLY_SRC" ]; then
 		#  substitution par construction, et « lexos accent bleu » la laisse
 		#  verte. Le banc tests/test_lexos_plymouth.sh le MESURE en lançant
 		#  le générateur avec un accent non-orange.
-		convert -size 1x1 xc:'#1A1A1C' "$PLY_DST/progress-bg.png" || true
-		convert -size 1x1 xc:'#1F9E3D' "$PLY_DST/progress-fg.png" || true
+		#
+		#  ELLE EST FACULTATIVE, comme la pluie. Deux images d'un pixel ne
+		#  valent pas de faire retomber tout l'écran de démarrage.
+		if have convert; then
+			convert -size 1x1 xc:'#1A1A1C' "$PLY_DST/progress-bg.png" || true
+			convert -size 1x1 xc:'#1F9E3D' "$PLY_DST/progress-fg.png" || true
+		fi
+		if [ ! -r "$PLY_DST/progress-bg.png" ] || [ ! -r "$PLY_DST/progress-fg.png" ]; then
+			rm -f "$PLY_DST/progress-bg.png" "$PLY_DST/progress-fg.png"
+			echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
+			echo "[lexos]   !! ImageMagick (convert) absent — écran de démarrage SANS barre"
+			echo "[lexos]   !! de progression. La mascotte et le logo LEXOS s'affichent."
+			echo "[lexos]   !! Pour la retrouver : imagemagick doit être installé au moment"
+			echo "[lexos]   !! du hook 0300 (il est dans 00-core.list, posé par le hook 0250"
+			echo "[lexos]   !! qui TOLÈRE un paquet absent)."
+			echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
+		fi
 
 		if [ -r "$PLY_PLUIE" ]; then
 			cp "$PLY_PLUIE" "$PLY_DST/pluie-demarrage.png"
 			echo "[lexos]   pluie Matrix : posée en fond de l'écran de démarrage"
 		else
-			echo "[lexos]   pluie-demarrage.png absente — écran de démarrage SANS pluie (décoration, non bloquant)"
+			echo "[lexos]   !! pluie-demarrage.png absente de $BRAND — écran de"
+			echo "[lexos]   !! démarrage SANS la pluie de fond. Décoration : le reste"
+			echo "[lexos]   !! s'affiche. tools/faire-pluie.py sait la refabriquer."
 		fi
 
 		{
@@ -453,6 +498,26 @@ Window.SetBackgroundBottomColor(0, 0, 0);
 // ramène le total à 0.70 s. Ce sont les deux seules valeurs à toucher.
 glisse_duree = 0.42;    // temps de trajet d'UNE lettre
 lettre_retard = 0.16;   // décalage de départ entre deux lettres
+
+// ═══ D'OÙ VIENT LE TEMPS — ET POURQUOI PAS D'UNE HORLOGE ═══
+// LE MODULE « script » DE PLYMOUTH N'A AUCUNE FONCTION DE TEMPS. Aucune.
+// La table complète des fonctions exposées par script.so tient en dix
+// noms — GetBitsPerPixel, GetCapslockState, GetHeight, GetImage,
+// GetMode, GetOpacity, GetWidth, GetX, GetY, GetZ — et « GetTime » ne
+// figure dans AUCUN binaire de Plymouth.
+//
+// Ce fichier appelait « Plymouth.GetTime() ». L'interpréteur ne bronche
+// pas sur une fonction inconnue : il rend une valeur nulle. Le temps
+// écoulé restait donc nul, les cinq lettres gardaient l'opacité 0 hors
+// écran, et l'écran de démarrage montrait la mascotte — fixe, elle — SANS
+// le logo. C'est exactement ce qu'on voyait sur l'ISO 112.
+//
+// La seule horloge disponible est la CADENCE DE RAFRAÎCHISSEMENT, qu'on
+// impose ici au lieu de la deviner. Si Plymouth servait malgré tout une
+// autre cadence, l'animation irait plus ou moins vite — mais elle irait :
+// « t » est borné à 1, donc les lettres finissent en place dans tous les
+// cas. C'est le point : plus aucun chemin ne laisse l'écran sans logo.
+cadence = 50;           // rafraîchissements par seconde, imposés ci-dessous
 barre_largeur_ratio = 0.26;
 barre_hauteur = 6;
 barre_y_ratio = 0.88;
@@ -534,7 +599,8 @@ preparer_lettre(2);
 preparer_lettre(3);
 preparer_lettre(4);
 
-debut_temps = -1;
+Plymouth.SetRefreshRate(cadence);
+rafraichissements = 0;
 
 // Place UNE lettre selon le temps écoulé.
 //
@@ -568,13 +634,8 @@ fun placer_lettre(i, ecoule) {
 }
 
 fun refresh_callback() {
-    now = Plymouth.GetTime();
-
-    if (debut_temps < 0) {
-        debut_temps = now;
-    }
-
-    ecoule = now - debut_temps;
+    rafraichissements = rafraichissements + 1;
+    ecoule = rafraichissements / cadence;
 
     placer_lettre(0, ecoule);
     placer_lettre(1, ecoule);
@@ -584,6 +645,15 @@ fun refresh_callback() {
 }
 
 Plymouth.SetRefreshFunction(refresh_callback);
+SCRIPT_CORPS
+
+		#  ═══ LA BARRE N'ENTRE DANS LE SCRIPT QUE SI SES IMAGES EXISTENT ═══
+		#  Même raisonnement que pour la pluie, quinze lignes plus haut :
+		#  écrire « Image("progress-bg.png") » sans le fichier laisserait
+		#  Plymouth avec une image nulle, et un Sprite qui n'affiche rien — au
+		#  mieux. On n'écrit la ligne que si elle a un sens.
+		if [ -r "$PLY_DST/progress-bg.png" ] && [ -r "$PLY_DST/progress-fg.png" ]; then
+			cat <<'SCRIPT_BARRE'
 
 // --- La barre de progression -------------------------------------------------
 // Fond gris, remplissage VERT, redessinés par mise à l'échelle d'un pixel de
@@ -623,7 +693,10 @@ fun progress_callback(duration, progress) {
 }
 
 Plymouth.SetBootProgressFunction(progress_callback);
-SCRIPT_CORPS
+SCRIPT_BARRE
+		else
+			printf '// progress-bg/fg absentes a la construction : pas de barre de progression.\n'
+		fi
 		} > "$PLY_DST/lexos.script"
 
 		cat > "$PLY_DST/lexos.plymouth" <<'EOF'
@@ -646,7 +719,28 @@ EOF
 		#  SA BARRE RESTE ORANGE (ProgressBarForegroundColor plus bas) : c'est
 		#  un autre thème, dessiné par Plymouth lui-même, et le vert d'Alex
 		#  vise l'écran qu'on livre vraiment. Choix conscient, pas un oubli.
-		echo "[lexos]   lettres ou mascotte absentes, ou convert manquant — thème Plymouth statique (watermark)"
+		#  ═══ UN REPLI DE CONSTRUCTION DOIT CRIER, PAS CHUCHOTER ═══
+		#  Un repli silencieux est BON à l'exécution : mieux vaut un écran de
+		#  démarrage laid qu'une machine qui ne démarre pas. Il est MAUVAIS à
+		#  la construction. Ici, c'est une image qu'on grave, qu'on démarre, et
+		#  dont on découvre le défaut à l'écran — sans aucune piste. Le journal
+		#  de construction savait tout, et n'a rien dit d'utilisable.
+		#  Il nomme donc les fichiers, dit ce qu'on perd, et dit quoi faire.
+		echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
+		echo "[lexos]   !! ÉCRAN DE DÉMARRAGE SANS LOGO ANIMÉ — repli sur le thème"
+		echo "[lexos]   !! statique « two-step » : PAS de mascotte, PAS de LEXOS qui"
+		echo "[lexos]   !! s'écrit, PAS de pluie. Seul le filigrane reste."
+		echo "[lexos]   !!"
+		echo "[lexos]   !! Fichiers introuvables dans $BRAND :"
+		for F in $PLY_MANQUANTS; do
+			echo "[lexos]   !!     · $F"
+		done
+		echo "[lexos]   !!"
+		echo "[lexos]   !! À FAIRE : remettre ces fichiers dans branding/ du dépôt,"
+		echo "[lexos]   !! aux dimensions attendues (lettres 98..112 × 138,"
+		echo "[lexos]   !! mascotte-splash 449 × 540), puis reconstruire."
+		echo "[lexos]   !! Le banc tests/test_lexos_plymouth.sh les mesure."
+		echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
 		cat > "$PLY_DST/lexos.plymouth" <<'EOF'
 [Plymouth Theme]
 Name=LexOS
@@ -688,11 +782,45 @@ UseFirmwareBackground=false
 EOF
 	fi
 
-	have plymouth-set-default-theme && \
-		plymouth-set-default-theme lexos >/dev/null 2>&1 \
-		&& echo "[lexos]   thème Plymouth : lexos" || true
+	#  ═══ PAS D'« update-initramfs » ICI, ET CE N'EST PAS UN OUBLI ═══
+	#  C'est la cause classique de « le thème est sur le disque mais Plymouth
+	#  en affiche un autre » : Plymouth démarre DEPUIS L'INITRAMFS, et un
+	#  thème écrit après sa fabrication n'y est pas.
+	#
+	#  Vérifié dans live-build lui-même, pas supposé. /usr/lib/live/build/lb_chroot
+	#  appelle ses étapes dans l'ordre, et deux lignes se suivent :
+	#      ligne 78 : lb chroot_hooks    <- ce hook-ci
+	#      ligne 79 : lb chroot_hacks
+	#  et lb_chroot_hacks fait, ligne 191 :
+	#      Chroot chroot "… update-initramfs -k all -t -u"
+	#  L'initramfs est donc TOUJOURS refait après nous, pour tous les noyaux.
+	#  L'appeler ici le referait deux fois — plusieurs minutes de construction
+	#  pour rien. Si un jour ces deux lignes changeaient d'ordre dans
+	#  live-build, ce commentaire est le premier endroit où regarder.
+	#  ÉCRIRE LE THÈME NE SUFFIT PAS : il faut encore le DÉSIGNER par défaut.
+	#  Le « || true » d'origine avalait les deux échecs possibles sans un mot —
+	#  et un thème écrit mais jamais choisi ne s'affiche jamais.
+	if ! have plymouth-set-default-theme; then
+		echo "[lexos]   !! plymouth-set-default-theme absent — le thème lexos est"
+		echo "[lexos]   !! écrit mais N'EST PAS choisi par défaut : il ne s'affichera"
+		echo "[lexos]   !! pas. Le paquet plymouth n'est pas installé."
+	elif plymouth-set-default-theme lexos >/dev/null 2>&1; then
+		echo "[lexos]   thème Plymouth : lexos"
+	else
+		echo "[lexos]   !! plymouth-set-default-theme a REFUSÉ le thème lexos — il est"
+		echo "[lexos]   !! écrit dans $PLY_DST mais ne sera pas affiché au démarrage."
+	fi
 else
-	echo "[lexos]   thème 'spinner' absent — Plymouth non personnalisé"
+	echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
+	echo "[lexos]   !! AUCUN ÉCRAN DE DÉMARRAGE LexOS. Le thème 'spinner' de Debian"
+	echo "[lexos]   !! est introuvable ($PLY_SRC) : LexOS s'en sert de squelette,"
+	echo "[lexos]   !! donc rien n'a été écrit. La machine démarrera sur l'écran de"
+	echo "[lexos]   !! Debian, ou sur rien du tout."
+	echo "[lexos]   !!"
+	echo "[lexos]   !! CAUSE LA PLUS PROBABLE : les paquets plymouth et"
+	echo "[lexos]   !! plymouth-themes ne sont PAS au socle — ils ne vivent que dans"
+	echo "[lexos]   !! 00-core.list, que le hook 0250 pose en tolérant l'échec."
+	echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
 fi
 # <<< banc: plymouth
 

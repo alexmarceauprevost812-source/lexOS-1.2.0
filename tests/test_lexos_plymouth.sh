@@ -206,10 +206,27 @@ prelude() { # prelude <dossier-de-marque>
 	printf '#!/bin/sh\nset -e\nBRAND="%s"\nLOGO_SRC=""\nhave() { command -v "$1" >/dev/null 2>&1; }\n' "$1"
 }
 
+#  ═══ UN « plymouth-set-default-theme » FACTICE, ET POURQUOI ═══
+#  Le hook DÉSIGNE le thème par défaut après l'avoir écrit, et crie s'il n'y
+#  arrive pas — un thème écrit mais jamais choisi ne s'affiche jamais.
+#  Deux raisons de le simuler ici plutôt que d'employer le vrai :
+#    · sur une machine sans Plymouth, le hook crierait à chaque passage et le
+#      banc prendrait cet avertissement pour un défaut du dépôt ;
+#    · sur une machine AVEC Plymouth — l'intégration continue en installe un
+#      pour lire l'API du module — le vrai binaire changerait pour de bon
+#      l'écran de démarrage de la machine qui lance le banc. Un banc ne
+#      touche pas au système qui l'héberge.
+#  Dans la vraie construction, il est là : le paquet plymouth fournit aussi le
+#  thème « spinner » dont ce hook se sert de squelette.
+STUB="$BANC/stub"
+mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/plymouth-set-default-theme"
+chmod 755 "$STUB/plymouth-set-default-theme"
+
 lance() { # lance <dossier-de-marque> <destination> -> journal sur stdout
 	rm -rf "$2"
 	{ prelude "$1"; cat "$FRAGMENT"; } > "$BANC/run.sh"
-	LEXOS_PLYMOUTH_SRC="$BANC/spinner" LEXOS_PLYMOUTH_DST="$2" \
+	PATH="$STUB:$PATH" LEXOS_PLYMOUTH_SRC="$BANC/spinner" LEXOS_PLYMOUTH_DST="$2" \
 		sh "$BANC/run.sh" 2>&1
 }
 
@@ -241,6 +258,22 @@ else
 		ok "lexos.plymouth déclare bien le module « script »"
 	else
 		non "lexos.plymouth ne déclare pas le module « script »"
+	fi
+
+	#  ═══ LE CAS NOMINAL DOIT ÊTRE MUET ═══
+	#  « !! » est le format des replis, et ce passage-ci n'en a aucun : toutes
+	#  les images sont là, convert est là. Si un « !! » apparaissait quand même,
+	#  ce serait soit un repli qui se déclenche sans raison — donc une ISO
+	#  dégradée sans que personne ne l'ait voulu — soit un avertissement crié
+	#  pour rien, ce qui apprend à ignorer les autres. Les deux comptent.
+	if [ -z "$JOURNAL" ]; then
+		#  Vert sur du vide : sans cette garde, un journal muet parce que le
+		#  fragment n'a rien exécuté du tout passerait pour un succès.
+		non "le fragment n'a rien écrit dans le journal — contrôle sans objet"
+	elif grep -q '!!' <<< "$JOURNAL"; then
+		non "un repli crie alors que tout est là : $(grep -m1 '!!' <<< "$JOURNAL")"
+	else
+		ok "aucun repli ne se déclenche quand tout est en place"
 	fi
 
 	#  Les six images sont VRAIMENT posées à côté du script — Plymouth les
@@ -426,11 +459,225 @@ else
 	else
 		non "un lexos.script traîne alors qu'on est en repli"
 	fi
-	if grep -q 'lettres ou mascotte absentes' <<< "$J3" ; then
-		ok "le repli se DIT dans le journal de construction"
+	#  ═══ LE REPLI DOIT CRIER, ET IL DOIT NOMMER ═══
+	#  Un « echo » ordinaire noyé dans mille lignes de journal de construction
+	#  ne vaut rien : c'est comme ça qu'une ISO est partie sans logo animé, et
+	#  qu'on l'a découvert À L'ÉCRAN après avoir gravé et redémarré. Deux
+	#  exigences, donc, et la seconde est la vraie : le format VOYANT « !! »
+	#  employé partout ailleurs dans les hooks, ET le nom du fichier fautif.
+	if grep -q '!!' <<< "$J3" ; then
+		ok "le repli emploie le format voyant « !! »"
 	else
-		non "le repli est silencieux — on livrerait un écran nu sans le savoir"
+		non "le repli chuchote — un echo ordinaire se perd dans le journal"
 	fi
+	if grep -q 'lexos-lettre-3.png' <<< "$J3" ; then
+		ok "le repli NOMME le fichier manquant (lexos-lettre-3.png)"
+	else
+		non "le repli ne dit pas LEQUEL des sept fichiers manque"
+	fi
+	#  Nommer un fichier qui ne manque pas serait pire que se taire.
+	if grep -q 'lexos-lettre-0.png' <<< "$J3" ; then
+		non "le repli nomme lexos-lettre-0.png, qui est pourtant là"
+	else
+		ok "il ne nomme que ce qui manque vraiment"
+	fi
+	if grep -qE 'sans logo|SANS LOGO|two-step|statique' <<< "$J3" ; then
+		ok "le repli dit ce qu'on perd (l'écran sortira sans le logo animé)"
+	else
+		non "le repli ne dit pas la conséquence — on ne sait pas ce qu'on livre"
+	fi
+	if grep -qE 'branding|À FAIRE|dimensions' <<< "$J3" ; then
+		ok "le repli dit quoi faire pour corriger"
+	else
+		non "le repli ne dit pas comment s'en sortir"
+	fi
+
+	# --- Passage 4 : convert absent -----------------------------------------
+	#  ═══ LE BOGUE DE L'ISO 112, ET LE CONTRÔLE QUI L'AURAIT PRIS ═══
+	#  Tout le bloc « mascotte + lettres » était conditionné à « have convert ».
+	#  Or les lettres sont posées par cp : elles n'ont aucun besoin
+	#  d'ImageMagick — seules les deux images d'un pixel de la barre en ont un.
+	#  Et imagemagick n'est PAS au socle : il ne vit que dans trois listes
+	#  facultatives, posées par un hook qui tolère l'échec à dessein. Un miroir
+	#  qui hoquète, et l'écran de démarrage partait sans mascotte et sans LEXOS.
+	titre "5 bis. Sans ImageMagick, le logo s'affiche quand même"
+	#  On ne PARLE pas de convert au hook : on le lui RETIRE. Un PATH sans
+	#  convert, fabriqué par liens symboliques — lire la condition dans le
+	#  fichier prouverait la forme de la ligne, pas le comportement.
+	SANS="$BANC/sans-convert"
+	rm -rf "$SANS"; mkdir -p "$SANS"
+	for d in /usr/bin /bin /usr/sbin /sbin; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*; do
+			b="$(basename "$f")"
+			case "$b" in convert|magick|convert-im6*|magick-im6*) continue ;; esac
+			[ -e "$SANS/$b" ] || ln -s "$f" "$SANS/$b" 2>/dev/null
+		done
+	done
+	if [ -x "$SANS/sh" ] && ! PATH="$SANS" command -v convert >/dev/null 2>&1; then
+		rm -rf "$BANC/theme4"; mkdir -p "$BANC/theme4"
+		{ prelude "$BRANDING"; cat "$FRAGMENT"; } > "$BANC/run4.sh"
+		J4="$(env -i PATH="$SANS" \
+			LEXOS_PLYMOUTH_SRC="$BANC/spinner" LEXOS_PLYMOUTH_DST="$BANC/theme4" \
+			"$SANS/sh" "$BANC/run4.sh" 2>&1)"
+		S4="$BANC/theme4/lexos.script"
+		#  C'EST L'ASSERTION QUI COMPTE : sans convert, on reste sur le thème
+		#  ANIMÉ. C'est exactement ce que l'ISO 112 ne faisait pas.
+		if [ -r "$BANC/theme4/lexos.plymouth" ] \
+		   && grep -q 'ModuleName=script' "$BANC/theme4/lexos.plymouth"; then
+			ok "sans convert, le thème ANIMÉ est quand même écrit"
+		else
+			non "sans convert, tout retombe sur le thème statique — le bogue de l'ISO 112"
+		fi
+		for I in 0 1 2 3 4; do
+			[ -r "$BANC/theme4/lexos-lettre-$I.png" ] \
+				&& ok "la lettre $I est posée sans ImageMagick" \
+				|| non "la lettre $I manque alors que cp n'a besoin de rien"
+		done
+		[ -r "$BANC/theme4/mascotte-splash.png" ] \
+			&& ok "la mascotte est posée sans ImageMagick" \
+			|| non "la mascotte manque alors que cp n'a besoin de rien"
+		#  Même précaution que pour la pluie : ne pas écrire dans le script le
+		#  nom d'une image qui n'existe pas. Plymouth se retrouverait avec une
+		#  image nulle et un Sprite qui n'affiche rien.
+		if [ -r "$S4" ] && grep -qE 'Image\("progress-(bg|fg)\.png"\)' "$S4"; then
+			non "le script charge une image de barre inexistante"
+		else
+			ok "le script ne charge aucune image de barre absente"
+		fi
+		if grep -q '!!' <<< "$J4"; then
+			ok "l'absence de convert est signalée en « !! »"
+		else
+			non "convert manque en silence — la barre disparaîtrait sans un mot"
+		fi
+	else
+		saut "PATH sans convert impossible à fabriquer ici — contrôle sauté"
+	fi
+fi
+
+# =============================================================================
+titre "5 ter. Le script n'appelle que des fonctions qui EXISTENT"
+# =============================================================================
+#  ═══ LE BOGUE QUI A COÛTÉ L'ISO 112, ET QUE RIEN NE POUVAIT VOIR ═══
+#  L'animation lisait son horloge dans « Plymouth.GetTime() ». CETTE FONCTION
+#  N'EXISTE PAS. Elle n'est dans aucun binaire de Plymouth — ni dans script.so,
+#  ni dans plymouthd, ni dans les greffons de rendu.
+#
+#  Et l'interpréteur de Plymouth NE SE PLAINT PAS d'une fonction inconnue : il
+#  rend une valeur nulle et continue. Le temps écoulé restait donc nul, les
+#  cinq lettres gardaient l'opacité 0 hors écran, et l'écran de démarrage
+#  affichait la mascotte — fixe, elle — SANS le logo. Exactement le symptôme
+#  rapporté : « je vois la mascotte, pas LEXOS ».
+#
+#  AUCUN CONTRÔLE NE POUVAIT LE PRENDRE : le fichier était bien écrit, bien
+#  formé, bien copié, et le thème était bien le thème animé. Tout était vert.
+#  Le seul contrôle qui mord est celui-ci — confronter chaque appel du script
+#  produit à la LISTE RÉELLE des fonctions du module.
+#
+#  ET ON LIT CETTE LISTE DANS LE BINAIRE quand il est là, plutôt que de la
+#  recopier : une liste recopiée vieillit en silence, et c'est précisément une
+#  supposition sur l'API qui a produit ce bogue.
+SO_SCRIPT=""
+for c in /usr/lib/*/plymouth/script.so /usr/lib/plymouth/script.so; do
+	[ -r "$c" ] && { SO_SCRIPT="$c"; break; }
+done
+
+#  La liste gelée sert quand Plymouth n'est pas installé sur la machine qui
+#  lance le banc. Elle a été RELEVÉE dans script.so 24.004.60, pas recopiée
+#  d'une documentation : ce sont les fonctions natives du module.
+API_GELEE="SetRefreshRate SetRefreshFunction SetBootProgressFunction
+SetRootMountedFunction SetKeyboardInputFunction SetUpdateStatusFunction
+SetDisplayNormalFunction SetDisplayPasswordFunction SetDisplayQuestionFunction
+SetDisplayPromptFunction SetDisplayMessageFunction SetDisplayHotplugFunction
+SetHideMessageFunction SetMessageFunction SetQuitFunction
+SetSystemUpdateFunction SetValidateInputFunction GetMode GetCapslockState"
+
+if [ -n "$SO_SCRIPT" ]; then
+	API="$(strings "$SO_SCRIPT" 2>/dev/null | grep -xE '(Get|Set)[A-Za-z]+')"
+	ok "API relevée dans le vrai module ($SO_SCRIPT)"
+else
+	API="$(printf '%s\n' $API_GELEE)"
+	saut "plymouth absent : liste d'API gelée (relevée dans script.so 24.004.60)"
+fi
+
+if [ -r "$BANC/theme1/lexos.script" ]; then
+	#  On extrait les appels « Plymouth.Xxx( » du script PRODUIT. Les
+	#  commentaires du script sont retirés d'abord : ils citent les noms de
+	#  fonctions pour les expliquer, et un contrôle qui lit la prose se
+	#  déclenche sur sa propre justification.
+	APPELS="$(sed 's|//.*$||' "$BANC/theme1/lexos.script" \
+		| grep -oE 'Plymouth\.[A-Za-z_]+' | sed 's/^Plymouth\.//' | sort -u)"
+	if [ -z "$APPELS" ]; then
+		non "aucun appel Plymouth.* trouvé dans le script — contrôle sans objet"
+	else
+		inconnus=""
+		for f in $APPELS; do
+			grep -qx "$f" <<< "$API" || inconnus="$inconnus $f"
+		done
+		if [ -z "$inconnus" ]; then
+			ok "les $(printf '%s\n' $APPELS | grep -c .) appels Plymouth.* existent tous dans le module"
+		else
+			non "le script appelle des fonctions qui n'existent pas :$inconnus"
+		fi
+	fi
+	#  Nommément, parce que c'est CE nom-là qui a coûté une ISO.
+	if sed 's|//.*$||' "$BANC/theme1/lexos.script" | grep -q 'GetTime'; then
+		non "« GetTime » est de retour — cette fonction n'existe pas dans Plymouth"
+	else
+		ok "aucun appel à « GetTime » (la fonction qui n'existe pas)"
+	fi
+	#  Une horloge, il en faut bien une : la cadence de rafraîchissement.
+	if grep -q 'SetRefreshRate' "$BANC/theme1/lexos.script"; then
+		ok "la cadence de rafraîchissement est imposée, pas devinée"
+	else
+		non "aucune cadence imposée — l'animation dépend d'un défaut non garanti"
+	fi
+	#  ET ELLE DOIT AVANCER. Un compteur qui n'est jamais incrémenté redonne
+	#  le bogue à l'identique, en plus discret.
+	if grep -qE 'rafraichissements *= *rafraichissements *\+' "$BANC/theme1/lexos.script"; then
+		ok "le compteur de rafraîchissements avance à chaque passage"
+	else
+		non "rien n'incrémente le compteur — le temps resterait figé, comme avant"
+	fi
+else
+	non "pas de lexos.script produit — rien à confronter à l'API"
+fi
+
+# =============================================================================
+titre "5 quater. Le hook dit ce qu'il ne fait pas"
+# =============================================================================
+#  ═══ CODE DÉCOMMENTÉ ═══ Toute cette section PARLE de « have convert » et
+#  d'« update-initramfs » pour expliquer les décisions. Chercher ces mots dans
+#  le fichier brut se déclencherait sur les explications elles-mêmes. C'est la
+#  famille d'erreur la plus fréquente de ce dépôt : le contrôle lit la prose.
+CODE_PLY="$(sed 's/[[:space:]]*#.*$//' "$FRAGMENT")"
+if [ "$(grep -c . <<< "$CODE_PLY")" -lt 40 ]; then
+	non "le décommentage n'a presque rien laissé — contrôle invalide"
+else
+	#  LE CONTRÔLE QUI COMPTE : la copie des lettres ne doit plus être
+	#  conditionnée à ImageMagick. cp n'a besoin de rien.
+	if grep -qE 'PLY_LETTRES_OK.*=.*1.*&&.*have +convert' <<< "$CODE_PLY"; then
+		non "les lettres dépendent encore de « have convert » — le bogue de l'ISO 112"
+	else
+		ok "la copie des lettres ne dépend plus d'ImageMagick"
+	fi
+	#  convert doit rester employé QUELQUE PART : la barre en a vraiment besoin.
+	#  Sans ce second volet, supprimer convert du hook passerait pour un progrès.
+	if grep -q 'convert' <<< "$CODE_PLY"; then
+		ok "convert sert toujours à ce qui en a besoin (la barre)"
+	else
+		non "convert a disparu du hook — la barre ne peut plus être fabriquée"
+	fi
+fi
+#  update-initramfs : soit il est appelé, soit le hook explique pourquoi il ne
+#  l'est pas. « Le thème est sur le disque mais Plymouth en affiche un autre »
+#  est la panne classique, et elle vient de là.
+if grep -q 'update-initramfs' <<< "$CODE_PLY"; then
+	ok "le hook régénère lui-même l'initramfs"
+elif grep -qE 'update-initramfs' "$FRAGMENT" && grep -qE 'chroot_hacks|live-build' "$FRAGMENT"; then
+	ok "le hook explique pourquoi l'initramfs n'est pas régénéré ici (live-build le fait)"
+else
+	non "ni appel à update-initramfs, ni explication : le thème pourrait ne jamais s'afficher"
 fi
 
 # =============================================================================

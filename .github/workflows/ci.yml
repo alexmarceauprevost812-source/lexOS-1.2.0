@@ -2067,6 +2067,21 @@ jobs:
           #  Il lance aussi « lexos accent bleu » pour de vrai, parce que
           #  #E8590C est un jeton remplacé par sed : une barre écrite avec ce
           #  jeton changerait de couleur avec l'accent.
+          #  ═══ ON INSTALLE PLYMOUTH POUR QUE LE BANC LISE LA VRAIE API ═══
+          #  L'ISO 112 est partie avec un écran de démarrage sans logo, et la
+          #  cause était un appel à « Plymouth.GetTime() » — une fonction qui
+          #  N'EXISTE PAS. L'interpréteur de Plymouth ne se plaint pas d'une
+          #  fonction inconnue : il rend une valeur nulle et continue. Le temps
+          #  restait donc figé, les cinq lettres gardaient l'opacité 0 hors
+          #  écran, et l'on voyait la mascotte SANS le logo. Tout était vert.
+          #
+          #  Le seul contrôle qui mord confronte chaque appel du script produit
+          #  à la liste RÉELLE des fonctions du module — et cette liste, le
+          #  banc la RELÈVE DANS script.so plutôt que de la recopier. Une liste
+          #  recopiée vieillit en silence, et c'est justement une supposition
+          #  sur l'API qui a produit ce bogue. Sans le paquet, le banc retombe
+          #  sur une liste gelée et le dit ; on préfère la vraie.
+          sudo apt-get install -y --no-install-recommends plymouth >/dev/null
           bash tests/test_lexos_plymouth.sh
 
       - name: Les points des espaces de travail — la pilule blanche, la somme juste
