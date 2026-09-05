@@ -283,8 +283,14 @@ class TestDisques(unittest.TestCase):
             self.assertIsInstance(outils[cle], bool)
 
 
-if __name__ == "__main__":
-    unittest.main()
+#  ═══ IL N'Y A QU'UN SEUL « unittest.main() », ET IL EST TOUT EN BAS ═══
+#  Il y en avait deux : celui-ci, ici, et le vrai en fin de fichier. Python
+#  exécute un module de haut en bas — le premier appel lançait donc les tests
+#  ALORS QUE LA CLASSE CI-DESSOUS N'ÉTAIT PAS ENCORE DÉFINIE, puis quittait.
+#  Les cinq contrôles du serveur local n'ont jamais tourné une seule fois, et
+#  rien ne le disait : la commande affichait « OK », simplement sur dix-huit
+#  tests au lieu de vingt-trois. Ce sont précisément les contrôles qui
+#  refusent une origine étrangère et la traversée de chemin.
 
 
 class TestServeurLocal(unittest.TestCase):
