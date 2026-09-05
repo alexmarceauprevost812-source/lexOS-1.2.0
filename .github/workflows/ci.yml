@@ -1127,6 +1127,27 @@ jobs:
           #  graphique intégré.
           bash tests/test_lexos_perf_vif.sh
 
+      - name: Les volets du terminal — la configuration tmux sur un vrai tmux
+        if: ${{ !cancelled() }}
+        run: |
+          #  ═══ POURQUOI CE BANC INSTALLE tmux AU LIEU DE LIRE LE FICHIER ═══
+          #  Un .conf tmux ne se compile pas et ne se relit pas utilement. Une
+          #  seule option mal orthographiée et tmux affiche une erreur au
+          #  démarrage, puis IGNORE LA SUITE DU FICHIER. Le terminal s'ouvre
+          #  quand même, la souris ne marche plus, les raccourcis non plus, et
+          #  rien à l'écran ne dit pourquoi. Chercher des motifs dans le
+          #  fichier trouverait « set -g mouse on » et conclurait que tout va
+          #  bien : c'est exactement le faux vert qu'on ne veut pas.
+          #
+          #  Le banc donne donc le fichier à un VRAI tmux (« -d » : pas besoin
+          #  de terminal, « -L » : sur une prise à part, il ne touche à rien),
+          #  puis REDEMANDE AU SERVEUR ce qu'il a retenu — la souris, le délai
+          #  d'échappement, les raccourcis et leur table. C'est la seule
+          #  question qui compte : est-ce que ça marche, oui ou non.
+          sudo apt-get install -y --no-install-recommends tmux >/dev/null
+          tmux -V
+          bash tests/test_lexos_multi.sh
+
       - name: Profils de performance — tous chargeables
         if: ${{ !cancelled() }}
         run: |

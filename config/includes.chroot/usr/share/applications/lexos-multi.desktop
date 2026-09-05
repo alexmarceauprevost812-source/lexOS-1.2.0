@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Terminal en volets
+Name[en]=Split terminal
+Comment=Un terminal qu'on peut couper en plusieurs volets et onglets (tmux)
+Comment[en]=A terminal you can split into panes and tabs (tmux)
+#  Terminal=false ET « xfce4-terminal -e » : c'est le terminal qui fournit la
+#  fenêtre, pas le lanceur. Avec Terminal=true, XFCE choisirait lui-même un
+#  émulateur, qui n'est pas forcément celui de LexOS.
+Exec=xfce4-terminal --title="Terminal en volets — LexOS" -e lexos-multi
+Terminal=false
+Icon=utilities-terminal
+Categories=System;TerminalEmulator;
+Keywords=tmux;volets;panes;onglets;terminal;multi;

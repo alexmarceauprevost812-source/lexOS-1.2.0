@@ -223,6 +223,43 @@ Fichiers produits :
 
 ---
 
+## Les volets du terminal
+
+`lexos-multi` ouvre un terminal divisible en volets et en onglets. C'est une
+enveloppe autour de **tmux**, pas une réécriture : le multiplexeur fait le
+travail, LexOS fournit les réglages et le nom.
+
+```
+lexos-multi              # exec tmux -f /usr/share/lexos/tmux/lexos.conf
+                         #             new-session -A -s lexos
+```
+
+| Fichier | Rôle |
+|---|---|
+| `/usr/bin/lexos-multi` | Le lanceur : garde-fous, aide, sous-commandes |
+| `/usr/share/lexos/tmux/lexos.conf` | Les réglages (souris, raccourcis, couleurs) |
+| `/usr/share/applications/lexos-multi.desktop` | Le lanceur du menu et du dock |
+
+Deux décisions structurent le reste.
+
+**tmux n'est jamais lancé automatiquement.** `interactive.sh` pose l'alias
+`multi` et rien d'autre. Démarrer tmux à l'ouverture de chaque shell aurait
+placé dans un multiplexeur tous les shells ouverts *par des programmes*
+(Claude Code, un éditeur, le gestionnaire de fichiers), fait tourner un tmux
+dans un tmux à chaque session SSH, et enfermé dans les volets ceux qui n'en
+veulent pas. Le banc `tests/test_lexos_multi.sh` vérifie qu'aucun appel à tmux
+ne réapparaît dans `interactive.sh`.
+
+**Les réglages sont vérifiés sur un vrai tmux, pas relus.** Un `.conf` tmux ne
+se compile pas : une option mal orthographiée provoque une erreur au démarrage,
+puis l'abandon silencieux du reste du fichier. Le terminal s'ouvre quand même
+et la souris ne marche plus. La CI démarre donc un serveur tmux sur une prise à
+part, lui donne le fichier, et lui **redemande** ce qu'il en a retenu
+(`tmux show -gv mouse`, `list-keys -T root`) — la seule question qui répond
+vraiment.
+
+---
+
 ## Le garde-fou d'installation
 
 `lexos-install` s'interpose entre l'utilisateur et Calamares. Il ne formate

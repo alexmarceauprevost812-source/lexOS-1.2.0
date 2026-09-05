@@ -206,6 +206,17 @@ papirus-icon-theme
 yad
 qrencode
 
+# --- Les volets du terminal --------------------------------------------------
+#  ═══ OBLIGATOIRE, ET PAS « AU MIEUX » ═══
+#  Le lanceur du dock, l'alias « multi » et la liste d'aide vont le proposer.
+#  Un raccourci qui mène à « tmux n'est pas installé » est pire que pas de
+#  raccourci : l'utilisateur croit que LexOS est cassé, pas qu'il lui manque
+#  un paquet. ~500 Ko.
+#  RIEN D'AUTRE À AJOUTER : le terminfo « tmux-256color » vient de
+#  ncurses-base, paquet ESSENTIEL de Debian — vérifié avec dpkg -S, pas
+#  supposé.
+tmux
+
 # --- Le chercheur d'applications --------------------------------------------
 #  TROIS CHEMINS Y MÈNENT DÉJÀ, ET AUCUN NE LE DIRAIT S'IL MANQUAIT :
 #    · la touche <Super>+S (xfce4-keyboard-shortcuts.xml) ;

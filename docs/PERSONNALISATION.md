@@ -126,6 +126,51 @@ ColorCursor=<accent>        ; orange par défaut
 FontName=Fira Code 11
 ```
 
+### Plusieurs volets dans un seul terminal
+
+Le terminal de LexOS a **déjà des onglets** : `Ctrl+Shift+T` en ouvre un,
+`Ctrl+Page haut` / `Ctrl+Page bas` circule entre eux. Ce qu'il n'a jamais eu,
+c'est de **couper la fenêtre en volets** — voir une compilation à gauche et
+éditer à droite.
+
+La commande `multi` (ou `lexos-multi`) ouvre un terminal en volets :
+
+```bash
+multi              # ouvre la session « lexos », ou la reprend si elle existe
+multi neuf         # une seconde session, à côté
+multi liste        # ce qui tourne
+multi fin          # ferme la session « lexos »
+```
+
+Une fois dedans :
+
+| Touches | Effet |
+|---|---|
+| `Ctrl+B` puis `|` | couper en deux colonnes |
+| `Ctrl+B` puis `-` | couper en deux rangées |
+| `Ctrl+B` puis `c` | nouvel onglet |
+| `Alt` + flèches | passer d'un volet à l'autre (sans préfixe) |
+| `Ctrl+B` puis `d` | sortir en laissant tout tourner |
+
+La souris marche : cliquer un volet pour y aller, tirer une bordure pour la
+déplacer, cliquer un onglet. Une contrepartie à connaître : la roulette entre
+dans le mode copie au lieu de défiler dans le terminal — on en sort avec
+`Échap`.
+
+**Ce qui tourne dans la session survit à la fermeture de la fenêtre.** C'est le
+vrai intérêt : une compilation, un `claude` ou un `ssh` lancé là continue après
+`Ctrl+B puis d`, et même après avoir fermé le terminal. On le retrouve en
+retapant `multi`.
+
+**`multi` ne se lance jamais tout seul, et c'est voulu.** Un terminal ouvert
+par un programme — Claude Code, un éditeur, le gestionnaire de fichiers — reste
+un terminal ordinaire. Faire autrement enfermerait dans les volets ceux qui
+n'en veulent pas, sans leur dire comment en sortir.
+
+Les réglages sont dans `/usr/share/lexos/tmux/lexos.conf` (souris, couleurs,
+raccourcis). Chaque ligne y est commentée. Après modification, `Ctrl+B puis r`
+les recharge sans fermer la session.
+
 ### Le dock
 
 Clic droit sur le dock → **Préférences** : position, taille des icônes, zoom,

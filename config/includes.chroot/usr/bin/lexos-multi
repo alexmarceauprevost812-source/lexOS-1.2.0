@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  lexos-multi — le terminal en volets et en onglets
+# =============================================================================
+#  IL NE DÉMARRE PAS TOUT SEUL, ET C'EST VOULU. La tentation était de lancer
+#  tmux depuis interactive.sh pour que « tout terminal » soit en volets. Ç'aurait
+#  été un piège :
+#
+#    · un shell ouvert par un programme (Claude Code, un éditeur, un
+#      gestionnaire de fichiers) se serait retrouvé dans tmux, où il n'a rien à
+#      faire — et où sa sortie serait passée par une couche de plus ;
+#    · une session SSH aurait ouvert un tmux dans un tmux ;
+#    · et surtout, quiconque n'aime pas tmux se serait retrouvé coincé dedans à
+#      chaque ouverture de fenêtre, sans savoir comment en sortir.
+#
+#  On ouvre donc les volets quand on les demande. Le terminal ordinaire reste
+#  ordinaire.
+# =============================================================================
+set -uo pipefail
+
+PROG="${0##*/}"
+#  Le chemin est ouvrable de l'extérieur pour que le banc d'essai puisse
+#  vérifier ce qui est RÉELLEMENT passé à tmux — pas seulement ce que le
+#  script contient comme texte. En usage normal la valeur par défaut
+#  s'applique et personne n'a à connaître cette variable.
+CONF="${LEXOS_TMUX_CONF:-/usr/share/lexos/tmux/lexos.conf}"
+SESSION="lexos"
+
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+	O=$'\033[38;5;208m'; J=$'\033[38;5;220m'; D=$'\033[2m'; R=$'\033[0m'
+else
+	O=''; J=''; D=''; R=''
+fi
+
+usage() {
+	cat <<AIDE
+
+${O}${PROG}${R} — plusieurs volets dans un seul terminal
+
+  ${J}${PROG}${R}              Ouvre la session « ${SESSION} », ou la reprend si elle existe
+  ${J}${PROG} neuf${R}         Force une nouvelle session, à côté de l'ancienne
+  ${J}${PROG} liste${R}        Les sessions ouvertes
+  ${J}${PROG} fin${R}          Ferme la session « ${SESSION} »
+
+${D}Une fois dedans :${R}
+  ${J}Ctrl+B puis |${R}   couper en deux colonnes
+  ${J}Ctrl+B puis -${R}   couper en deux rangées
+  ${J}Ctrl+B puis c${R}   nouvel onglet
+  ${J}Alt+flèches${R}     passer d'un volet à l'autre
+  ${J}Ctrl+B puis d${R}   sortir en laissant tout tourner
+  ${D}La souris marche : cliquer un volet, tirer une bordure, cliquer un onglet.${R}
+
+${D}Ce qui tourne dans la session continue de tourner après « Ctrl+B puis d »,
+et même après la fermeture de la fenêtre. C'est l'intérêt : une compilation
+ou un « claude » lancé ici survit à la fermeture du terminal — on le
+retrouve en retapant ${PROG}.${R}
+
+AIDE
+}
+
+if ! command -v tmux >/dev/null 2>&1; then
+	printf '%s✗%s tmux n'"'"'est pas installé.\n' $'\033[31m' "$R" >&2
+	printf '  %ssudo apt install tmux%s\n' "$D" "$R" >&2
+	exit 1
+fi
+
+if [[ ! -r "$CONF" ]]; then
+	printf '%s!%s Réglages LexOS introuvables (%s) — tmux démarrera avec les siens.\n' \
+		$'\033[33m' "$R" "$CONF" >&2
+	CONF=""
+fi
+
+#  UN TMUX DANS UN TMUX NE SERT À RIEN et rend les raccourcis inutilisables :
+#  le préfixe du tmux extérieur mange celui de l'intérieur. On le dit au lieu
+#  de le faire.
+if [[ -n "${TMUX:-}" ]]; then
+	printf '%s!%s Tu es déjà dans une session en volets.\n' $'\033[33m' "$R" >&2
+	printf '  %sCtrl+B puis | pour diviser, Ctrl+B puis c pour un onglet.%s\n' "$D" "$R" >&2
+	exit 0
+fi
+
+args=()
+[[ -n "$CONF" ]] && args=(-f "$CONF")
+
+case "${1:-}" in
+	-h|--help|aide|help) usage ;;
+	liste|list)          tmux "${args[@]}" list-sessions 2>/dev/null \
+	                       || printf '  %saucune session ouverte%s\n' "$D" "$R" ;;
+	fin|stop)            tmux kill-session -t "$SESSION" 2>/dev/null \
+	                       && printf 'Session « %s » fermée.\n' "$SESSION" \
+	                       || printf '  %saucune session « %s » à fermer%s\n' "$D" "$SESSION" "$R" ;;
+	neuf|new)            exec tmux "${args[@]}" new-session ;;
+	'')
+		#  attach-or-create : reprendre ce qui tourne déjà plutôt que d'empiler
+		#  les sessions. C'est ce qui rend la commande utilisable au quotidien —
+		#  on la tape sans se demander si on l'a déjà tapée.
+		exec tmux "${args[@]}" new-session -A -s "$SESSION"
+		;;
+	*)
+		printf '%s : option inconnue « %s »\n' "$PROG" "$1" >&2
+		usage >&2
+		exit 1 ;;
+esac

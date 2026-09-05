@@ -205,6 +205,18 @@ alias aide='lexos aide'
 # la phrase complète.
 alias jour='lexos terminal jour'
 alias nuit='lexos terminal nuit'
+#  « multi » : plusieurs volets dans un seul terminal (tmux).
+#  ═══ ON NE LANCE PAS tmux D'OFFICE ICI, ET C'EST UN PIÈGE À TROIS DÉTENTES ═══
+#  La tentation est forte — « comme ça tous les terminaux sont en volets » :
+#    · un shell ouvert PAR UN PROGRAMME (Claude Code, un éditeur, le
+#      gestionnaire de fichiers) se retrouverait dans tmux, où il n'a rien à
+#      faire ;
+#    · une session SSH ouvrirait un tmux DANS un tmux, où le préfixe de
+#      l'extérieur mange celui de l'intérieur ;
+#    · et qui n'aime pas tmux serait coincé dedans à chaque fenêtre, sans
+#      savoir en sortir.
+#  C'est une commande qu'on tape quand on en veut, pas un état imposé.
+alias multi='lexos-multi'
 
 # =============================================================================
 #  À partir d'ici : une seule fois par shell.
