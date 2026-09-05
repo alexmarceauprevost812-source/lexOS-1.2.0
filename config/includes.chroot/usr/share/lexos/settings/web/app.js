@@ -187,9 +187,20 @@ function toast(msg){
     c'est le bon comportement : il est en train de DEVENIR le choix actif,
     le flash accentué enchaîne sur l'accent permanent que le rendu suivant
     lui donnera. La règle utile est donc bien « ne pas flasher ce qui est
-    déjà sel », pas « deviner la famille ». */
+    déjà sel », pas « deviner la famille ».
+
+    ═══ « .btn » ET NON PLUS « .btn.ghost » ═══
+    Ce sélecteur ne voyait que les boutons d'action. Les boutons PLEINS — le
+    premier de chaque rangée, celui qu'on regarde en premier — n'étaient donc
+    jamais couverts par le plancher de 160 ms : leur retour de couleur, une
+    fois ajouté dans style.css, n'aurait duré que le temps de l'appui, soit
+    40 ms sur un clic vif. Invisible, exactement le défaut qu'on venait de
+    corriger, sur l'autre famille de boutons.
+    Les deux gardes ci-dessous suffisent à écarter ce qu'il ne faut pas
+    flasher — « sel » est déjà accentué en permanence, et « disabled » ne
+    répond plus du tout. */
 document.addEventListener("pointerdown", ev => {
-  const b = ev.target && ev.target.closest ? ev.target.closest(".btn.ghost") : null;
+  const b = ev.target && ev.target.closest ? ev.target.closest(".btn") : null;
   if(!b || b.classList.contains("sel") || b.disabled) return;
   b.classList.add("press");
   setTimeout(() => b.classList.remove("press"), 160);

@@ -83,6 +83,72 @@ h2{font-size:22px;font-weight:700}
 .btn.ghost.press{background:var(--ac);border-color:var(--ac);color:var(--ac-txt)}
 .btn.sel{background:var(--ac);color:var(--ac-txt);border-color:var(--ac)}
 
+/*  ═══ LE CLIC COLORE AUSSI LES BOUTONS PLEINS ═══
+    Les « ghost » flashent ; les boutons pleins ne faisaient que rapetisser de
+    5 %. Même geste, il faut le même retour de couleur.
+
+    POURQUOI --ac ET NON --ac-hi. C'était le réflexe — « l'appui éclaircit,
+    comme le survol » — et il ne marche pas : --ac-hi EST DÉJÀ la couleur du
+    survol, et à la souris on survole forcément le bouton qu'on clique. La
+    règle aurait posé au clic exactement la couleur déjà à l'écran : zéro
+    changement visible, là où tout l'objet est d'en produire un.
+    --ac est l'accent à pleine force, et c'est déjà ce que veulent dire
+    « .sel » (choix actif) et « .btn.ghost:active » (appui) dans cette
+    feuille. Un bouton plein qui repasse au plein accent sous le doigt dit
+    donc la même chose que ses voisins. Mesuré : #FF7A33 -> #E8590C, et le
+    noir du libellé garde 5,87:1 — au-dessus du seuil de 4,5 du dépôt.
+
+    LIMITE ASSUMÉE : sur un écran tactile il n'y a pas de survol, donc le fond
+    ne change pas. Le rétrécissement et l'ombre intérieure restent le retour
+    de l'appui dans ce cas. Le panneau des Paramètres est une fenêtre de
+    bureau ; on optimise pour la souris et le pavé tactile.
+
+    « :not(:disabled) » : sans lui, cette règle (0,4,0) l'emporterait sur le
+    bloc désactivé ci-dessous (0,3,0) et un bouton grisé reprendrait l'orange
+    sous le doigt. */
+.btn:not(.ghost):not(.sel):not(:disabled):active,
+.btn:not(.ghost):not(.sel):not(:disabled).press{
+  background:var(--ac);border-color:var(--ac)}
+
+/*  ═══ UN BOUTON DÉSACTIVÉ DOIT AVOIR L'AIR DÉSACTIVÉ ═══
+    Pendant une recherche de mises à jour, app.js pose « disabled » et
+    remplace le libellé par « Recherche en cours… ». Rien dans cette feuille
+    ne le disait : le bouton gardait l'orange plein, le halo au survol et le
+    rétrécissement au clic. Il avait donc l'air cliquable alors qu'il ne
+    répondait plus.
+
+    ═══ POURQUOI PAS « opacity:.5 » ═══
+    C'était la voie évidente, et elle se retourne contre elle-même ICI. Le
+    libellé d'un bouton désactivé de ce panneau n'est pas décoratif : c'est un
+    MESSAGE D'ÉTAT — « Recherche en cours… », « — en cours… ». L'opacité
+    s'applique à tout l'élément, fond ET texte, et fond le tout dans la page :
+    mesuré, le contraste du libellé tombe de 5,87:1 à 2,21:1. On rendrait
+    illisible exactement l'information qu'on vient d'y écrire. À 0,7 on est
+    encore à 3,34 — le compromis n'existe pas.
+
+    ═══ CE QU'ON FAIT À LA PLACE ═══
+    On retire L'ACCENT. Dans cette palette, l'accent est le signe de « ceci
+    répond » ; un bouton qui le perd est inerte au premier coup d'œil, sans
+    rien devoir à la transparence. Fond --bg, texte --fg-dim, bordure --bd :
+    10,62:1 en sombre et 5,17:1 en clair, tous deux au-dessus de 4,5.
+    (--bg-hi aurait été plus joli mais ne donne que 4,25 en mode clair.)
+
+    Le survol et l'appui sont neutralisés explicitement : le halo et le
+    rétrécissement sont des promesses, et un bouton désactivé n'en tient
+    aucune. */
+.btn:disabled,          .btn[disabled],
+.btn.ghost:disabled,    .btn.ghost[disabled],
+.btn.sel:disabled,      .btn.sel[disabled]{
+  background:var(--bg);color:var(--fg-dim);border-color:var(--bd);
+  cursor:default;box-shadow:none}
+.btn:disabled:hover,        .btn[disabled]:hover,
+.btn.ghost:disabled:hover,  .btn.ghost[disabled]:hover,
+.btn.sel:disabled:hover,    .btn.sel[disabled]:hover{
+  background:var(--bg);color:var(--fg-dim);border-color:var(--bd);box-shadow:none}
+.btn:disabled:active,       .btn[disabled]:active,
+.btn.ghost:disabled:active, .btn.ghost[disabled]:active{
+  transform:none;box-shadow:none}
+
 /* --- Interrupteur -------------------------------------------------------- */
 .sw{width:44px;height:24px;flex:none;border-radius:12px;background:var(--bg-hi);
   border:1px solid var(--bd);position:relative;cursor:pointer;transition:background .15s}

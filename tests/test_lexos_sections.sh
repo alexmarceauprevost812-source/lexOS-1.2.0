@@ -391,7 +391,36 @@ else
 	#  resteraient orange sur un thème bleu. Ça ne casse pas bruyamment — ça
 	#  ne se voit qu'en changeant d'accent, ce que personne ne fait en
 	#  vérifiant un correctif.
-	DUR="$(grep -n '#E8590C\|#FF7A33\|#A84007\|232, 89, 12' "$STYLE" || true)"
+	#  ═══ ON DÉCOMMENTE D'ABORD, ET CE N'EST PAS UNE COMPLAISANCE ═══
+	#  Ce contrôle a rougi sur SA PROPRE JUSTIFICATION : le commentaire qui
+	#  explique le choix de la couleur d'appui cite la mesure — « #FF7A33 ->
+	#  #E8590C » — et le contrôle lisait le fichier brut. La feuille, elle,
+	#  n'avait aucune couleur en dur.
+	#
+	#  C'est la famille d'erreur la plus fréquente de ce dépôt, prise ici pour
+	#  la neuvième fois. Et la mauvaise réponse serait de retirer les chiffres
+	#  du commentaire : dans cette maison, une décision se justifie par sa
+	#  mesure, et un commentaire qui n'ose plus citer une couleur ne vaut plus
+	#  rien. C'est le contrôle qui doit lire du CSS, pas de la prose.
+	#
+	#  awk plutôt que sed : un commentaire CSS s'étend sur plusieurs lignes,
+	#  et « s|/\*.*\*/||g » ne verrait que ceux qui tiennent sur une seule.
+	CODE_STYLE="$(awk '
+		{ ligne = $0; sortie = ""
+		  while (length(ligne) > 0) {
+		    if (dedans) { i = index(ligne, "*/")
+		                  if (i == 0) { ligne = "" } else { dedans = 0; ligne = substr(ligne, i + 2) } }
+		    else        { i = index(ligne, "/*")
+		                  if (i == 0) { sortie = sortie ligne; ligne = "" }
+		                  else { sortie = sortie substr(ligne, 1, i - 1); dedans = 1; ligne = substr(ligne, i + 2) } } }
+		  print sortie }' "$STYLE")"
+	#  Garde contre le vert sur du vide : si le décommentage rendait un fichier
+	#  quasi nul, l'absence ci-dessous ne prouverait plus rien.
+	if [ "$(grep -c . <<< "$CODE_STYLE")" -lt 60 ]; then
+		non "le décommentage de la feuille n'a presque rien laissé — contrôle invalide"
+		CODE_STYLE=""
+	fi
+	DUR="$(grep -n '#E8590C\|#FF7A33\|#A84007\|232, 89, 12' <<< "$CODE_STYLE" || true)"
 	if [ -z "$DUR" ]; then
 		ok "aucune couleur d'accent écrite en dur dans la feuille"
 	else

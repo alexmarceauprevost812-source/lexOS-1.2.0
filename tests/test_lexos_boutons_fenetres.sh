@@ -45,6 +45,12 @@ reussis=0; echoues=0
 ok()    { printf '  \033[32m✅\033[0m %s\n' "$1"; reussis=$((reussis+1)); }
 non()   { printf '  \033[31m❌\033[0m %s\n' "$1"; echoues=$((echoues+1)); }
 titre() { printf '\n\033[1m═══ %s ═══\033[0m\n' "$1"; }
+#  Un contrôle SAUTÉ n'est ni un succès ni un échec : il se dit, et il ne
+#  compte pas. Mieux vaut « je n'ai pas pu mesurer » qu'un vert emprunté.
+saut()  { printf '  \033[33m—\033[0m  %s\n' "$1"; }
+
+PY=""
+command -v python3 >/dev/null 2>&1 && PY=python3
 
 #  ═══ LES PROGRAMMES TIERS VÉRIFIÉS, UN PAR UN ═══
 #  Chaque ligne dit le paquet qui le fournit ET la liste qui l'installe —
@@ -374,6 +380,234 @@ LU_O="$(sed -n 's/^ORPH://p' "$BANC5/orphelines")"
 [[ -z "$LU_O" ]] \
 	&& ok "chacune est offerte par au moins un bouton de la page" \
 	|| non "fenêtre(s) servies par le moteur mais offertes nulle part : $LU_O"
+
+# =============================================================================
+titre "6. LE CLIC SE VOIT SUR TOUS LES BOUTONS — et un bouton grisé a l'air grisé"
+# =============================================================================
+#  ═══ DEUX DÉFAUTS DE LA MÊME FAMILLE : LE BOUTON NE DIT PAS SON ÉTAT ═══
+#
+#  · PENDANT UNE RECHERCHE DE MISES À JOUR, app.js pose « disabled » et
+#    remplace le libellé par « Recherche en cours… ». Rien dans la feuille ne
+#    le disait : le bouton gardait l'orange plein, le halo au survol et le
+#    rétrécissement au clic. Il avait l'air cliquable alors qu'il ne
+#    répondait plus.
+#  · LE CLIC NE COLORAIT QUE LES « ghost ». Les boutons PLEINS — le premier
+#    de chaque rangée, celui qu'on regarde en premier — ne faisaient que
+#    rapetisser de 5 %.
+#
+#  ═══ CE BANC MESURE, IL NE RELIT PAS ═══
+#  Un contrôle textuel (« la règle :disabled est-elle présente ? ») reste vert
+#  quand la règle existe mais ne produit rien de lisible. Or c'est exactement
+#  le piège rencontré ici : « opacity:.5 » était la voie évidente et elle FAIT
+#  TOMBER le libellé de 5,87:1 à 2,21:1 — on rendrait illisible l'information
+#  qu'on vient d'écrire dedans. Le banc résout donc les jetons de ui.css pour
+#  les DEUX modes et les HUIT accents, et calcule les contrastes.
+CONTRASTE="$RACINE/config/includes.chroot/usr/share/lexos/ui.css"
+if [ ! -r "$CONTRASTE" ] || [ ! -r "$CSS" ]; then
+	non "ui.css ou style.css introuvable — rien à mesurer"
+elif [ -z "$PY" ]; then
+	saut "python3 absent : les contrastes ne peuvent pas être mesurés"
+else
+	MESURE="$("$PY" - "$CONTRASTE" "$CSS" <<'PYEOF'
+import re, sys, io
+
+ui  = io.open(sys.argv[1], encoding="utf-8").read()
+css = io.open(sys.argv[2], encoding="utf-8").read()
+
+#  ═══ ON RETIRE LES COMMENTAIRES AVANT DE LIRE QUOI QUE CE SOIT ═══
+#  Les deux feuilles CITENT des couleurs dans leurs explications — « #141416
+#  sur un fond #0B0B0C », « --ac-lo VALAIT #5a2a0c ». Les lire ferait mesurer
+#  la prose. C'est la famille d'erreur la plus fréquente de ce dépôt.
+sans = lambda t: re.sub(r"/\*.*?\*/", "", t, flags=re.S)
+ui, css = sans(ui), sans(css)
+
+def bloc(texte, selecteur):
+    m = re.search(re.escape(selecteur) + r"\s*\{([^}]*)\}", texte)
+    return dict((k, v.strip()) for k, v in
+                re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", m.group(1))) if m else {}
+
+SOMBRE = bloc(ui, ":root")
+CLAIR  = dict(SOMBRE); CLAIR.update(bloc(ui, ':root[data-mode="clair"]'))
+ACCENTS = {m.group(1): dict((k, v.strip()) for k, v in
+           re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", m.group(2)))
+           for m in re.finditer(r':root\[data-accent="([^"]+)"\]\s*\{([^}]*)\}', ui)}
+
+def lin(v):
+    v /= 255
+    return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+def rgb(h):
+    h = h.strip().lstrip("#")
+    if len(h) == 3: h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+def lum(h):
+    r, g, b = rgb(h)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+def contraste(a, b):
+    la, lb = lum(a), lum(b); hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+def resous(val, table):
+    #  var(--x) -> la valeur du jeton, une seule indirection suffit ici.
+    m = re.fullmatch(r"var\((--[\w-]+)\)", val.strip())
+    return table.get(m.group(1), "").strip() if m else val.strip()
+
+def regle(motif):
+    #  Le premier bloc dont le sélecteur contient ce motif.
+    for m in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
+        if motif in m.group(1):
+            return dict((k.strip(), v.strip()) for k, v in
+                        re.findall(r"([\w-]+)\s*:\s*([^;]+)", m.group(2)))
+    return {}
+
+sortie = []
+dit = lambda ok, txt: sortie.append(("OK|" if ok else "NON|") + txt)
+
+# --- 1. Le bouton désactivé : lisible, et sans accent -----------------------
+d = regle(".btn:disabled,")
+if not d:
+    dit(False, "aucune règle « .btn:disabled » : rien ne dit qu'un bouton est grisé")
+elif "opacity" in d:
+    #  ═══ ON DIT LE CHIFFRE, PAS « C'EST INTERDIT » ═══
+    #  L'opacité est la voie évidente, et un banc qui se contente de la refuser
+    #  se fait contourner par la personne suivante, qui la trouvera « jolie et
+    #  sans danger ». On recalcule donc la conséquence exacte : l'opacité
+    #  s'applique à TOUT l'élément — fond ET texte — et fond le tout dans la
+    #  page, si bien que le libellé perd son contraste.
+    try:
+        alpha = float(d["opacity"].strip().rstrip(";"))
+    except ValueError:
+        alpha = 0.5
+    for nom, table in (("sombre", SOMBRE), ("clair", CLAIR)):
+        page = table.get("--bg", "#000000")
+        melange = lambda av: "#%02X%02X%02X" % tuple(
+            round(alpha * a + (1 - alpha) * b) for a, b in zip(rgb(av), rgb(page)))
+        #  Le bouton plein : accent orange, libellé --ac-txt.
+        c = contraste(melange(ACCENTS.get("orange", {}).get("--ac", "#E8590C")),
+                      melange(ACCENTS.get("orange", {}).get("--ac-txt", "#000")))
+        dit(False,
+            f"mode {nom} : « opacity:{alpha:g} » fait tomber le libellé à {c:.2f}:1 "
+            f"(seuil 4,5). C'est un message d'état — « Recherche en cours… » — "
+            f"pas une décoration : retirer l'ACCENT dit « désactivé » sans le rendre illisible")
+else:
+    for nom, table in (("sombre", SOMBRE), ("clair", CLAIR)):
+        fond  = resous(d.get("background", ""), table)
+        texte = resous(d.get("color", ""), table)
+        if not fond or not texte:
+            dit(False, f"mode {nom} : fond ou texte du bouton désactivé introuvable")
+            continue
+        c = contraste(fond, texte)
+        dit(c >= 4.5,
+            f"mode {nom} : le libellé d'un bouton grisé reste lisible ({c:.2f}:1, seuil 4,5)")
+    #  ET IL DOIT AVOIR PERDU L'ACCENT. C'est ça, « avoir l'air désactivé » :
+    #  dans cette palette l'accent est le signe de « ceci répond ».
+    brut = (d.get("background", "") + d.get("border-color", "")).replace(" ", "")
+    dit("var(--ac)" not in brut and "var(--ac-hi)" not in brut,
+        "le bouton grisé a perdu l'accent — il ne promet plus rien")
+    dit("none" in d.get("box-shadow", ""), "et il ne garde pas le halo du survol")
+    #  « opacity » ferait tomber le libellé à 2,21:1 — mesuré. C'est un
+    #  message d'état (« Recherche en cours… »), pas une décoration.
+    dit("opacity" not in d,
+        "aucune opacité : elle rendrait illisible le message d'état du bouton")
+
+# --- 2. L'appui colore les boutons pleins, et DIFFÉREMMENT du survol --------
+survol = regle(".btn:hover{") or regle(".btn:hover")
+appui  = regle(".btn:not(.ghost):not(.sel)")
+if not appui:
+    dit(False, "aucune règle d'appui pour les boutons pleins : le clic ne se verrait pas")
+else:
+    fs, fa = survol.get("background", "").replace(" ", ""), appui.get("background", "").replace(" ", "")
+    dit(bool(fa) and fa != fs,
+        f"l'appui d'un bouton plein diffère du survol ({fa or 'rien'} vs {fs or 'rien'})")
+    #  Sur les HUIT accents : la couleur d'appui doit rester lisible, et rester
+    #  distincte du survol. Un accent ajouté un jour sans y penser tomberait ici.
+    mauvais_l, mauvais_d = [], []
+    for nom, t in sorted(ACCENTS.items()):
+        table = dict(SOMBRE); table.update(t)
+        fond  = resous(appui.get("background", ""), table)
+        texte = table.get("--ac-txt", "")
+        hi    = table.get("--ac-hi", "")
+        if not fond or not texte:
+            mauvais_l.append(nom); continue
+        if contraste(fond, texte) < 4.5: mauvais_l.append(f"{nom}({contraste(fond,texte):.2f})")
+        if hi and fond.lower() == hi.lower(): mauvais_d.append(nom)
+    dit(not mauvais_l,
+        f"le libellé reste lisible sur la couleur d'appui, pour les {len(ACCENTS)} accents"
+        + (" — sauf " + " ".join(mauvais_l) if mauvais_l else ""))
+    dit(not mauvais_d,
+        "la couleur d'appui n'est jamais celle du survol"
+        + (" — sauf " + " ".join(mauvais_d) if mauvais_d else ""))
+
+print("\n".join(sortie))
+PYEOF
+)"
+	while IFS= read -r L; do
+		[ -z "$L" ] && continue
+		case "$L" in
+			OK\|*)  ok  "${L#OK|}" ;;
+			NON\|*) non "${L#NON|}" ;;
+			*)      non "sortie inattendue du mesureur : $L" ;;
+		esac
+	done <<< "$MESURE"
+fi
+
+#  ═══ ET LE FLASH DOIT ATTEINDRE LES BOUTONS PLEINS ═══
+#  Le style ne sert à rien si l'écouteur ne pose jamais la classe : « :active »
+#  ne dure que le temps de l'appui — 40 ms sur un clic vif, invisible. C'est
+#  « press » (160 ms) qui rend le retour perceptible, et il ne visait que les
+#  « ghost ». On EXÉCUTE l'écouteur plutôt que de relire son sélecteur.
+if command -v node >/dev/null 2>&1; then
+	cat > "$BANC5/flash.js" <<'JS'
+"use strict";
+const fs = require("fs"), vm = require("vm");
+let ecouteur = null;
+const el = () => ({ innerHTML:"", textContent:"", hidden:true, style:{}, dataset:{},
+                    classList:{add(){},remove(){},toggle(){}},
+                    querySelectorAll:()=>[], appendChild(){}, focus(){} });
+const bac = vm.createContext({
+  document:{ getElementById:()=>el(), querySelectorAll:()=>[], body:el(),
+             documentElement:{style:{setProperty(){}},dataset:{}},
+             addEventListener:(t,f)=>{ if(t==="pointerdown") ecouteur = f; } },
+  location:{hash:""}, window:{confirm:()=>true},
+  fetch:()=>Promise.reject(new Error("pas de pont dans le banc")),
+  requestAnimationFrame:()=>0, setTimeout, clearTimeout, console });
+bac.globalThis = bac;
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), bac, {filename:"app.js"});
+const dit = (bon, m) => console.log((bon ? "OK|" : "NON|") + m);
+if (!ecouteur) { dit(false, "aucun écouteur « pointerdown » : rien ne pose le flash"); process.exit(0); }
+
+//  Un faux bouton : il retient ce qu'on lui ajoute comme classe.
+const bouton = (classes, desactive) => {
+  const set = new Set(String(classes).split(/\s+/).filter(Boolean));
+  const b = { disabled: !!desactive,
+              classList: { add: c => set.add(c), remove: c => set.delete(c),
+                           contains: c => set.has(c) },
+              closest: sel => {
+                const nom = sel.replace(/^\./, "").split(".");
+                return nom.every(n => set.has(n)) ? b : null;
+              } };
+  b.aFlashe = () => set.has("press");
+  return b;
+};
+const frappe = b => { ecouteur({ target: b }); return b.aFlashe(); };
+
+dit(frappe(bouton("btn")),        "un bouton PLEIN flashe au clic (c'est ce qui manquait)");
+dit(frappe(bouton("btn ghost")),  "un bouton d'action « ghost » flashe toujours");
+dit(!frappe(bouton("btn sel")),   "un bouton DÉJÀ choisi ne flashe pas — il est déjà accentué");
+dit(!frappe(bouton("btn", true)), "un bouton DÉSACTIVÉ ne flashe pas — il ne répond plus");
+dit(!frappe(bouton("btn ghost", true)), "…un « ghost » désactivé non plus");
+JS
+	while IFS= read -r L; do
+		[ -z "$L" ] && continue
+		case "$L" in
+			OK\|*)  ok  "${L#OK|}" ;;
+			NON\|*) non "${L#NON|}" ;;
+			*)      non "sortie inattendue du bac à sable : $L" ;;
+		esac
+	done < <(node "$BANC5/flash.js" "$APP" 2>&1)
+else
+	saut "node absent : le flash du clic n'est pas exécuté"
+fi
+
 
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$reussis" "$echoues"
 [[ "$echoues" -eq 0 ]]
