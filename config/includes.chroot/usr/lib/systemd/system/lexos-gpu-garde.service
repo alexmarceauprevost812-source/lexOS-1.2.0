@@ -9,9 +9,25 @@ Documentation=file:/usr/lib/lexos/gpu-garde
 #  gestionnaire de connexion ne lance la session graphique, sinon on
 #  raisonnerait sur un affichage déjà démarré.
 DefaultDependencies=no
-After=systemd-udev-settle.service local-fs.target
-Wants=systemd-udev-settle.service
+After=local-fs.target
 Before=display-manager.service sysinit.target
+
+#  ═══ PLUS DE systemd-udev-settle, ET CE N'EST PAS UN RACCOURCI ═══
+#  Cette unité tirait « Wants=systemd-udev-settle.service » : 2,7 s de plus au
+#  démarrage, pour une unité que systemd déconseille depuis des années.
+#
+#  Elle n'était pas nécessaire. Les répertoires de /sys/bus/pci/devices et
+#  leurs fichiers « vendor » et « class » — les deux seuls que ce service lit —
+#  sont créés par le NOYAU pendant l'énumération PCI, avant même que le premier
+#  programme de l'espace utilisateur ne démarre. udev ne fait ensuite qu'AGIR
+#  sur ces devices : charger les modules, poser les permissions. Il ne les crée
+#  pas, et on ne lui demande rien ici. « ConditionPathExists » ci-dessous
+#  faisait d'ailleurs déjà ce pari.
+#
+#  Le script garde malgré tout une attente bornée à une seconde si le
+#  répertoire est vide — gratuite sur du vrai matériel, où il ne l'est jamais.
+#  À CONFIRMER SUR L'ALIENWARE : si le bus n'y était pas encore lisible, c'est
+#  cette attente qu'il faut revoir, pas udev-settle qu'il faut ramener.
 
 #  Pas de bus PCI lisible = rien à décider (conteneur, machine virtuelle
 #  exotique). On sort sans bruit plutôt que d'échouer.

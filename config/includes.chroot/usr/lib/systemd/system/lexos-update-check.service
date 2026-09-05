@@ -7,4 +7,25 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/lexos-update-check
+
+#  ═══ 84 SECONDES DE DÉMARRAGE, ET LE COUPABLE N'EST PAS LE SCRIPT ═══
+#  Mesuré sur le ThinkPad : 1 min 24 s pour ce service, premier de
+#  « systemd-analyze blame », loin devant tout le reste. Le script fait un
+#  « apt-get update » — un téléchargement complet des index Debian, dont la
+#  durée est NORMALE. Ce qui ne l'était pas, c'est de le faire à pleine
+#  priorité pendant l'ouverture de session, en se battant avec le bureau pour
+#  le disque et le réseau au moment le plus chargé de la vie de la machine.
+#
+#  Nice=10 et IOSchedulingClass=idle : exactement le traitement de
+#  lexos-claude-installation.service, qui fait la même sorte de travail —
+#  télécharger en arrière-plan quelque chose dont personne n'attend le
+#  résultat. Un service d'arrière-plan ne doit pas avoir la même priorité que
+#  le bureau que l'utilisateur regarde apparaître.
+Nice=10
+IOSchedulingClass=idle
+
+#  Un plafond de sécurité, pas une durée utile : le script s'impose lui-même
+#  une limite de 120 s sur l'apt-get (« timeout 120 »), qui est le vrai
+#  garde-fou. Celui-ci n'est là que pour le cas où le script se pendrait
+#  ailleurs.
 TimeoutStartSec=300

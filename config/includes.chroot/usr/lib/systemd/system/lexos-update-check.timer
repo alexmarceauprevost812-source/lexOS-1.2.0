@@ -5,7 +5,23 @@ Documentation=https://github.com/alexmarceauprevost812-source/lexOS-2.0
 [Timer]
 OnBootSec=10min
 OnUnitInactiveSec=1d
+
+#  ═══ POURQUOI IL PARTAIT QUAND MÊME PENDANT L'OUVERTURE DE SESSION ═══
+#  « OnBootSec=10min » promettait un départ dix minutes après le démarrage.
+#  « Persistent=true » le contredisait : il fait rattraper IMMÉDIATEMENT une
+#  échéance manquée pendant que la machine était éteinte — c'est-à-dire à
+#  chaque démarrage, dès que la veille remonte à plus d'un jour.
+#
+#  Persistent=true est BON, et on le garde : une machine éteinte trois jours
+#  doit finir par vérifier ses mises à jour. Le défaut était le rattrapage
+#  immédiat, pas le rattrapage.
+#
+#  RandomizedDelaySec étale ce rattrapage sur une demi-heure. Avec
+#  AccuracySec=1h, systemd a alors toute latitude pour poser le travail à un
+#  moment calme, et surtout PAS dans les premières minutes — celles où
+#  l'utilisateur regarde son bureau apparaître.
 AccuracySec=1h
+RandomizedDelaySec=30min
 Persistent=true
 Unit=lexos-update-check.service
 

@@ -1,0 +1,45 @@
+[Unit]
+#  ═══ LES VINGT SECONDES, MAIS PLUS DEVANT L'ÉCRAN DE CONNEXION ═══
+#  lexos-gpu-garde.service tourne très tôt, DEVANT le gestionnaire de
+#  connexion, et c'est nécessaire : déplacer les fichiers de /etc/modprobe.d
+#  n'a d'effet sur CE démarrage que si c'est fait avant le chargement des
+#  modules. Ces déplacements coûtent quelques millisecondes.
+#
+#  update-initramfs, lui, coûte une vingtaine de secondes — et quand il s'agit
+#  de RANGER les réglages (machine sans carte NVIDIA), rien de ce démarrage-ci
+#  n'en dépend : l'initramfs doit avoir rattrapé avant le PROCHAIN démarrage,
+#  pas avant cet écran. C'était 21,9 s ajoutées devant la connexion à chaque
+#  fois que l'état changeait, pour un travail qui pouvait attendre.
+#
+#  Le sens inverse — remettre les réglages parce qu'une carte NVIDIA est là —
+#  n'est PAS différé : l'interdiction de « nouveau » doit valoir dès
+#  l'initramfs, sous peine d'écran noir au redémarrage suivant. gpu-garde
+#  s'en charge lui-même, tout de suite.
+Description=LexOS - rafraichir l'initramfs apres un changement de reglages GPU
+Documentation=file:/usr/lib/lexos/gpu-garde
+
+#  Le témoin est posé par gpu-garde, et seulement dans le sens qui peut
+#  attendre. Sans lui, ce service ne fait rien du tout.
+ConditionPathExists=/run/lexos/gpu-initramfs-requis
+
+#  Après le bureau, pas devant lui.
+After=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/lexos/gpu-initramfs-differe
+RemainAfterExit=yes
+
+#  La même retenue que les autres travaux d'arrière-plan de LexOS : on ne se
+#  bat pas avec la session qui vient de s'ouvrir pour le disque.
+Nice=19
+IOSchedulingClass=idle
+
+#  Un échec ne doit JAMAIS empêcher la machine de démarrer ni salir l'état des
+#  services : au pire l'initramfs reste celui d'avant, ce qui est exactement le
+#  comportement qu'on avait sans ce service.
+SuccessExitStatus=0 1
+TimeoutStartSec=300
+
+[Install]
+WantedBy=graphical.target

@@ -55,6 +55,11 @@ dire() {
 R="${LEXOS_RACINE:-}"
 PCI="${R}/sys/bus/pci/devices"
 MODPROBE="${R}/etc/modprobe.d"
+#  /proc/cmdline passe par le même préfixe : c'est lui qui dit si l'on est en
+#  session démo, et le banc doit pouvoir jouer ce cas-là aussi. Sans ça, il
+#  lirait la ligne de commande de la machine QUI LANCE le banc — et le contrôle
+#  « en démo, on ne touche pas à l'initramfs » ne serait jamais éprouvé.
+CMDLINE="${R}/proc/cmdline"
 
 REGLAGES="${MODPROBE}/lexos-blacklist-nouveau.conf ${MODPROBE}/lexos-nvidia-drm.conf"
 SUFFIXE=".sans-nvidia"
@@ -65,6 +70,32 @@ SUFFIXE=".sans-nvidia"
 #  lui-même. On exige le bon VENDEUR (0x10de = NVIDIA) ET la bonne CLASSE
 #  (0x0300 = VGA, 0x0302 = 3D) : une puce audio HDMI NVIDIA, présente sur les
 #  mêmes cartes, ne doit pas être prise pour un GPU.
+#  ═══ POURQUOI CE SCRIPT N'A PLUS BESOIN DE systemd-udev-settle ═══
+#  L'unité tirait « Wants=systemd-udev-settle.service », qui coûtait 2,7 s au
+#  démarrage et que systemd déconseille depuis des années. Elle n'était pas
+#  nécessaire : les répertoires de /sys/bus/pci/devices et leurs fichiers
+#  « vendor » et « class » sont créés par le NOYAU pendant l'énumération PCI,
+#  bien avant que le premier programme de l'espace utilisateur ne démarre.
+#  udev ne fait ensuite qu'AGIR sur ces devices (charger les modules, poser
+#  les permissions) — il ne les crée pas, et on ne lui demande rien ici.
+#
+#  Il reste une garde, bornée et gratuite dans le cas courant : si le
+#  répertoire est VIDE, on laisse une seconde au noyau. Sur du vrai matériel
+#  il ne l'est jamais — il y a toujours au moins un pont hôte — donc cette
+#  boucle sort au premier tour et ne coûte rien. Elle ne se paie que sur une
+#  machine sans aucun PCI, où il n'y a de toute façon rien à décider.
+attendre_le_bus() {
+	I=0
+	while [ "$I" -lt 10 ]; do
+		for D in "$PCI"/*/; do
+			[ -d "$D" ] && return 0
+		done
+		I=$((I + 1))
+		sleep 0.1 2>/dev/null || return 0
+	done
+	return 0
+}
+
 carte_nvidia_presente() {
 	for D in "$PCI"/*/; do
 		[ -r "${D}vendor" ] && [ -r "${D}class" ] || continue
@@ -101,7 +132,64 @@ remettre() {                     # mis de côté -> en place
 	done
 }
 
-if carte_nvidia_presente; then
+#  ═══ RIEN À GÉRER DU TOUT : ON NE LIT MÊME PAS LE BUS ═══
+#  Seule l'ISO « pro » pose les deux fichiers de /etc/modprobe.d — c'est elle
+#  qui embarque le pilote propriétaire. Sur « standard », « minimal », « dev »,
+#  ils n'ont jamais existé, ni en place ni mis de côté. Ce service n'y a donc
+#  strictement rien à décider, et il n'a aucune raison de parcourir le bus PCI
+#  ni d'attendre qu'il se peuple.
+#
+#  C'est six appels à test(1), avant toute autre chose, et c'est la seule
+#  sortie anticipée qui change quelque chose d'observable : sans elle, une
+#  machine sans PCI lisible paierait l'attente d'une seconde pour rien, à
+#  chaque démarrage, sur une ISO qui n'a même pas de réglages NVIDIA.
+rien_a_gerer() {
+	for F in $REGLAGES; do
+		[ -f "$F" ] || [ -f "${F}${SUFFIXE}" ] && return 1
+	done
+	return 0
+}
+
+if rien_a_gerer; then
+	exit 0
+fi
+
+attendre_le_bus
+
+#  ═══ NE RIEN FAIRE QUAND IL N'Y A RIEN À FAIRE ═══
+#  Au deuxième démarrage et à tous les suivants, il n'y a rien à déplacer : la
+#  réponse ne change jamais sur une machine donnée. On répond donc d'abord à la
+#  question la moins chère — « y a-t-il quoi que ce soit à bouger ? » — et on
+#  sort si non.
+#
+#  HONNÊTETÉ SUR CE GARDE-FOU : AUCUN BANC NE PEUT LE TENIR, parce qu'il ne
+#  change rien d'observable. Sans lui, « remettre » et « ranger » tournent, ne
+#  trouvent rien, laissent CHANGE à 0 — et update-initramfs était DÉJÀ
+#  conditionné à CHANGE=1 avant ce chantier. Sa suppression est une mutation
+#  équivalente, vérifiée comme telle : le banc reste vert.
+#  Il est gardé pour ce qu'il dit — l'intention est explicite au lieu d'être
+#  déduite de deux boucles qui ne font rien — et non pour ce qu'il économise.
+#  Ce qui économise vraiment est au-dessus (« rien_a_gerer », qui évite la
+#  lecture du bus) et plus bas (l'initramfs différé).
+NVIDIA=1
+carte_nvidia_presente || NVIDIA=0
+
+travail_a_faire() {
+	for F in $REGLAGES; do
+		if [ "$NVIDIA" = "1" ]; then
+			[ -f "${F}${SUFFIXE}" ] && [ ! -f "$F" ] && return 0
+		else
+			[ -f "$F" ] && return 0
+		fi
+	done
+	return 1
+}
+
+if ! travail_a_faire; then
+	exit 0
+fi
+
+if [ "$NVIDIA" = "1" ]; then
 	remettre
 	[ "$CHANGE" = "1" ] && dire "carte NVIDIA détectée — réglages du pilote propriétaire actifs"
 else
@@ -119,11 +207,50 @@ fi
 #  Jamais en session démo : le système de fichiers y est un empilement en
 #  mémoire, régénérer l'initramfs n'y servirait à rien et prendrait du temps
 #  au pire moment.
-if [ "$CHANGE" = "1" ] && ! grep -qa 'boot=live' /proc/cmdline 2>/dev/null; then
-	if command -v update-initramfs >/dev/null 2>&1; then
-		update-initramfs -u >/dev/null 2>&1 \
-			&& dire "initramfs mis à jour" \
-			|| dire "!! update-initramfs a échoué — le changement sera complet au prochain noyau"
+#
+#  ═══ ET LES DEUX SENS NE SE VALENT PAS — C'EST LE POINT DÉLICAT ═══
+#  update-initramfs prend une vingtaine de secondes, et ce service est ordonné
+#  DEVANT l'écran de connexion. Les différer serait tentant dans les deux cas.
+#  Ce serait faux dans l'un des deux :
+#
+#    · ON A REMIS LES RÉGLAGES (carte NVIDIA trouvée). L'interdiction de
+#      « nouveau » doit valoir DÈS L'INITRAMFS : c'est de là que nouveau est
+#      chargé, par KMS, avant même que la racine soit montée. Un initramfs
+#      encore périmé au redémarrage suivant laisserait nouveau prendre une
+#      RTX 50 dont il ne sait pas lire les sorties — l'écran noir qu'on a mis
+#      des semaines à comprendre. Ces vingt secondes-là s'assument : elles
+#      arrivent une fois, sur la machine où elles achètent quelque chose.
+#
+#    · ON A RANGÉ LES RÉGLAGES (aucune carte NVIDIA). Rien de ce démarrage-ci
+#      n'en dépend : l'état voulu est justement que « nouveau » reste
+#      disponible, et un initramfs périmé l'interdit encore — sans conséquence
+#      sur une machine Intel, qui utilise i915. L'initramfs doit rattraper
+#      avant le PROCHAIN démarrage, pas avant cet écran de connexion. On pose
+#      donc un témoin, et lexos-gpu-initramfs.service fait le travail une fois
+#      la session ouverte, à priorité basse.
+#
+#  C'est exactement le cas du ThinkPad : vingt secondes retirées de devant
+#  l'écran de connexion, sans toucher d'un cheveu au chemin de l'Alienware.
+if [ "$CHANGE" = "1" ] && ! grep -qa 'boot=live' "$CMDLINE" 2>/dev/null; then
+	if [ "$NVIDIA" = "1" ]; then
+		if command -v update-initramfs >/dev/null 2>&1; then
+			update-initramfs -u >/dev/null 2>&1 \
+				&& dire "initramfs mis à jour" \
+				|| dire "!! update-initramfs a échoué — le changement sera complet au prochain noyau"
+		fi
+	else
+		mkdir -p "${R}/run/lexos" 2>/dev/null || true
+		if : > "${R}/run/lexos/gpu-initramfs-requis" 2>/dev/null; then
+			dire "initramfs à rafraîchir — remis après l'ouverture de session"
+		else
+			#  Pas de témoin possible : on ne laisse pas le travail en plan.
+			#  Un initramfs jamais rafraîchi finirait par diverger pour de bon.
+			if command -v update-initramfs >/dev/null 2>&1; then
+				update-initramfs -u >/dev/null 2>&1 \
+					&& dire "initramfs mis à jour (témoin impossible, fait tout de suite)" \
+					|| dire "!! update-initramfs a échoué — le changement sera complet au prochain noyau"
+			fi
+		fi
 	fi
 fi
 

@@ -94,10 +94,26 @@ fi
 #  remet ces réglages en conséquence. Réversible : déplacer le disque dans une
 #  autre machine les remet tout seuls. Rien n'est jamais supprimé.
 chmod 0755 /usr/lib/lexos/gpu-garde 2>/dev/null || true
+chmod 0755 /usr/lib/lexos/gpu-initramfs-differe 2>/dev/null || true
 if command -v systemctl >/dev/null 2>&1; then
 	systemctl enable lexos-gpu-garde.service >/dev/null 2>&1 \
 		&& echo "[lexos]   réglages NVIDIA adaptés à la carte présente au démarrage" \
 		|| echo "[lexos]   !! service lexos-gpu-garde non activé"
+	#  ═══ ET SON PENDANT DIFFÉRÉ ═══
+	#  gpu-garde tourne DEVANT l'écran de connexion, ce qui est nécessaire pour
+	#  déplacer les fichiers de /etc/modprobe.d à temps. Mais quand il RANGE ces
+	#  réglages — machine sans carte NVIDIA — l'initramfs n'a aucune raison
+	#  d'être refait devant cet écran : rien de ce démarrage-ci n'en dépend.
+	#  Mesuré sur le ThinkPad : 21,9 s, premier de « systemd-analyze blame »
+	#  après update-check. gpu-garde pose donc un témoin, et cette unité-ci fait
+	#  le travail une fois la session ouverte, à priorité basse.
+	#
+	#  SANS CE « enable », LE TÉMOIN NE SERAIT JAMAIS RAMASSÉ et l'initramfs
+	#  resterait périmé indéfiniment. C'est le genre d'oubli parfaitement
+	#  silencieux, d'où le message d'échec voyant.
+	systemctl enable lexos-gpu-initramfs.service >/dev/null 2>&1 \
+		&& echo "[lexos]   initramfs GPU différé après l'ouverture de session" \
+		|| echo "[lexos]   !! service lexos-gpu-initramfs non activé — l'initramfs ne rattraperait jamais"
 fi
 
 #  Contrôle de construction : les trois réglages dont ce service dépend

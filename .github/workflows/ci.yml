@@ -1148,6 +1148,31 @@ jobs:
           tmux -V
           bash tests/test_lexos_multi.sh
 
+      - name: Les deux services qui coûtaient 106 s au démarrage
+        if: ${{ !cancelled() }}
+        run: |
+          #  ═══ CE QUE CE BANC PROTÈGE, ET CE N'EST PAS LES 106 SECONDES ═══
+          #  Mesuré sur le ThinkPad : 1 min 24 s pour lexos-update-check et
+          #  21,9 s pour lexos-gpu-garde, les deux premiers de
+          #  « systemd-analyze blame », loin devant tout le reste.
+          #
+          #  Mais ce que le banc surveille le plus, c'est LA PANNE QU'ON
+          #  POURRAIT CAUSER EN LES CHERCHANT. gpu-garde existe pour qu'une
+          #  seule ISO « pro » démarre aussi bien sur l'Alienware (RTX 5060)
+          #  que sur le ThinkPad Intel : « optimiser » ce service jusqu'à ce
+          #  qu'il ne fasse plus son travail rendrait un écran noir sur
+          #  l'Alienware — infiniment plus cher que vingt secondes.
+          #
+          #  Le banc joue donc les deux machines sur une fausse arborescence
+          #  PCI, avec un update-initramfs témoin qui écrit au lieu de
+          #  travailler : sans carte il ne doit RIEN appeler devant l'écran de
+          #  connexion, avec carte il doit l'appeler TOUT DE SUITE — le blocage
+          #  de « nouveau » doit valoir dès l'initramfs, d'où il est chargé.
+          #  Il joue aussi le bus PCI qui arrive en retard, parce que c'est ce
+          #  filet qui remplace systemd-udev-settle, et un filet qu'on n'a
+          #  jamais vu retenir personne n'est pas un filet.
+          bash tests/test_lexos_services_demarrage.sh
+
       - name: Profils de performance — tous chargeables
         if: ${{ !cancelled() }}
         run: |

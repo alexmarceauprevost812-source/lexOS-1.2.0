@@ -9,7 +9,24 @@
 # =============================================================================
 set -eu
 
-apt-get update -qq >/dev/null 2>&1 || exit 0
+#  ═══ UN PLAFOND SUR LE RÉSEAU, PARCE QU'APT N'EN A PAS ═══
+#  « apt-get update » télécharge les index Debian ; sur un réseau qui répond
+#  mal — un portail captif d'hôtel, une 4G partagée, un miroir en panne — il
+#  peut traîner très longtemps sans jamais échouer franchement. Personne
+#  n'attend le résultat de cette vérification : mieux vaut l'abandonner
+#  proprement et retenter demain que de laisser un service pendu.
+#
+#  120 s, pas 300 : TimeoutStartSec=300 dans l'unité est une sécurité de
+#  dernier recours, qui TUE le service. Celui-ci le fait renoncer, ce qui est
+#  différent — le « || exit 0 » ci-dessous rend la main sans erreur.
+#
+#  « command -v timeout » : coreutils le fournit, mais on ne parie pas sur sa
+#  présence pour une commodité. Sans lui, on fait ce qu'on faisait avant.
+if command -v timeout >/dev/null 2>&1; then
+	timeout 120 apt-get update -qq >/dev/null 2>&1 || exit 0
+else
+	apt-get update -qq >/dev/null 2>&1 || exit 0
+fi
 
 N="$(apt-get -s upgrade 2>/dev/null | grep -c '^Inst ' || true)"
 [ "${N:-0}" -gt 0 ] || exit 0

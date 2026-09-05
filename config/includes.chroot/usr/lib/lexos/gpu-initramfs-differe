@@ -1,0 +1,51 @@
+#!/bin/sh
+# =============================================================================
+#  LexOS — rafraîchir l'initramfs après que gpu-garde a rangé les réglages
+# =============================================================================
+#  Voir lexos-gpu-initramfs.service pour le pourquoi. En deux phrases : ranger
+#  les réglages du pilote NVIDIA sur une machine qui n'en a pas doit finir par
+#  atteindre l'initramfs, mais rien de ce démarrage-ci n'en dépend — alors on
+#  ne le fait pas devant l'écran de connexion.
+#
+#  LE TÉMOIN EST DANS /run, DONC EFFACÉ À CHAQUE DÉMARRAGE. C'est voulu : si
+#  la machine s'éteint avant que ce service ait fini, gpu-garde reposera le
+#  témoin au démarrage suivant s'il y a encore quelque chose à faire — et il
+#  n'y en aura plus, puisque les fichiers sont déjà rangés. L'initramfs
+#  resterait alors périmé une fois de plus, sans conséquence : il interdit
+#  « nouveau » sur une machine qui n'en a pas l'usage.
+# =============================================================================
+set -eu
+
+R="${LEXOS_RACINE:-}"
+TEMOIN="${R}/run/lexos/gpu-initramfs-requis"
+JOURNAL="${R}/var/log/lexos-gpu-garde.log"
+
+dire() {
+	echo "[lexos-gpu-initramfs] $*"
+	printf '%s %s\n' "$(date -Is 2>/dev/null || echo '?')" "$*" >> "$JOURNAL" 2>/dev/null || true
+}
+
+[ -f "$TEMOIN" ] || exit 0
+
+#  Jamais en session démo : le système de fichiers y est un empilement en
+#  mémoire, régénérer l'initramfs n'y servirait à rien.
+if grep -qa 'boot=live' "${R}/proc/cmdline" 2>/dev/null; then
+	rm -f "$TEMOIN" 2>/dev/null || true
+	exit 0
+fi
+
+if ! command -v update-initramfs >/dev/null 2>&1; then
+	dire "!! update-initramfs introuvable — l'initramfs restera celui d'avant"
+	rm -f "$TEMOIN" 2>/dev/null || true
+	exit 0
+fi
+
+if update-initramfs -u >/dev/null 2>&1; then
+	dire "initramfs mis à jour (après l'ouverture de session)"
+	#  Le témoin ne s'efface QU'EN CAS DE SUCCÈS : un échec doit pouvoir être
+	#  retenté, et ne pas passer pour un travail accompli.
+	rm -f "$TEMOIN" 2>/dev/null || true
+else
+	dire "!! update-initramfs a échoué — le changement sera complet au prochain noyau"
+	exit 1
+fi
