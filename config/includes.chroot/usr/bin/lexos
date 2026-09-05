@@ -216,6 +216,8 @@ ${B}TERMINAL${R}
                       ${D}onglets, fenêtres divisibles, vraies commandes${R}
   ${A}terminal-pro --classique${R} Le Terminal classique (xfce4-terminal)
                       ${D}pour vim, nano, htop… — les programmes plein écran${R}
+  ${A}multi${R}                Plusieurs volets dans un SEUL terminal (tmux)
+                      ${D}Ctrl+B puis | diviser · c onglet · d sortir en laissant tourner${R}
   ${A}terminal jour|nuit|auto${R} Palette du terminal, indépendante du bureau
 
 ${B}FICHIERS TÉLÉCHARGÉS${R}
@@ -1150,6 +1152,12 @@ case "$CMD" in
 	#  reste le jour/nuit (ligne au-dessus, depuis avant) ; le voici sous son
 	#  propre nom.
 	terminal-pro|pro-terminal) exec lexos-pro-terminal "$@" ;;
+	#  « multi » : le terminal en volets et en onglets. Il est aussi appelé par
+	#  un alias du shell (interactive.sh) — c'est comme ça qu'on l'écrit au
+	#  quotidien — mais il doit exister ici aussi : tout outil « lexos-* » doit
+	#  être atteignable par le dispatcheur, c'est la règle du contrôle 16, et
+	#  c'est elle qui garantit qu'aucun outil ne devient introuvable.
+	multi|volets)         exec lexos-multi "$@" ;;
 	#  L'outil vit dans son propre fichier : il doit aussi savoir se lancer
 	#  depuis lexos-wm (« --demarrer »), et une fonction enfermée ici ne le
 	#  pourrait pas. Même forme que « logitheque ».

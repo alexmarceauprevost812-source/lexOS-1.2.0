@@ -191,6 +191,12 @@ lexos-gps
 lexos-jeux
 lexos-logitheque
 lexos-meteo
+#  Le terminal en volets (tmux). C'est une APPLI, pas un réglage : sa fenêtre
+#  est le terminal lui-même. Elle est atteinte par « lexos multi », par l'alias
+#  « multi » du shell, par son lanceur du menu et par le dock — quatre chemins.
+#  Une section dans les Paramètres n'aurait rien à afficher : il n'y a aucun
+#  réglage à régler, le fichier lexos.conf de tmux se recharge avec Ctrl+B r.
+lexos-multi
 #  La mise à jour de LexOS lui-même, depuis le dépôt. Elle est ATTEINTE par
 #  le dispatcheur (« lexos maj ») et par l'enrobage « miss » ; elle n'a pas
 #  de page dans les Paramètres, et c'est voulu : « écrase /usr depuis un

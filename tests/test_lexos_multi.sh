@@ -289,7 +289,36 @@ if [[ -r "$DOCK" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-titre "11. Le banc ne se tire pas dans le pied"
+titre "11. « lexos multi » existe aussi — la règle du contrôle 16"
+#  ═══ C'EST LA CI QUI L'A TROUVÉ, PAS CE BANC ═══
+#  verifier-parametres.sh applique une règle à tout le dépôt : chaque outil
+#  « lexos-* » de /usr/bin doit être ATTEIGNABLE par le dispatcheur et
+#  MENTIONNÉ dans l'aide. Un outil qu'on ne peut pas nommer est un outil que
+#  personne ne trouvera — c'est la même règle qui a fait remonter 73 faux
+#  problèmes du médecin le mois dernier.
+#  Ce banc éprouvait l'alias, le lanceur et le dock, et pas ça. Il le tient
+#  maintenant, pour que la CI n'ait plus à le trouver à sa place.
+DISPATCH="$ARBRE/usr/bin/lexos"
+if [[ -r "$DISPATCH" ]]; then
+	CODE_D="$(sed 's/[[:space:]]*#.*$//' "$DISPATCH")"
+	if [[ "$(grep -c . <<< "$CODE_D")" -lt 200 ]]; then
+		non "le décommentage du dispatcheur n'a presque rien laissé — contrôle invalide"
+	else
+		#  Décommenté : le dispatcheur EXPLIQUE en commentaire pourquoi cette
+		#  branche existe, et cite « lexos-multi » en le faisant.
+		grep -qE '^[[:space:]]*[a-z|]*multi[a-z|]*\)[[:space:]]*exec lexos-multi' <<< "$CODE_D" \
+			&& ok "« lexos multi » est une branche du dispatcheur" \
+			|| non "le dispatcheur ne sait pas lancer lexos-multi"
+	fi
+	grep -qE '\$\{A\}multi\$\{R\}' "$DISPATCH" \
+		&& ok "« multi » figure dans l'aide de « lexos »" \
+		|| non "« multi » n'est nulle part dans l'aide — introuvable pour qui cherche"
+else
+	non "dispatcheur introuvable ($DISPATCH)"
+fi
+
+# -----------------------------------------------------------------------------
+titre "12. Le banc ne se tire pas dans le pied"
 #  Le tuyau « producteur | grep -q » est une course : grep -q sort au premier
 #  résultat, le producteur reçoit EPIPE, et sous pipefail une correspondance
 #  TROUVÉE devient une condition FAUSSE. On l'a mesuré à 18 % sur ce dépôt.
