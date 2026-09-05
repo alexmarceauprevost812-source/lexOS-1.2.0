@@ -131,9 +131,15 @@ ecrire_sysfs() { # ecrire_sysfs <pourcentage>
 	if [[ -w "$BL/brightness" ]]; then
 		printf '%s\n' "$val" > "$BL/brightness" \
 			|| die "Écriture refusée sur $BL/brightness"
-	elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-		printf '%s\n' "$val" | sudo -n tee "$BL/brightness" >/dev/null \
-			|| die "Écriture refusée sur $BL/brightness"
+	#  ═══ ON TENTE, ON NE SONDE PAS ═══
+	#  Il y avait « sudo -n true » ici, avant l'appel réel. Chaque sonde
+	#  refusée fait échouer PAM, qui écrit deux lignes dans le journal — et
+	#  le bilan du médecin comptait ce bruit comme des erreurs. « sudo -n tee »
+	#  échoue exactement pareil quand les droits manquent, et on retombe sur
+	#  pkexec juste en dessous. Une tentative au lieu de deux.
+	elif command -v sudo >/dev/null 2>&1 \
+	     && printf '%s\n' "$val" | sudo -n tee "$BL/brightness" >/dev/null 2>&1; then
+		:
 	elif command -v pkexec >/dev/null 2>&1; then
 		#  pkexec veut un PROGRAMME, pas une redirection : « tee » en est un.
 		printf '%s\n' "$val" | pkexec tee "$BL/brightness" >/dev/null \

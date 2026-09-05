@@ -583,7 +583,13 @@ set_profile() {
 		if [[ $EUID -ne 0 ]]; then
 			# On délègue le plan système à sudo, puis on fait le plan session ici.
 			if command -v sudo >/dev/null 2>&1; then
-				sudo -n true 2>/dev/null || say "Droits administrateur nécessaires pour le plan système."
+				#  ═══ PAS DE SONDE AVANT L'APPEL ═══
+				#  Il y avait « sudo -n true » ici, uniquement pour décider
+				#  s'il fallait afficher un message. Chaque sonde refusée fait
+				#  échouer PAM, qui écrit deux lignes dans le journal, et le
+				#  bilan du médecin les comptait comme des erreurs. Le sudo
+				#  ci-dessous demande lui-même le mot de passe, avec sa propre
+				#  invite — plus claire que la nôtre, et sans rien salir.
 				sudo "$0" apply-system "$PROFILE" || die "Le plan système a échoué."
 			else
 				warn "sudo absent : seul le plan session sera appliqué."

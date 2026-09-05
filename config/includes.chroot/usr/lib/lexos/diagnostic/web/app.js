@@ -367,7 +367,7 @@ function badgeEtat(id, ok) {
 function appliquerBilan(b) {
   const outils = b.outils;
   document.getElementById("med-outils-total").textContent = outils.dispatcheur_trouve
-    ? `${outils.total} outils, ${outils.problemes.length} problème(s)`
+    ? `${outils.total} outils, ${outils.joignables} joignables, ${outils.problemes.length} problème(s)`
     : `${outils.total} outils (/usr/bin/lexos introuvable ici)`;
   const badgeOutils = document.getElementById("med-outils-badge");
   if (outils.problemes.length === 0) { badgeOutils.className = "badge ok"; badgeOutils.textContent = "OK"; }
@@ -375,7 +375,11 @@ function appliquerBilan(b) {
   document.getElementById("med-outils-problemes").innerHTML = outils.problemes.map((p) => {
     const raisons = [];
     if (!p.executable) raisons.push("pas exécutable");
-    if (p.branche_dispatcheur === false) raisons.push("absent du dispatcheur");
+    /*  « absent du dispatcheur » était vrai pour dix outils qui vont très
+        bien : ils partent par udev, par une minuterie systemd ou à
+        l'ouverture de session. La seule chose qui mérite qu'on dérange
+        quelqu'un, c'est que PERSONNE ne puisse le lancer. */
+    if (p.joignable === false) raisons.push("joignable par aucun chemin");
     return `<li>${escapeHtml(p.nom)} — ${raisons.join(", ")}</li>`;
   }).join("");
 

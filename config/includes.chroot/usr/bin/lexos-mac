@@ -479,9 +479,22 @@ cmd_bilan() {
 #  de session, sortie redirigée. Un sudo qui demande le mot de passe
 #  attendrait une réponse que personne ne verra — la session resterait
 #  bloquée sur un écran vide. On n'agit donc que si on a déjà les droits.
+#  ═══ ON N'INTERROGE PAS SUDO POUR SAVOIR SI SUDO MARCHE ═══
+#  Il y avait ici un « sudo -n true » avant l'appel réel. Chaque tentative
+#  refusée fait échouer PAM, qui écrit DEUX lignes dans le journal :
+#      sudo[…]: tilex : a password is required ; COMMAND=/usr/bin/true
+#      sudo[…]: pam_unix(sudo:auth): conversation failed
+#  Alex en avait six en trois secondes dans son bilan — du bruit qui remplit
+#  le compteur d'erreurs et masque les vraies pannes.
+#  La sonde ne servait à rien : « sudo -n "$@" » échoue tout seul, de la même
+#  façon, quand les droits ne sont pas acquis. On tente donc UNE fois, et
+#  seulement quand il y a vraiment quelque chose à faire.
+#  (Et on ne peut PAS répondre sans PAM : /etc/sudoers est en 440, illisible
+#  pour l'utilisateur. La seule question qu'on sache trancher sans lui est
+#  « suis-je root ? » — c'est la première ligne.)
 sudo_muet() {
 	if [[ "$(id -u)" -eq 0 ]]; then "$@"
-	elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n "$@"
+	elif command -v sudo >/dev/null 2>&1; then sudo -n "$@" 2>/dev/null
 	else return 1
 	fi
 }
