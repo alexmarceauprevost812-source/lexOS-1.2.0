@@ -77,6 +77,10 @@ normalize() {
 	case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
 		petit|small|eco|economie|économie|leger|léger|low)   printf 'petit' ;;
 		medium|médium|moyen|equilibre|équilibré|balanced)    printf 'medium' ;;
+		#  « rapide » est DÉJÀ un alias de « performant », juste en dessous :
+		#  on ne le déplace pas. Les deux profils restent distincts, et qui tape
+		#  « rapide » continue d'obtenir ce qu'il obtenait avant.
+		vif|rapide-sobre|sobre|snappy)                       printf 'vif' ;;
 		performant|perf|rapide|fast|high)                    printf 'performant' ;;
 		max|maximum|ultra|extreme|extrême|'performance max') printf 'max' ;;
 		*) return 1 ;;
@@ -87,6 +91,7 @@ label() {
 	case "$1" in
 		petit)      printf 'Petit — machine modeste, autonomie maximale' ;;
 		medium)     printf 'Médium — équilibre, réglage par défaut' ;;
+		vif)        printf 'Vif — processeur à fond, aucune fioriture' ;;
 		performant) printf 'Performant — priorité à la vitesse' ;;
 		max)        printf 'Performance max — tout à fond, secteur recommandé' ;;
 	esac
@@ -116,6 +121,34 @@ load_profile() {
 		P_ZRAM=0
 		P_COMPOSITING=1;           P_CRT="off"
 		P_DOCK_ZOOM=true;          P_THUMBNAILS=1
+		P_TRIM_SERVICES=0
+		;;
+	vif)
+		#  ═══ LE PROFIL DES PORTABLES À GRAPHIQUE INTÉGRÉ ═══
+		#  IL COMBLE UN TROU RÉEL. « petit » coupe les effets mais étrangle le
+		#  processeur (powersave, turbo désactivé) ; « performant » libère le
+		#  processeur mais GARDE le compositing et le zoom du dock. La
+		#  combinaison « processeur à fond, zéro fioriture » n'existait nulle
+		#  part — et c'est exactement ce qu'il faut à un portable dont le GPU
+		#  peine à composer chaque image pendant que six panneaux QtWebEngine
+		#  se disputent 8 Go.
+		P_GOVERNOR="performance";  P_EPP="balance_performance";  P_NO_TURBO=0
+		P_CACHE_PRESSURE=50
+		P_DIRTY=20;                P_DIRTY_BG=10
+		P_SCHED_ROT="bfq";         P_SCHED_SSD="none"
+		P_AUTOGROUP=1;             P_BBR=1
+
+		#  ═══ zram À 40 %, ET UNE SWAPPINESS HAUTE AVEC — LES DEUX VONT ENSEMBLE ═══
+		#  Un swap zram vit EN RAM : y écrire coûte une compression, pas un
+		#  accès disque. La consigne habituelle « garder la swappiness basse »
+		#  vise le swap sur DISQUE et devient contre-productive ici : le noyau
+		#  garderait des pages froides en clair plutôt que de les compresser.
+		#  zramswap pose PRIORITY=100, donc c'est lui qui sert en premier,
+		#  avant tout fichier d'échange sur disque.
+		P_SWAPPINESS=100;          P_ZRAM=40
+
+		P_COMPOSITING=0;           P_CRT="off"
+		P_DOCK_ZOOM=false;         P_THUMBNAILS=0
 		P_TRIM_SERVICES=0
 		;;
 	performant)
@@ -368,10 +401,36 @@ apply_user() {
 # =============================================================================
 #  Détection automatique
 # =============================================================================
+#  ═══ DEUX COUTURES, POUR QUE LA SUGGESTION SOIT ÉPROUVABLE ═══
+#  Une fonction qui lit /proc/meminfo et /sys ne se teste qu'en changeant de
+#  machine. Le banc détourne donc les deux racines vers un faux matériel.
+#  Vides de sens en production : les valeurs par défaut sont les vraies.
+#  ELLES ONT ÉTÉ AJOUTÉES POUR UNE RAISON PRÉCISE : la mutation qui retirait
+#  « vif » aux portables restait VERTE — rien n'éprouvait le cœur même de ce
+#  profil, seulement la forme des lignes qui l'entourent.
+on_battery() {
+	local b
+	for b in "${LEXOS_PERF_POWER:-/sys/class/power_supply}"/BAT*; do
+		[[ -e "$b" ]] && return 0
+	done
+	return 1
+}
+
 detect_profile() {
 	local ram_kb ram_gb cores suggestion
-	ram_kb="$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-	ram_gb=$(( ram_kb / 1024 / 1024 ))
+	ram_kb="$(awk '/MemTotal/{print $2}' "${LEXOS_PERF_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)"
+	#  ═══ ARRONDI, PAS TRONCATURE — C'ÉTAIT UN VRAI BOGUE ═══
+	#  MemTotal est TOUJOURS inférieur à la capacité annoncée : le noyau, le
+	#  microcode et la mémoire réservée au GPU intégré sont déjà retranchés.
+	#  Une barrette de 8 Go rapporte ~8 039 000 kB, soit 7,66 Gio — et la
+	#  division entière la classait à 7, donc SOUS le seuil des 8.
+	#  Conséquence : AUCUNE machine de 8 Go ne pouvait atteindre « performant »,
+	#  et tout le barème était décalé d'un cran vers le bas — il fallait 12 Go
+	#  pour être traité comme une machine de 8, et 24 pour obtenir « max ».
+	#  524288 = un demi-Gio en kB.
+	ram_gb=$(( (ram_kb + 524288) / 1048576 ))
+	#  On NE touche PAS au test des cœurs : nproc compte les fils d'exécution,
+	#  pas les cœurs physiques, et c'est le bon comptage ici.
 	cores="$(nproc 2>/dev/null || echo 1)"
 
 	if (( ram_gb < 3 || cores <= 2 )); then
@@ -379,20 +438,20 @@ detect_profile() {
 	elif (( ram_gb < 8 )); then
 		suggestion="medium"
 	elif (( ram_gb < 16 )); then
-		suggestion="performant"
+		#  ═══ UN PORTABLE N'A PAS DE GPU POUR ABSORBER LA COMPOSITION ═══
+		#  À 8 ou 12 Go, il gagne plus à couper les effets qu'à les garder :
+		#  c'est « vif ». Une tour de la même mémoire a presque toujours mieux
+		#  côté graphique et garde donc « performant ».
+		#  on_battery() répond « cette machine a une batterie », c'est-à-dire
+		#  « c'est un portable » — sa définition est remontée AU-DESSUS de
+		#  celle-ci exprès, pour être connue quand on l'appelle ici.
+		if on_battery; then suggestion="vif"; else suggestion="performant"; fi
 	else
 		suggestion="max"
 	fi
 	printf '%s' "$suggestion"
 }
 
-on_battery() {
-	local b
-	for b in /sys/class/power_supply/BAT*; do
-		[[ -e "$b" ]] && return 0
-	done
-	return 1
-}
 
 # =============================================================================
 #  Affichage
@@ -401,7 +460,7 @@ cmd_list() {
 	local cur; cur="$(current_profile)"
 	printf '\n%sProfils de performance%s\n\n' "$B$O" "$R"
 	local p
-	for p in petit medium performant max; do
+	for p in petit medium vif performant max; do
 		if [[ "$p" == "$cur" ]]; then
 			printf '  %s●%s %-11s %s\n' "$G" "$R" "$p" "$(label "$p")"
 		else
@@ -435,8 +494,14 @@ cmd_status() {
 	printf '  %-26s %s cœurs\n' "Processeur" "$(nproc 2>/dev/null || echo '?')"
 
 	local ram_kb ram_gb
-	ram_kb="$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-	ram_gb=$(( ram_kb / 1024 / 1024 ))
+	ram_kb="$(awk '/MemTotal/{print $2}' "${LEXOS_PERF_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)"
+	#  MÊME ARRONDI QUE detect_profile(), ET POUR LA MÊME RAISON. Celle-ci
+	#  n'était pas dans la consigne : c'est le banc qui l'a trouvée. La ligne
+	#  AFFICHE la mémoire — une machine de 8 Go annonçait « 7 Gio » à l'écran,
+	#  ce qui donne raison à l'utilisateur qui croit avoir été volé sur les
+	#  barrettes. Deux endroits qui calculent la même chose doivent la
+	#  calculer pareil, sinon l'affichage et la décision divergent.
+	ram_gb=$(( (ram_kb + 524288) / 1048576 ))
 	printf '  %-26s %s Gio\n' "Mémoire vive" "$ram_gb"
 
 	printf '  %-26s %s\n' "vm.swappiness" "$(sysctl -n vm.swappiness 2>/dev/null || echo '—')"
@@ -483,7 +548,7 @@ cmd_gui() {
 	cur="$(current_profile)"; sugg="$(detect_profile)"
 
 	local rows=() p
-	for p in petit medium performant max; do
+	for p in petit medium vif performant max; do
 		local mark=""
 		[[ "$p" == "$cur" ]]  && mark=" (actuel)"
 		[[ "$p" == "$sugg" ]] && mark="${mark} ★ conseillé"
@@ -510,7 +575,7 @@ Le changement s'applique tout de suite ; les effets de fenêtres à la prochaine
 # =============================================================================
 set_profile() {
 	local want
-	want="$(normalize "${1:-}")" || die "Profil inconnu : '${1:-}' (petit | medium | performant | max)"
+	want="$(normalize "${1:-}")" || die "Profil inconnu : '${1:-}' (petit | medium | vif | performant | max)"
 	PROFILE="$want"
 	load_profile "$PROFILE" || die "Profil invalide : $PROFILE"
 
@@ -559,6 +624,11 @@ ${B}PROFILS${R}
   ${A}medium${R}        $(label medium)
                 ${D}gouverneur adaptatif, compositing simple, réglages du noyau
                 par défaut — convient à la grande majorité des machines${R}
+
+  ${A}vif${R}           $(label vif)
+                ${D}gouverneur performance ET aucun effet : ni compositing, ni
+                zoom du dock, ni vignettes. zram à 40 % avec swappiness à 100 —
+                pour un portable à graphique intégré${R}
 
   ${A}performant${R}    $(label performant)
                 ${D}gouverneur performance, swappiness basse, TCP BBR,

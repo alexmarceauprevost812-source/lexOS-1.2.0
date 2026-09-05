@@ -1106,6 +1106,27 @@ jobs:
         if: ${{ !cancelled() }}
         run: sudo apt-get update -qq
 
+      - name: Le profil « vif », et l'arrondi de la RAM
+        if: ${{ !cancelled() }}
+        run: |
+          #  DEUX CHOSES, ET LA PREMIÈRE EST UN VRAI BOGUE.
+          #  « MemTotal » est TOUJOURS inférieur à la capacité annoncée : le
+          #  noyau, le microcode et la mémoire réservée au GPU intégré sont
+          #  déjà retranchés. Une barrette de 8 Go rapporte ~7,66 Gio, et la
+          #  division entière la classait à 7 — donc sous le seuil des 8.
+          #  AUCUNE machine de 8 Go ne pouvait atteindre « performant », et
+          #  tout le barème était décalé d'un cran : il fallait 12 Go pour
+          #  être traité comme une machine de 8, et 24 pour obtenir « max ».
+          #  Le banc rejoue le calcul sur des tailles réelles plutôt que de
+          #  se fier à la forme de la ligne.
+          #
+          #  « vif » comble un trou : « petit » coupe les effets mais étrangle
+          #  le processeur, « performant » libère le processeur mais garde le
+          #  compositing. La combinaison « processeur à fond, zéro fioriture »
+          #  n'existait nulle part — c'est ce qu'il faut à un portable à
+          #  graphique intégré.
+          bash tests/test_lexos_perf_vif.sh
+
       - name: Profils de performance — tous chargeables
         if: ${{ !cancelled() }}
         run: |

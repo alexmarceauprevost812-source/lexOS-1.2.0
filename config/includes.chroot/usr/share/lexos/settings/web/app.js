@@ -234,15 +234,22 @@ function sw(on, onclick){
     côtés n'est pas le même réglage aux yeux de celui qui s'en sert. */
 const PERF_LABEL = {petit:"Petit — machine modeste, autonomie maximale",
   medium:"Médium — équilibre, réglage par défaut",
+  vif:"Vif — processeur à fond, aucune fioriture",
   performant:"Performant — priorité à la vitesse",
   max:"Performance max — tout à fond, secteur recommandé"};
 
 /* --- Compte-tours de performance ----------------------------------------
    Un vrai cadran plutôt qu'une image figée : seule l'aiguille tourne, et la
    transition CSS la fait BALAYER jusqu'à la nouvelle valeur au lieu de sauter.
-   Échelle 0-9, comme un compte-tours : petit 2 · medium 4 · performant 6 ·
-   max 9, zone rouge à partir de 8. */
-const PERF_RPM = {petit:2, medium:4, performant:6, max:9};
+   Échelle 0-9, comme un compte-tours : petit 2 · medium 4 · vif 7 ·
+   performant 6 · max 9, zone rouge à partir de 8.
+   LE 7 DE « vif » N'EST PAS UNE COQUILLE, ET IL DÉPASSE EXPRÈS CELUI DE
+   « performant ». Les deux emploient le même gouverneur, mais « vif » ne
+   laisse RIEN redessiner l'écran : ni compositing, ni zoom du dock, ni
+   vignettes. Il pousse donc le processeur plus fort, tout en restant sous
+   « max », qui débride aussi le disque et la mémoire. Ne le « corrigez »
+   pas en 5. */
+const PERF_RPM = {petit:2, medium:4, vif:7, performant:6, max:9};
 const G_A0 = -125, G_A1 = 125, G_VMAX = 9;
 function gaugeAngle(v){ return G_A0 + (G_A1-G_A0)*(v/G_VMAX); }
 function gaugePt(a, r){
@@ -1370,7 +1377,7 @@ function contenu(cle){
              ${jauge(etat.batterie.niveau)}
            </div>`
         : srow("Alimentation","Aucune batterie — machine de bureau")}
-      <div class="row">${["petit","medium","performant","max"].map(p=>
+      <div class="row">${["petit","medium","vif","performant","max"].map(p=>
         `<button class="btn ${p===etat.perf?"sel":"ghost"}" onclick="setPerf('${p}')">${p}</button>`).join("")}</div>
       <div style="display:flex;align-items:center;gap:18px;margin-top:12px">
         <span style="color:var(--ac)">${perfGauge(132, etat.perf)}</span>
