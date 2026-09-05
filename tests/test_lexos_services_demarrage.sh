@@ -563,11 +563,28 @@ fi
 
 # -----------------------------------------------------------------------------
 titre "17. Le banc ne se tire pas dans le pied"
-MOTIF='(printf|echo|cat|sed)[^|]*[|][[:space:]]*grep[[:space:]]+-[a-zA-Z]*[qm]'
+#  ═══ DEUX LEÇONS ICI, ET LA SECONDE EST LA PLUS UTILE ═══
+#
+#  1. La course : « grep -q » sort au premier résultat et ferme le tuyau ; ce
+#     qui écrivait encore reçoit une erreur, et sous pipefail la condition
+#     devient FAUSSE alors que le motif A ÉTÉ TROUVÉ. Mesuré à 18 % sur ce
+#     dépôt. Dans un contrôle inversé, ça donne un faux VERT.
+#
+#  2. CE CONTRÔLE-CI ÉTAIT PLUS FAIBLE QUE CELUI DE L'INTÉGRATION CONTINUE, et
+#     c'est comme ça qu'un banc passe en local puis rougit en CI. Le motif est
+#     désormais LE MÊME, au caractère près : n'importe quoi suivi d'un tuyau
+#     vers « grep -q ». Un garde-fou local plus laxiste que le garde-fou
+#     central ne sert à rien — il donne juste l'illusion d'avoir vérifié.
+#
+#  Et les phrases ci-dessous n'écrivent PAS le motif littéralement : la CI lit
+#  le fichier décommenté, où une chaîne entre guillemets reste du texte. C'est
+#  encore la même famille — le contrôle lit la prose — prise cette fois dans
+#  ses propres messages.
+MOTIF='[^|]\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*[qm]'
 if grep -qE "$MOTIF" <<< "$(sed 's/[[:space:]]*#.*$//' "${BASH_SOURCE[0]}")"; then
-	non "un tuyau « texte | grep -q » traîne ici — course au tuyau cassé"
+	non "un texte repart dans un « grep » silencieux — course au tuyau cassé"
 else
-	ok "aucun « texte | grep -q » dans ce banc"
+	ok "aucun texte ne repart dans un « grep » silencieux"
 fi
 
 # -----------------------------------------------------------------------------

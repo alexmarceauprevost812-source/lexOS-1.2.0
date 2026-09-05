@@ -621,7 +621,16 @@ if [ -r "$BANC/theme1/lexos.script" ]; then
 		fi
 	fi
 	#  Nommément, parce que c'est CE nom-là qui a coûté une ISO.
-	if sed 's|//.*$||' "$BANC/theme1/lexos.script" | grep -q 'GetTime'; then
+	#
+	#  ET LE TEXTE NE REPART PAS DANS UN TUYAU. C'est un contrôle INVERSÉ —
+	#  « si ce motif est là, rougis » — et c'est le sens où la course au tuyau
+	#  cassé donne un FAUX VERT : « grep -q » sort au premier résultat, sed
+	#  reçoit une erreur d'écriture, et sous pipefail le tuyau entier échoue
+	#  alors que le motif interdit A ÉTÉ TROUVÉ. Le banc annoncerait que tout
+	#  va bien au moment précis où il devrait crier. On garde donc le texte en
+	#  mémoire, et grep le lit d'une chaîne.
+	SANS_COMMENTAIRES="$(sed 's|//.*$||' "$BANC/theme1/lexos.script")"
+	if grep -q 'GetTime' <<< "$SANS_COMMENTAIRES"; then
 		non "« GetTime » est de retour — cette fonction n'existe pas dans Plymouth"
 	else
 		ok "aucun appel à « GetTime » (la fonction qui n'existe pas)"

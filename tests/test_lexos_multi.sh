@@ -324,11 +324,16 @@ titre "12. Le banc ne se tire pas dans le pied"
 #  TROUVÉE devient une condition FAUSSE. On l'a mesuré à 18 % sur ce dépôt.
 #  D'où « grep motif <<< "$VAR" » partout ci-dessus, et ce contrôle pour que
 #  ça le reste.
-MOTIF_TUYAU='(printf|echo|cat)[^|]*[|][[:space:]]*grep'
-if grep -nE "$MOTIF_TUYAU" <<< "$(sed 's/[[:space:]]*#.*$//' "${BASH_SOURCE[0]}")" >/dev/null; then
-	non "un tuyau « texte | grep » traîne dans ce banc — course au tuyau cassé"
+#  LE MOTIF EST CELUI DE L'INTÉGRATION CONTINUE, AU CARACTÈRE PRÈS. Le mien
+#  était plus étroit — il n'attrapait qu'un producteur nommé (printf, echo,
+#  cat) — donc un banc pouvait passer ici et rougir en CI. Un garde-fou local
+#  plus laxiste que le garde-fou central ne sert à rien : il donne l'illusion
+#  d'avoir vérifié.
+MOTIF_TUYAU='[^|]\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*[qm]'
+if grep -qE "$MOTIF_TUYAU" <<< "$(sed 's/[[:space:]]*#.*$//' "${BASH_SOURCE[0]}")"; then
+	non "un texte repart dans un « grep » silencieux — course au tuyau cassé"
 else
-	ok "aucun « texte | grep » dans ce banc"
+	ok "aucun texte ne repart dans un « grep » silencieux"
 fi
 
 # -----------------------------------------------------------------------------
