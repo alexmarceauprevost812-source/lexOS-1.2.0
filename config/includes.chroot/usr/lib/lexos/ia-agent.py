@@ -114,16 +114,105 @@ def needs_confirmation(cmd):
     return None
 
 
+# =============================================================================
+#  Les couleurs de l'agent — prises dans la palette, et seulement sur un
+#  terminal
+# =============================================================================
+#  L'agent ressortait vert PAR ACCIDENT : tout ce que le terminal affiche est
+#  vert, alors ses réponses l'étaient aussi, sans qu'il l'ait jamais demandé.
+#  Et ses pastilles (», ✓, ✗) écrivaient des séquences ANSI EN DUR, quelle que
+#  soit la sortie : dans un tuyau ou une redirection, le fichier récupérait
+#  « \033[32m » au milieu du texte.
+#
+#  Deux règles, et ce sont celles du reste de LexOS (lexos-crt, lexfetch…) :
+#    · RIEN si la sortie n'est pas un terminal (tuyau, redirection, NO_COLOR) ;
+#    · le VERT vient de la palette écrite par lexos-theme-gen dans
+#      terminal.env (LEXOS_PS_MACHINE, la même valeur que l'invite), jamais
+#      d'un code écrit ici — sinon l'agent et l'invite finiraient par dire
+#      deux verts différents.
+#  Et RIEN EN MODE JOUR : le vert clair de nuit sur le crème ne se lit pas
+#  (2,64:1 mesuré dans lexos-theme-gen). De jour, l'encre par défaut du
+#  terminal est déjà le vert foncé de la palette de jour ; on ne rajoute rien.
+def _terminal_env():
+    """Lit ~/.config/lexos/terminal.env — le fichier que lexos-theme-gen
+    écrit et que l'invite relit. Un fichier absent ou tordu rend {} : l'agent
+    doit répondre, coloré ou pas."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    valeurs = {}
+    try:
+        with open(os.path.join(base, "lexos", "terminal.env"), encoding="utf-8") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if not ligne or ligne.startswith("#") or "=" not in ligne:
+                    continue
+                cle, _, val = ligne.partition("=")
+                valeurs[cle.strip()] = val.strip().strip("'\"")
+    except (OSError, UnicodeDecodeError):
+        pass
+    return valeurs
+
+
+def _couleurs():
+    """Les séquences à employer — ou des chaînes vides quand il ne faut rien
+    colorer. Calculées une fois, à l'import : la sortie ne change pas de
+    nature en cours de route."""
+    vide = {"accent": "", "vert": "", "rouge": "", "dim": "", "fin": "", "reponse": ""}
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return vide
+    env = _terminal_env()
+    #  Couleur vraie quand le terminal l'annonce, palette 256 sinon — la
+    #  même bascule que __lexos_couleurs dans interactive.sh.
+    vrai = os.environ.get("COLORTERM", "") in ("truecolor", "24bit")
+    vert = env.get("LEXOS_PS_MACHINE" if vrai else "LEXOS_PS_MACHINE_256") or "38;5;35"
+    rouge = env.get("LEXOS_PS_ERREUR" if vrai else "LEXOS_PS_ERREUR_256") or "1;38;5;196"
+    dim = env.get("LEXOS_PS_DIM" if vrai else "LEXOS_PS_DIM_256") or "2"
+    jour = env.get("LEXOS_TERM_EFFECTIF", "nuit") == "jour"
+    #  L'ACCENT AUSSI VIENT DE LÀ. Le « » » et le « ! » étaient orange 208 en
+    #  dur : un utilisateur qui a choisi l'accent bleu gardait un agent orange.
+    #  LEXOS_TERM_CURSEUR est l'accent tel que le terminal le porte (le
+    #  curseur est peint avec) ; on le convertit en couleur vraie quand le
+    #  terminal la comprend, sinon 208 reste le repli de toujours.
+    accent = "38;5;208"
+    hexa = env.get("LEXOS_TERM_CURSEUR", "")
+    if vrai and len(hexa) == 7 and hexa.startswith("#"):
+        try:
+            accent = "38;2;%d;%d;%d" % tuple(int(hexa[i:i + 2], 16) for i in (1, 3, 5))
+        except ValueError:
+            pass
+    return {
+        "accent": f"\033[{accent}m",
+        "vert": f"\033[{vert}m",
+        "rouge": f"\033[{rouge}m",
+        "dim": f"\033[{dim}m",
+        "fin": "\033[0m",
+        #  Le cadre des réponses : le vert de la palette, et rien de jour.
+        "reponse": "" if jour else f"\033[{vert}m",
+    }
+
+
+C = _couleurs()
+
+
 def say(msg):
-    print(f"\033[38;5;208m»\033[0m {msg}")
+    print(f"{C['accent']}»{C['fin']} {msg}")
 
 
 def ok(msg):
-    print(f"\033[32m✓\033[0m {msg}")
+    print(f"{C['vert']}✓{C['fin']} {msg}")
 
 
 def err(msg):
-    print(f"\033[31m✗\033[0m {msg}", file=sys.stderr)
+    print(f"{C['rouge']}✗{C['fin']} {msg}", file=sys.stderr)
+
+
+def reponse(texte):
+    """Ce que l'agent DIT — encadré du vert de la palette sur un terminal de
+    nuit, nu partout ailleurs. Le « fin » referme toujours : la ligne suivante
+    ne doit pas hériter d'une couleur qu'elle n'a pas demandée."""
+    if not C["reponse"]:
+        print(texte)
+        return
+    print(f"{C['reponse']}{texte}{C['fin']}")
 
 
 SYSTEM_PROMPT = (
@@ -209,7 +298,11 @@ def main():
         action = parsed.get("action")
 
         if action == "fini":
-            ok(parsed.get("reponse", "Terminé."))
+            #  La conclusion est ce que l'agent DIT : elle passe par reponse(),
+            #  qui la peint du vert de la palette — sur un terminal de nuit
+            #  seulement — au lieu de compter sur la couleur par défaut.
+            ok("Terminé.")
+            reponse(parsed.get("reponse", ""))
             return 0
 
         if action != "run":
@@ -234,7 +327,7 @@ def main():
                               "content": f"Commande refusée ({reason_blocked}). Propose autre chose."})
             continue
 
-        print(f"\033[2m[{step}/{MAX_STEPS}]\033[0m {raison}")
+        print(f"{C['dim']}[{step}/{MAX_STEPS}]{C['fin']} {raison}")
         print(f"  $ {cmd}")
 
         # --auto ne lève la confirmation que pour les commandes de LECTURE
@@ -243,7 +336,7 @@ def main():
         doubt = needs_confirmation(cmd)
         if not auto or doubt:
             if doubt:
-                print(f"  \033[33m!\033[0m Cette commande peut modifier ta machine — {doubt}.")
+                print(f"  {C['accent']}!{C['fin']} Cette commande peut modifier ta machine — {doubt}.")
             if not sys.stdin.isatty():
                 err("Confirmation impossible (pas de terminal) — commande non exécutée.")
                 messages.append({"role": "assistant", "content": content})

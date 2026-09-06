@@ -204,6 +204,68 @@ if command -v xfce4-terminal >/dev/null 2>&1 \
 	else
 		non "xfce4-terminal a changé une valeur : police $AVANT_FONT->$APRES_FONT, avant-plan $AVANT_FG->$APRES_FG, fond $AVANT_BG->$APRES_BG"
 	fi
+
+	# ---------------------------------------------------------------------
+	#  ═══ LA FRAPPE EST BLANCHE — MESURÉ SUR L'ÉCRAN, PAS DANS UN FICHIER ═══
+	#  Une consigne a cru la frappe encore verte en lisant TERM_FG. Le seul
+	#  juge, c'est le pixel : on ouvre un bash qui charge interactive.sh dans
+	#  le vrai xfce4-terminal, on TAPE « echo BONJOUR » avec xdotool, on
+	#  photographie, et on compte les pixels blancs et verts de la première
+	#  ligne. Sans xdotool, import ou PIL, le contrôle se saute en le disant.
+	if command -v xdotool >/dev/null 2>&1 && command -v import >/dev/null 2>&1 \
+	   && python3 -c 'import PIL' 2>/dev/null; then
+		genere orange nuit
+		cat > "$BANC/t/.bashrc" <<EOF
+export PS1='\$ '
+. "$RACINE/config/includes.chroot/usr/share/lexos/shell/interactive.sh"
+EOF
+		DISP=":$((90 + RANDOM % 400))"
+		Xvfb "$DISP" -screen 0 1100x700x24 >/dev/null 2>&1 &
+		XVFB_PID=$!
+		sleep 1
+		( export DISPLAY="$DISP" HOME="$BANC/t" XDG_CONFIG_HOME="$BANC/t/.config" LEXOS_NO_BANNER=1
+		  dbus-run-session -- bash -c '
+			xfce4-terminal --disable-server --geometry=100x24 \
+				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
+			sleep 4
+			W="$(xdotool search --sync --class xfce4-terminal 2>/dev/null | head -1)"
+			[ -n "$W" ] && xdotool windowactivate --sync "$W" 2>/dev/null
+			sleep 0.5
+			xdotool type --delay 40 "echo BONJOUR"
+			sleep 0.8
+			import -window root "$1"
+		  ' _ "$BANC/frappe.png" ) >/dev/null 2>&1
+		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
+		if [ -s "$BANC/frappe.png" ]; then
+			#  Première ligne du terminal (les 30 premiers pixels de haut).
+			#  Le blanc franc est #FFFFFF exactement ; le vert est celui de
+			#  la palette, #00D700 (avec l'anticrénelage, on tolère ±8).
+			LU="$(python3 - "$BANC/frappe.png" <<'PYPX'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+w, h = im.size
+blanc = vert = 0
+for y in range(0, min(30, h)):
+    for x in range(w):
+        r, g, b = im.getpixel((x, y))
+        if (r, g, b) == (255, 255, 255): blanc += 1
+        elif abs(r) < 8 and abs(g - 215) < 8 and abs(b) < 8: vert += 1
+print(blanc, vert)
+PYPX
+)"
+			BLANC_PX="${LU%% *}"; VERT_PX="${LU##* }"
+			if [ "${BLANC_PX:-0}" -ge 40 ] && [ "${VERT_PX:-0}" -ge 200 ]; then
+				ok "sur l'écran : l'invite est verte ($VERT_PX px) et « echo BONJOUR » est BLANC ($BLANC_PX px)"
+			else
+				non "sur l'écran : $BLANC_PX px blancs et $VERT_PX px verts — la frappe n'est pas blanche sur une invite verte"
+			fi
+		else
+			non "la capture de la frappe n'a pas été produite"
+		fi
+	else
+		printf '  \033[2mpreuve par capture sautée — il manque xdotool, import (ImageMagick) ou PIL\033[0m\n'
+	fi
 else
 	MANQUE=""
 	command -v xfce4-terminal >/dev/null 2>&1 || MANQUE="${MANQUE} xfce4-terminal"
@@ -219,6 +281,145 @@ titre "4. lexos-theme-gen le dit dans son propre code — pas un secret retrouv�
 grep -q 'is not used anymore\|migrated' "$RACINE/config/includes.chroot/usr/bin/lexos-theme-gen" \
 	&& ok "la découverte est documentée dans lexos-theme-gen, pas seulement dans ce banc" \
 	|| non "rien dans lexos-theme-gen n'explique pourquoi ce fichier existe"
+
+
+# =============================================================================
+titre "5. Le blanc de la frappe, le vert de la palette, le jour intact — et l'agent"
+# =============================================================================
+#  ALEX : « ce qu'il tape en blanc franc ». La consigne qui l'a redit croyait
+#  la frappe encore verte (« TERM_FG=#00D700 : tout est vert, y compris ce
+#  qu'Alex tape »). C'est une lecture d'un seul rôle : TERM_FG est ce que la
+#  MACHINE écrit, TERM_TEXTE ce que l'on TAPE — et TERM_TEXTE vaut #FFFFFF
+#  depuis ee2f559, qui est dans toutes les ISO depuis la 111. Mesuré ici sur
+#  le vrai xfce4-terminal (section 3, plus haut) : la frappe est blanche.
+#
+#  CE QU'ON GARDE, ET QU'IL NE FAUT PAS « CORRIGER » : l'encre par défaut
+#  reste VERTE. Passer TERM_FG au blanc repeindrait toute la sortie des
+#  commandes, vider la case verte de la palette (elle est écrite ${TERM_FG}),
+#  et défaire la règle de couleur du dépôt — vert = ce que la machine dit,
+#  blanc = ce qu'on tape. Ce banc tient les deux moitiés ensemble.
+INTER="$RACINE/config/includes.chroot/usr/share/lexos/shell/interactive.sh"
+AGENT="$RACINE/config/includes.chroot/usr/lib/lexos/ia-agent.py"
+
+genere orange nuit
+ENV_NUIT="$BANC/t/.config/lexos/terminal.env"
+FG_N="$(sed -n 's/^LEXOS_TERM_FG=//p' "$ENV_NUIT")"
+TX_N="$(sed -n "s/^LEXOS_PS_TEXTE='\(.*\)'$/\1/p" "$ENV_NUIT")"
+[ "$FG_N" = "#00D700" ] \
+	&& ok "nuit : l'encre par défaut (ce que la machine écrit) reste verte, $FG_N" \
+	|| non "nuit : l'encre par défaut vaut « $FG_N » — la règle « vert = la machine » est cassée"
+[ "$TX_N" = "38;2;255;255;255" ] \
+	&& ok "nuit : la frappe est le blanc franc (38;2;255;255;255)" \
+	|| non "nuit : la frappe vaut « $TX_N », attendu 38;2;255;255;255"
+#  La case verte de la palette (position 2, « vert normal ») est écrite
+#  ${TERM_FG} dans lexos-theme-gen : si quelqu'un passe TERM_FG au blanc, il
+#  n'y a plus de vert nulle part. On lit la palette réellement écrite.
+PAL_N="$(sed -n 's/.*name="color-palette"[^>]*value="\([^"]*\)".*/\1/p' "$XML")"
+VERT_N="$(printf '%s' "$PAL_N" | cut -d';' -f3)"
+case "$VERT_N" in
+	"#00D700"|"#00d700") ok "nuit : la case verte de la palette est bien verte ($VERT_N)" ;;
+	*) non "nuit : la case verte de la palette vaut « $VERT_N » — plus de vert dans les 16 couleurs" ;;
+esac
+#  Un blanc FRANC : la couleur 15 (« blanc brillant ») est la même valeur que
+#  la frappe — une seule valeur, pas deux libres de diverger.
+BLANC_N="$(printf '%s' "$PAL_N" | cut -d';' -f16)"
+case "$BLANC_N" in
+	"#FFFFFF"|"#ffffff") ok "nuit : le blanc brillant de la palette est #FFFFFF, pas un gris clair" ;;
+	*) non "nuit : le blanc brillant vaut « $BLANC_N »" ;;
+esac
+
+#  LE JOUR N'A PAS BOUGÉ : crème, encre foncée, frappe en encre foncée.
+genere orange jour
+ENV_JOUR="$BANC/t/.config/lexos/terminal.env"
+FG_J="$(sed -n 's/^LEXOS_TERM_FG=//p' "$ENV_JOUR")"
+TX_J="$(sed -n "s/^LEXOS_PS_TEXTE='\(.*\)'$/\1/p" "$ENV_JOUR")"
+[ "$FG_J" = "#0B6B3A" ] && ok "jour : encre par défaut $FG_J (inchangée)" \
+	|| non "jour : l'encre par défaut a changé ($FG_J)"
+[ "$TX_J" = "38;2;27;26;23" ] && ok "jour : la frappe reste l'encre foncée #1B1A17 — pas du blanc sur crème" \
+	|| non "jour : la frappe vaut « $TX_J » — du blanc sur crème serait invisible"
+
+#  L'INVITE LIT BIEN CES DEUX RÔLES, et pas un seul : on la DÉVELOPPE dans un
+#  vrai bash, avec le terminal.env de nuit, et on regarde les séquences.
+#  « ${PS1@P} » est le développement d'invite de bash lui-même — le même code
+#  que celui qui dessine l'invite, pas une imitation.
+#  EN OCTETS BRUTS, PAS PAR « cat -v » : cat -v réécrit l'UTF-8 (« ✓ » devient
+#  « M-bM-^\M-^S ») et les comparaisons ratent sur du texte juste. Les
+#  séquences sont comparées avec leur ESC réel ($'\033'), et l'invite
+#  développée porte les marqueurs \001 … \002 de readline autour de chaque
+#  séquence : le blanc non refermé est donc suivi d'un \002 final.
+ESC=$'\033'; FIN_RL=$'\002'
+genere orange nuit
+DEV="$(HOME="$BANC/t" XDG_CONFIG_HOME="$BANC/t/.config" COLORTERM=truecolor TERM=xterm-256color \
+	bash --norc -ic ". '$INTER' 2>/dev/null; printf '%s' \"\${PS1@P}\"" 2>/dev/null)"
+case "$DEV" in
+	*"${ESC}[38;2;255;255;255m${FIN_RL}") ok "l'invite se TERMINE par le blanc de la frappe, non refermé — c'est lui qui déborde sur ce qu'on tape" ;;
+	*) non "l'invite ne se termine pas par le blanc non refermé : la frappe prendrait la couleur du chevron" ;;
+esac
+case "$DEV" in
+	*"${ESC}[38;2;0;215;0m"*) ok "…et le vert de la machine y est bien la valeur du terminal (38;2;0;215;0)" ;;
+	*) non "le vert de l'invite n'est pas celui du terminal" ;;
+esac
+
+# -----------------------------------------------------------------------------
+#  L'AGENT IA — vert de la PALETTE, et seulement sur un terminal de nuit.
+#  Il ressortait vert par accident (tout l'était) et ses pastilles écrivaient
+#  des séquences ANSI en dur, même dans un tuyau. On l'interroge dans six
+#  situations avec une fausse sortie qui DIT si elle est un terminal.
+cat > "$BANC/sonde_agent.py" <<'PYAG'
+import importlib.util, sys, os, io, contextlib
+spec = importlib.util.spec_from_file_location("agent", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+class Sortie(io.StringIO):
+    def isatty(self): return os.environ.get("SONDE_TTY") == "1"
+out = Sortie()
+with contextlib.redirect_stdout(out):
+    m.C = m._couleurs()
+    m.ok("pastille"); m.reponse("réponse")
+sys.stdout.write(out.getvalue())
+PYAG
+agent() { # agent <tty:0|1> <xdg-config> [env…]
+	local tty="$1" xdg="$2"; shift 2
+	env "$@" SONDE_TTY="$tty" XDG_CONFIG_HOME="$xdg" python3 "$BANC/sonde_agent.py" "$AGENT" 2>/dev/null
+}
+NU="$(printf '✓ pastille\nréponse\n')"
+S="$(agent 0 "$BANC/t/.config" COLORTERM=truecolor)"
+[ "$S" = "$NU" ] \
+	&& ok "agent, dans un tuyau : aucune séquence ANSI — le fichier reste propre" \
+	|| non "agent, dans un tuyau : des séquences fuient → $S"
+S="$(agent 1 "$BANC/t/.config" COLORTERM=truecolor)"
+case "$S" in
+	*"${ESC}[38;2;0;215;0mréponse${ESC}[0m"*) ok "agent, terminal de nuit : la réponse est encadrée du vert DE LA PALETTE (38;2;0;215;0)" ;;
+	*) non "agent, terminal de nuit : le cadre n'est pas le vert de la palette → $S" ;;
+esac
+S="$(agent 1 "$BANC/t/.config" COLORTERM=)"
+case "$S" in
+	*"${ESC}[38;5;40m"*) ok "agent, sans couleur vraie : il retombe sur la palette 256 (38;5;40)" ;;
+	*) non "agent, sans couleur vraie : mauvais repli → $S" ;;
+esac
+genere orange jour
+S="$(agent 1 "$BANC/t/.config" COLORTERM=truecolor)"
+case "$S" in
+	*'mréponse'*) non "agent, de JOUR : la réponse est encadrée — du vert de nuit sur crème ne se lit pas" ;;
+	*'réponse'*) ok "agent, de jour : la réponse n'est pas encadrée (l'encre de jour suffit)" ;;
+	*) non "agent, de jour : rien ne sort → $S" ;;
+esac
+S="$(agent 1 "$BANC/t/.config" NO_COLOR=1)"
+[ "$S" = "$NU" ] \
+	&& ok "agent, NO_COLOR : muet, comme le reste de LexOS" \
+	|| non "agent, NO_COLOR : il colore quand même → $S"
+genere orange nuit
+#  Plus aucune séquence ANSI en dur dans le fichier — hors « \033[0m », la
+#  remise à zéro, qui n'est pas une couleur.
+#  Pas de tuyau vers « grep -q » (la CI le refuse : sous pipefail, un
+#  producteur qui écrit encore fait échouer tout le tuyau). On matérialise la
+#  liste, puis on la juge.
+DURES="$(grep -nE '\\033\[[0-9;]*[1-9][0-9;]*m' "$AGENT" | grep -v '^[0-9]*: *#' | grep -v '0m"' || true)"
+if [ -n "$DURES" ]; then
+	non "ia-agent.py écrit encore une couleur en dur :"
+	printf '%s\n' "$DURES" | sed 's/^/      /' >&2
+else
+	ok "ia-agent.py n'écrit plus aucune couleur en dur — tout vient de la palette"
+fi
 
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]
