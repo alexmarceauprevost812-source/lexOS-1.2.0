@@ -1214,6 +1214,31 @@ jobs:
           #  jamais vu retenir personne n'est pas un filet.
           bash tests/test_lexos_services_demarrage.sh
 
+      - name: L'avertissement d'installation tient dans l'écran
+        if: ${{ !cancelled() }}
+        run: |
+          #  ═══ LA PIRE FENÊTRE DU DÉPÔT POUR CE DÉFAUT ═══
+          #  C'est la dernière chose qu'on voit avant qu'un disque puisse être
+          #  effacé, et elle n'avait aucune hauteur : yad la calculait sur les
+          #  ~40 lignes du texte. MESURÉ sur un serveur X de 1920×1080 : la
+          #  fenêtre faisait 2146 px de haut — 1066 px hors écran. La moitié
+          #  basse, boutons compris, était invisible.
+          #
+          #  DEUX FAÇONS DE S'Y TROMPER, ET LE BANC TIENT LES DEUX :
+          #    · l'avertissement TRONQUÉ — BitLocker et Secure Boot sont à la
+          #      FIN du texte, et ce sont eux qui coûtent un disque quand on ne
+          #      les a pas lus. Couper vaut donc pire que faire long ;
+          #    · les BOUTONS hors écran — et alors quelqu'un appuie sur Entrée
+          #      sans les voir. Ce que fait Entrée devient tout.
+          #
+          #  ON INSTALLE UN VRAI SERVEUR X ET UN VRAI yad. Une option
+          #  « --height » présente dans le code ne prouve rien : le banc OUVRE
+          #  le dialogue à 1920×1080 et à 1366×768 et lit sa géométrie. Un
+          #  contrôle textuel serait resté vert sur la fenêtre de 2146 px.
+          sudo apt-get install -y --no-install-recommends \
+            xvfb yad zenity xdotool >/dev/null
+          bash tests/test_lexos_install_avertissement.sh
+
       - name: Profils de performance — tous chargeables
         if: ${{ !cancelled() }}
         run: |

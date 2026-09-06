@@ -88,32 +88,108 @@ Disques détectés sur cette machine :"
 # =============================================================================
 #  Mode graphique
 # =============================================================================
+#  ═══ LA HAUTEUR DE L'ÉCRAN, LUE ET JAMAIS SUPPOSÉE ═══
+#  La fenêtre d'avertissement n'avait pas de hauteur : yad la calculait sur
+#  ~40 lignes de texte, elle dépassait 1080 px, et LES BOUTONS TOMBAIENT SOUS
+#  L'ÉCRAN. Constaté sur un 1920×1080, donc sur la majorité des machines.
+#
+#  ET UNE CONSTANTE NE CORRIGE PAS ÇA. « --height=620 » irait sur un 1080p et
+#  déborderait encore sur le 1366×768 d'un netbook. On lit donc la hauteur
+#  réelle et on plafonne à ce que l'écran peut montrer.
+#
+#  LA CASCADE FINIT SUR CE QUI EST GARANTI. xrandr et xdotool sont pratiques
+#  mais ne sont dans AUCUNE liste stricte : s'appuyer sur eux, c'est reposer
+#  le problème un cran plus loin. python3-gi, lui, est au socle — il ferme la
+#  cascade, et 768 ferme le tout au cas où même l'écran ne répondrait pas.
+ecran_hauteur() {
+	local h=""
+	if command -v xrandr >/dev/null 2>&1; then
+		h="$(xrandr 2>/dev/null | awk '/\*/ {split($1, a, "x"); print a[2]; exit}')"
+	fi
+	if ! [[ "$h" =~ ^[0-9]+$ ]] && command -v xdotool >/dev/null 2>&1; then
+		h="$(xdotool getdisplaygeometry 2>/dev/null | awk '{print $2}')"
+	fi
+	if ! [[ "$h" =~ ^[0-9]+$ ]] && command -v python3 >/dev/null 2>&1; then
+		h="$(python3 -c "
+import gi
+gi.require_version('Gdk', '3.0')
+from gi.repository import Gdk
+d = Gdk.Display.get_default()
+m = d.get_monitor(0) if d else None
+print(m.get_geometry().height if m else 0)" 2>/dev/null)"
+	fi
+	[[ "$h" =~ ^[0-9]+$ ]] && (( h > 200 )) || h=768
+	printf '%s' "$h"
+}
+
+#  La hauteur du dialogue : ce qu'on voudrait, borné par ce que l'écran peut
+#  montrer. Les 120 px réservés sont la barre du haut, le cadre de la fenêtre
+#  et une marge — de quoi garantir que la RANGÉE DE BOUTONS reste visible,
+#  qui est le seul élément non négociable de cette fenêtre.
+hauteur_dialogue() {
+	local voulue="${1:-720}" ecran plafond
+	ecran="$(ecran_hauteur)"
+	plafond=$(( ecran - 120 ))
+	(( plafond < 320 )) && plafond=320
+	(( voulue > plafond )) && voulue=$plafond
+	printf '%s' "$voulue"
+}
+
 gui_confirm() {
 	local disks; disks="$(list_disks)"
+	local h; h="$(hauteur_dialogue 720)"
+
+	#  ═══ LE CORPS DÉFILE, IL N'EST PAS TRONQUÉ ═══
+	#  Un avertissement coupé est PIRE qu'un avertissement long : BitLocker et
+	#  Secure Boot sont justement à la fin, et ce sont eux qui coûtent un
+	#  disque quand on ne les a pas lus. « --text-info » donne une zone de
+	#  texte qui défile, et surtout : les boutons vivent HORS de cette zone,
+	#  donc ils restent à l'écran quelle que soit la longueur du texte.
+	local corps="${WARN_BODY}
+
+${disks}"
 
 	if command -v yad >/dev/null 2>&1; then
-		yad --title="$WARN_TITLE" \
+		#  ═══ L'ORDRE DES BOUTONS NE CHANGE PAS, ET C'EST MESURÉ ═══
+		#  yad donne le focus au PREMIER bouton déclaré, pas au dernier :
+		#  Entrée déclenche donc « Annuler », ce qui est le comportement voulu.
+		#  Vérifié en envoyant une vraie touche Entrée aux deux ordres sur un
+		#  serveur X : « Annuler puis Installer » → Annuler ; l'ordre inverse
+		#  → Installer. Inverser aurait CRÉÉ le danger qu'on cherchait à
+		#  écarter. Avec --text-info, le focus part même dans la zone de texte
+		#  et Entrée ne déclenche plus aucun bouton du tout.
+		printf '%s\n' "$corps" | yad --title="$WARN_TITLE" \
 			--window-icon=lexos --image=dialog-warning --image-on-top \
-			--width=640 --center --borders=16 \
-			--text="<span size='large' weight='bold'>⚠ Cette opération peut effacer ton disque dur</span>
-
-$(sed 's/&/\&amp;/g; s/</\&lt;/g' <<< "$WARN_BODY")
-<tt>${disks}</tt>" \
+			--width=640 --height="$h" --center --borders=16 \
+			--text-info --wrap \
+			--text="<span size='large' weight='bold'>⚠ Cette opération peut effacer ton disque dur</span>" \
 			--button="Annuler — rester en démo:1" \
 			--button="J'ai compris, installer:0"
 		return $?
 	fi
 
 	if command -v zenity >/dev/null 2>&1; then
-		zenity --question --width=560 \
+		#  ═══ ICI, LE DANGER ÉTAIT RÉEL — ET IL A FALLU TROIS MESURES ═══
+		#  1. « zenity --question --ok-label=Installer » donne le focus à
+		#     INSTALLER : Entrée lançait l'installation. Le danger signalé est
+		#     donc bien réel de ce côté-ci (il ne l'était pas côté yad).
+		#  2. « --default-cancel » corrige ça — mais il est SILENCIEUSEMENT
+		#     IGNORÉ avec « --text-info », qui est la seule forme qui fait
+		#     défiler le texte. Mesuré : Entrée installe quand même.
+		#  3. Inverser les rôles des deux boutons aurait été pire : zenity rend
+		#     le même code (1) pour « Annuler » ET pour la fermeture de la
+		#     fenêtre. Fermer la fenêtre serait alors devenu « installer ».
+		#
+		#  D'OÙ LA CASE À COCHER, qui répond aux quatre exigences à la fois et
+		#  vaut mieux qu'un bouton par défaut : tant qu'elle n'est pas cochée,
+		#  le bouton d'installation est INSENSIBLE. Mesuré : Entrée sans avoir
+		#  coché ne fait rien du tout. On ne peut plus lancer l'installation
+		#  par un appui distrait — il faut un geste qui dit « j'ai lu ».
+		printf '%s\n' "$corps" | zenity --text-info --width=620 --height="$h" \
 			--title="$WARN_TITLE" \
-			--text="⚠ Cette opération peut effacer ton disque dur.
-
-${WARN_BODY}
-${disks}
-
-Continuer ?" \
-			--ok-label="Installer" --cancel-label="Annuler"
+			--checkbox="J'ai lu l'avertissement en entier et je comprends que mon disque peut être effacé" \
+			--ok-label="J'ai compris, installer" \
+			--cancel-label="Annuler — rester en démo"
 		return $?
 	fi
 	return 2
