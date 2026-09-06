@@ -61,12 +61,30 @@ titre "2. La section Écrans dit POURQUOI elle est vide"
 # =============================================================================
 #  On appelle la vraie fonction du pont, dans trois environnements. Sans ça on
 #  ne saurait que ce que le code a l'air de faire.
+#  ═══ « SANS xrandr » SE FABRIQUE, IL NE SE SUBIT PAS ═══
+#  Ce PATH se terminait par « /usr/bin:/bin ». Le cas « sans-xrandr » ne
+#  tenait donc que tant que la machine n'avait pas x11-xserver-utils — et
+#  installer mpv suffit à l'amener en dépendance. Mesuré : le banc rougissait
+#  alors pour une raison qui ne regarde pas le dépôt. On fabrique l'absence
+#  avec un PATH de liens symboliques d'où « xrandr » est retiré, comme le
+#  dépôt le fait déjà pour convert, ffmpeg, mpv et lightdm.
+SANS_XR="$BANC/sans-xrandr"
+rm -rf "$SANS_XR"; mkdir -p "$SANS_XR"
+for d in /usr/bin /bin /usr/sbin /sbin; do
+	[ -d "$d" ] || continue
+	for f in "$d"/*; do
+		b="$(basename "$f")"
+		case "$b" in xrandr) continue ;; esac
+		[ -e "$SANS_XR/$b" ] || ln -s "$f" "$SANS_XR/$b" 2>/dev/null
+	done
+done
+
 sonde() { # sonde <XDG_SESSION_TYPE> <DISPLAY> <avec-xrandr|sans-xrandr>
 	rm -rf "${BANC:?}/bin"; mkdir -p "$BANC/bin"
 	if [ "$3" = "avec-xrandr" ]; then
 		printf '#!/bin/sh\nexit 0\n' > "$BANC/bin/xrandr"; chmod +x "$BANC/bin/xrandr"
 	fi
-	PATH="$BANC/bin:/usr/bin:/bin" XDG_SESSION_TYPE="$1" DISPLAY="$2" \
+	PATH="$BANC/bin:$SANS_XR" XDG_SESSION_TYPE="$1" DISPLAY="$2" \
 	python3 - "$SETTINGS" <<'PY'
 import sys, importlib.util, os
 spec = importlib.util.spec_from_file_location("s", sys.argv[1])
