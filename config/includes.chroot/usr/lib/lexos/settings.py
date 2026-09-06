@@ -102,9 +102,21 @@ def _run(argv, *, detach=False):
         return {"ok": False, "erreur": f"Outil absent : {argv[0]}"}
     if detach:
         subprocess.Popen(argv, start_new_session=True,
+                         stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"ok": True}
-    r = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    #  ═══ stdin FERMÉE, ET CE N'EST PAS UN DÉTAIL D'HYGIÈNE ═══
+    #  capture_output ne redirige que la sortie : l'entrée, elle, est HÉRITÉE.
+    #  Si ce serveur a été lancé depuis un terminal — ce qui arrive à chaque
+    #  mise au point — tout ce qu'il lance voit ce terminal. Un outil qui
+    #  demande un mot de passe (sudo) le demanderait alors sur une fenêtre que
+    #  personne ne regarde, et le bouton resterait figé jusqu'au délai de
+    #  120 s. Avec DEVNULL, aucun enfant ne peut lire quoi que ce soit : celui
+    #  qui a besoin d'un mot de passe doit passer par pkexec, qui a une vraie
+    #  fenêtre. C'est aussi ce qui rend le choix de lexos-perf (« y a-t-il un
+    #  terminal ? ») juste dans les deux sens.
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=120,
+                       stdin=subprocess.DEVNULL)
     sortie = (r.stdout or r.stderr).strip()[-4000:]
     if r.returncode == 0:
         return {"ok": True, "sortie": sortie}
@@ -271,7 +283,18 @@ def _xfce(module):
     return {"ok": False, "erreur": "Aucun outil de réglages XFCE installé"}
 
 
-PERFS = {"petit", "medium", "performant", "max"}
+#  ═══ CINQ PROFILS, PAS QUATRE ═══
+#  « vif » manquait ici, et NULLE PART AILLEURS : lexos-perf le reconnaît
+#  (normalize, label, load_profile, detect_profile le suggère même aux
+#  portables de 8 Go), la page l'affiche dans sa rangée de boutons et lui
+#  donne 7 000 tr/min sur le compte-tours. Seul ce garde-fou l'ignorait —
+#  alors le bouton partait, la réponse revenait « profil inconnu », et le
+#  seul profil que la machine d'Alex se voit RECOMMANDER était le seul qu'on
+#  refusait de lui appliquer.
+#
+#  La liste doit rester la même que celle de normalize() dans lexos-perf ;
+#  tests/test_lexos_perf_vif.sh compare les deux et rougit si elles divergent.
+PERFS = {"petit", "medium", "vif", "performant", "max"}
 THEMES = {"sombre", "clair"}
 ACCENTS = {"orange", "orange-rouge", "bleu", "rouge", "vert", "gris",
            "violet", "neon"}
@@ -454,10 +477,48 @@ def act_avion(arg):
     return _run(["lexos-net", "avion", arg])
 
 
+#  ═══ POURQUOI _run ET NON _run_admin, ALORS QUE ÇA DEMANDE ROOT ═══
+#  Un profil a DEUX moitiés. La moitié système — gouverneur du processeur,
+#  sysctl, ordonnanceur d'entrées-sorties, zram, services — exige root. La
+#  moitié session — compositing, effets CRT, zoom du dock, vignettes — est
+#  faite de réglages de LA session de l'utilisateur, écrits dans SON xfconf.
+#
+#  Passer tout lexos-perf par _run_admin() reviendrait à appliquer la seconde
+#  moitié dans la session de ROOT, c'est-à-dire nulle part : le dock d'Alex ne
+#  bougerait pas, la composition resterait allumée, et la page annoncerait un
+#  succès complet. C'est pourquoi l'élévation n'est PAS ici mais dans
+#  lexos-perf, qui se rappelle lui-même pour la seule moitié système à travers
+#  pkexec (règle org.lexos.perf.policy) ou sudo selon qu'il y a un terminal.
+#
+#  CE QU'ON GAGNE À LE LAISSER LÀ-BAS : « lexos-perf vif » tapé au terminal
+#  suit exactement le même chemin que le bouton. Une seule orchestration, pas
+#  deux à garder d'accord.
 def act_perf(arg):
     if arg not in PERFS:
         return {"ok": False, "erreur": "profil inconnu"}
-    return _run(["lexos-perf", arg])
+    r = _run(["lexos-perf", arg])
+    #  Code 1 = « la moitié session est passée, la moitié système a été
+    #  refusée ». lexos-perf écrit alors son motif sur la SORTIE STANDARD,
+    #  que _run remonte dans « erreur » — la page a donc déjà de quoi le dire.
+    #  On n'ajoute une phrase que dans le cas où l'on connaît une cause plus
+    #  précise que lui : aucun agent d'authentification dans la session, et
+    #  donc aucune fenêtre de mot de passe possible. Lui ne peut pas le
+    #  savoir ; nous, si.
+    #  ON NE DEVINE PAS : on reconnaît la phrase que lexos-perf écrit dans ce
+    #  cas précis. Sans ce filtre, un profil refusé pour une TOUTE autre raison
+    #  — outil absent, /etc/lexos non inscriptible — aurait reçu le message du
+    #  mot de passe, et l'utilisateur serait parti chercher un agent polkit
+    #  pour un problème qui n'en est pas un. Le banc vérifie que les deux
+    #  phrases se correspondent encore.
+    if (not r.get("ok")
+            and "plan système refusé" in (r.get("erreur") or "")
+            and os.geteuid() != 0 and not _agent_polkit()):
+        r["erreur"] = ("Le profil est appliqué à la session, mais la moitié "
+                       "système demande le mot de passe administrateur et "
+                       "aucune fenêtre de mot de passe n'existe sur cette "
+                       "session (agent polkit absent). Installe-le : "
+                       "sudo apt install lxpolkit, puis rouvre la session.")
+    return r
 
 
 def act_lumiere(arg):

@@ -1081,9 +1081,60 @@ async function basculeAvion(){
   const r = await api("avion", "toggle");
   if(r.ok){ etat.avion = etat.avion === "on" ? "off" : "on"; rendSection(); }
 }
+/*  ═══ L'AIGUILLE SAUTAIT AU LIEU DE BALAYER ═══
+    La transition est pourtant écrite depuis toujours dans style.css :
+    « .gauge .needle { transition: transform .9s cubic-bezier(...) } ». Elle
+    n'a jamais joué, et la raison n'est pas dans la feuille de style.
+
+    setPerf() appelait rendSection(), qui fait « content.innerHTML = … ». Le
+    <g class="needle"> était donc DÉTRUIT puis RECRÉÉ, déjà tourné à sa valeur
+    d'arrivée. Or une transition CSS interpole entre deux valeurs successives
+    d'un MÊME élément : un élément qui vient de naître n'a pas de valeur
+    précédente, sa première valeur calculée est la dernière. Rien à
+    interpoler, donc rien à animer.
+
+    MESURÉ, pas déduit : sur un chromium sans tête, en repassant de « petit »
+    (-69,44°) à « max » (125°), l'angle calculé du <g> vaut 125 dès la
+    première image et à 60, 200, 450 et 950 ms — aucune valeur intermédiaire,
+    jamais. En ne changeant QUE le transform du <g> existant, la même mesure
+    donne -55,98 → 38,85 → 105,47 → 129,74 → 125 : le balayage, et le léger
+    dépassement que la courbe de Bézier promet.
+
+    On met donc à jour les quatre choses qui changent — les classes des cinq
+    boutons, l'angle de l'aiguille, le titre, le libellé — au lieu de
+    reconstruire la section. Si l'on n'est plus sur Énergie (rafraîchissement
+    arrivé après un changement de section), il n'y a rien à animer : on
+    retombe sur rendSection(), qui redessinera la bonne section. */
+function majPerf(p){
+  etat.perf = p;
+  const boutons = document.getElementById("perf-boutons");
+  const cadran  = document.getElementById("perf-cadran");
+  if(!boutons || !cadran){ rendSection(); return; }
+  boutons.querySelectorAll("button[data-perf]").forEach(b=>{
+    //  Exactement une des deux classes, jamais les deux ni aucune : la règle
+    //  d'appui de style.css s'écrit « .btn:not(.ghost):not(.sel):active ».
+    const choisi = b.dataset.perf === p;
+    b.classList.toggle("sel", choisi);
+    b.classList.toggle("ghost", !choisi);
+  });
+  const aiguille = cadran.querySelector(".needle");
+  if(aiguille) aiguille.style.transform = `rotate(${gaugeAngle(PERF_RPM[p] ?? 4)}deg)`;
+  const titre = document.getElementById("perf-titre");
+  if(titre) titre.textContent = `${p} — ${(PERF_RPM[p]||4)}000 tr/min`;
+  const desc = document.getElementById("perf-desc");
+  if(desc) desc.textContent = PERF_LABEL[p] || "";
+}
+/*  ET LA RÉPONSE EST LUE. Cette fonction JETAIT l'échec — « if(r.ok) » sans
+    else. Même faute que setLum() juste en dessous, et elle compte double
+    depuis que le plan système peut être refusé tout seul : lexos-perf rend
+    alors 1, la moitié session EST appliquée, et il faut le dire. On
+    rafraîchit plutôt que de croire le clic, pour que les boutons retombent
+    sur le profil RÉELLEMENT enregistré par la machine — /etc/lexos/performance,
+    qu'écrit le plan système — et non sur celui qu'on vient de demander. */
 async function setPerf(p){
   const r = await api("perf", p);
-  if(r.ok){ etat.perf = p; rendSection(); toast("Profil : " + p); }
+  if(r.ok){ majPerf(p); toast("Profil : " + p); }
+  else { await rafraichir("Profil : " + (r.erreur || "refusé")); }
 }
 /*  ALEX : « les outils pour la luminosité fonctionnent, mais pas dans les
     Paramètres. » Cette fonction JETAIT la réponse. Quand le réglage était
@@ -1395,12 +1446,12 @@ function contenu(cle){
              ${jauge(etat.batterie.niveau)}
            </div>`
         : srow("Alimentation","Aucune batterie — machine de bureau")}
-      <div class="row">${["petit","medium","vif","performant","max"].map(p=>
-        `<button class="btn ${p===etat.perf?"sel":"ghost"}" onclick="setPerf('${p}')">${p}</button>`).join("")}</div>
-      <div style="display:flex;align-items:center;gap:18px;margin-top:12px">
+      <div class="row" id="perf-boutons">${["petit","medium","vif","performant","max"].map(p=>
+        `<button class="btn ${p===etat.perf?"sel":"ghost"}" data-perf="${p}" onclick="setPerf('${p}')">${p}</button>`).join("")}</div>
+      <div id="perf-cadran" style="display:flex;align-items:center;gap:18px;margin-top:12px">
         <span style="color:var(--ac)">${perfGauge(132, etat.perf)}</span>
-        <div><div class="t" style="font-weight:600">${etat.perf} — ${(PERF_RPM[etat.perf]||4)}000 tr/min</div>
-        <div class="d">${PERF_LABEL[etat.perf] || ""}</div></div>
+        <div><div class="t" id="perf-titre" style="font-weight:600">${etat.perf} — ${(PERF_RPM[etat.perf]||4)}000 tr/min</div>
+        <div class="d" id="perf-desc">${PERF_LABEL[etat.perf] || ""}</div></div>
       </div>
       <p class="notice">Chaque profil règle vraiment le gouverneur du processeur, zram,
       le compositing et les services (<code>lexos perf</code>).</p>

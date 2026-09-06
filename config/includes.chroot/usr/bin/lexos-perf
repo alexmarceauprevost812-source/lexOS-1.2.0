@@ -2,12 +2,18 @@
 # =============================================================================
 #  lexos-perf — profils de performance de la machine
 # =============================================================================
-#  Quatre niveaux, du plus économe au plus agressif :
+#  Cinq niveaux, du plus économe au plus agressif :
 #
 #     petit         machine modeste, autonomie maximale
 #     medium        équilibre (défaut)
+#     vif           processeur à fond, aucune fioriture
 #     performant    priorité à la vitesse
 #     max           tout à fond, secteur recommandé
+#
+#  « vif » est arrivé après les quatre autres et l'en-tête ne l'avait jamais
+#  appris : il annonçait « Quatre niveaux » au-dessus d'un script qui en
+#  connaît cinq. Le premier endroit où quelqu'un cherche la liste est aussi
+#  le seul qui mentait.
 #
 #  Chaque profil agit sur deux plans :
 #     système  (root)    gouverneur CPU, sysctl, ordonnanceur E/S, services, zram
@@ -571,6 +577,73 @@ Le changement s'applique tout de suite ; les effets de fenêtres à la prochaine
 }
 
 # =============================================================================
+#  Le plan système et son mot de passe
+# =============================================================================
+#  DEUX PLANS, UN SEUL QUI DEMANDE ROOT — ET C'EST POURQUOI CE SCRIPT SE
+#  RAPPELLE LUI-MÊME. Le plan session touche le compositing, les effets CRT,
+#  le zoom du dock et les vignettes : ce sont des réglages de LA session de
+#  l'utilisateur, écrits dans SON xfconf. Lancer lexos-perf en entier sous
+#  pkexec les écrirait dans la session de root, c'est-à-dire nulle part. On
+#  n'élève donc que « apply-system », et la page des Paramètres appelle
+#  lexos-perf par _run() et non par _run_admin().
+#
+#  POURQUOI pkexec DEPUIS UNE FENÊTRE. C'est le défaut qu'Alex a vu : sudo
+#  demande le mot de passe SUR UN TERMINAL. Lancé depuis les Paramètres il
+#  n'y en a pas — sudo lit sur une entrée fermée, renonce aussitôt, et le
+#  bouton « ne fait rien ». pkexec, lui, passe par l'agent d'authentification
+#  de la session, qui DESSINE la fenêtre. La règle correspondante est
+#  /usr/share/polkit-1/actions/org.lexos.perf.policy, calquée sur celle de
+#  LexOS Boost.
+#
+#  ET L'INVERSE EST VRAI AUSSI : sur une console, pkexec exigerait un agent
+#  graphique qui n'existe pas, alors que sudo y est parfaitement à sa place.
+#  On ne choisit donc pas par préférence, mais sur un fait qu'on peut
+#  mesurer : y a-t-il un terminal sur l'entrée standard ?
+#
+#  PAS DE sudoers.d, ET CE N'EST PAS UN OUBLI. Dispenser lexos-perf du mot de
+#  passe reviendrait à donner l'écriture dans /etc/sysctl.d et le contrôle des
+#  services à quiconque ouvre un terminal. Le mot de passe est le point ; on
+#  le rend seulement DEMANDABLE depuis une fenêtre.
+
+#  Le chemin absolu de CE fichier. L'annotation exec.path de la règle polkit
+#  désigne /usr/bin/lexos-perf : un « $0 » relatif — « ./lexos-perf », ou le
+#  script lancé par « bash lexos-perf » — ne lui correspondrait pas et
+#  retomberait sur l'action générique de pkexec, dont le message ne dit rien
+#  de LexOS.
+self_path() {
+	local p="$0"
+	case "$p" in
+		/*) ;;
+		*)  local trouve
+		    if trouve="$(command -v -- "$p" 2>/dev/null)" && [[ "$trouve" == /* ]]; then
+			    p="$trouve"
+		    else
+			    p="$PWD/${p#./}"
+		    fi ;;
+	esac
+	printf '%s' "$p"
+}
+
+#  Rend le nom de l'outil d'élévation à employer, ou rien s'il n'y en a aucun.
+#  LEXOS_ELEVATEUR est une couture de banc : elle permet de vérifier QUEL
+#  chemin est pris sans jamais demander de mot de passe à personne.
+elevateur() {
+	if [[ -n "${LEXOS_ELEVATEUR:-}" ]]; then
+		printf '%s' "$LEXOS_ELEVATEUR"
+		return 0
+	fi
+	local prefere repli
+	if [[ -t 0 ]]; then
+		prefere="sudo";   repli="pkexec"
+	else
+		prefere="pkexec"; repli="sudo"
+	fi
+	if command -v "$prefere" >/dev/null 2>&1; then printf '%s' "$prefere"; return 0; fi
+	if command -v "$repli"   >/dev/null 2>&1; then printf '%s' "$repli";   return 0; fi
+	return 1
+}
+
+# =============================================================================
 #  Changement de profil
 # =============================================================================
 set_profile() {
@@ -579,27 +652,57 @@ set_profile() {
 	PROFILE="$want"
 	load_profile "$PROFILE" || die "Profil invalide : $PROFILE"
 
+	local systeme=1 elev self
 	if [[ "$SCOPE" != "user" ]]; then
 		if [[ $EUID -ne 0 ]]; then
-			# On délègue le plan système à sudo, puis on fait le plan session ici.
-			if command -v sudo >/dev/null 2>&1; then
+			# On délègue le plan système à pkexec ou à sudo (voir elevateur()),
+			# puis on fait le plan session ici, sous l'utilisateur.
+			if elev="$(elevateur)"; then
+				self="$(self_path)"
 				#  ═══ PAS DE SONDE AVANT L'APPEL ═══
 				#  Il y avait « sudo -n true » ici, uniquement pour décider
 				#  s'il fallait afficher un message. Chaque sonde refusée fait
 				#  échouer PAM, qui écrit deux lignes dans le journal, et le
-				#  bilan du médecin les comptait comme des erreurs. Le sudo
+				#  bilan du médecin les comptait comme des erreurs. L'outil
 				#  ci-dessous demande lui-même le mot de passe, avec sa propre
 				#  invite — plus claire que la nôtre, et sans rien salir.
-				sudo "$0" apply-system "$PROFILE" || die "Le plan système a échoué."
+				"$elev" "$self" apply-system "$PROFILE" || systeme=0
 			else
-				warn "sudo absent : seul le plan session sera appliqué."
+				systeme=0
+				warn "ni pkexec ni sudo : le plan système ne peut pas être appliqué."
 			fi
 		else
-			apply_system
+			apply_system || systeme=0
 		fi
 	fi
 
+	#  ═══ LE PLAN SESSION S'APPLIQUE MÊME QUAND LE SYSTÈME A ÉCHOUÉ ═══
+	#  Il y avait « || die » au-dessus. Un mot de passe refusé — ou simplement
+	#  impossible à demander, faute d'agent — et on abandonnait TOUT, y compris
+	#  le compositing, les effets CRT, le zoom du dock et les vignettes, qui ne
+	#  demandent aucun droit. On perdait la moitié gratuite du profil à cause
+	#  d'un refus qui ne la concernait pas. Sur la machine d'Alex, « vif »
+	#  n'éteignait donc même pas la composition, alors que c'est LA moitié qui
+	#  se voit tout de suite.
 	[[ "$SCOPE" != "system" ]] && apply_user
+
+	if (( ! systeme )); then
+		#  SUR LA SORTIE STANDARD, PAS SEULEMENT SUR L'ERREUR. Deux raisons,
+		#  et la seconde est un vrai couplage qu'il vaut mieux écrire que
+		#  laisser deviner :
+		#    · dans un terminal, un bilan de fin appartient à la sortie
+		#      normale — c'est le résultat de la commande, pas un incident ;
+		#    · la page des Paramètres lit « (stdout or stderr) » (settings.py,
+		#      _run) : dès que la sortie standard contient quelque chose,
+		#      l'erreur standard est JETÉE. Or apply_user vient d'écrire ses
+		#      lignes. Un motif posé seulement sur stderr n'arriverait donc
+		#      jamais à l'écran, et le bouton retomberait sur « commande
+		#      refusée » — le silence exact qu'on répare ici.
+		#  tests/test_lexos_perf_vif.sh tient les deux bouts ensemble.
+		printf 'Plan session appliqué ; plan système refusé (mot de passe ou droits). Pour la moitié système : sudo %s %s\n' \
+			"$PROG" "$PROFILE"
+		return 1
+	fi
 
 	(( QUIET )) || printf '\n%s✓%s Profil %s%s%s appliqué.\n\n' \
 		"$G" "$R" "$B" "$PROFILE" "$R"
@@ -689,7 +792,11 @@ case "$CMD" in
 		[[ "$SCOPE" != "system" ]] && apply_user
 		;;
 	apply-system)
-		# Point d'entrée interne, appelé via sudo par set_profile.
+		#  Point d'entrée interne, appelé par set_profile à travers
+		#  pkexec (depuis une fenêtre) ou sudo (depuis un terminal) —
+		#  voir elevateur(). C'est CE point d'entrée que désigne
+		#  l'annotation exec.path de org.lexos.perf.policy, et lui seul
+		#  qui tourne en root : le plan session reste chez l'utilisateur.
 		PROFILE="$(normalize "${1:-}")" || die "Profil inconnu : ${1:-}"
 		load_profile "$PROFILE" || die "Profil invalide"
 		SCOPE="system"

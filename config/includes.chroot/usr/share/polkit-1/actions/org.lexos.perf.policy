@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  ═══ POURQUOI CE FICHIER EXISTE ═══
+  « lexos-perf vif » lancé depuis les Paramètres n'appliquait QUE la moitié
+  session du profil. La moitié système — gouverneur du processeur, sysctl,
+  ordonnanceur d'entrées-sorties, zram, services — se déléguait à « sudo », et
+  sudo demande le mot de passe SUR UN TERMINAL. Depuis une fenêtre il n'y en a
+  pas : sudo lit sur une entrée fermée, renonce aussitôt, et le bouton « ne
+  fait rien ». Aucun sudoers.d n'existe nulle part dans ce dépôt pour le
+  dispenser du mot de passe — et il ne faut pas en écrire un : donner
+  lexos-perf sans mot de passe, c'est donner l'écriture dans /etc/sysctl.d à
+  tout le monde.
+
+  pkexec, lui, passe par l'agent d'authentification de la session, qui DESSINE
+  la fenêtre du mot de passe. C'est déjà la voie de LexOS Boost, juste à côté
+  (org.lexos.boost.policy) ; on prend la même plutôt que d'en ouvrir une
+  deuxième.
+
+  ═══ CE QUI EST ÉLEVÉ, ET CE QUI NE L'EST PAS ═══
+  Cette règle ne sert QUE pour « lexos-perf apply-system <profil> ». Le plan
+  SESSION — compositing, effets CRT, zoom du dock, vignettes — reste chez
+  l'utilisateur : ce sont des réglages de SA session, écrits dans SON xfconf.
+  Lancé en root, il les écrirait dans la session de root, c'est-à-dire nulle
+  part. C'est pourquoi le script se rappelle lui-même pour la seule moitié
+  système au lieu d'être élevé en entier.
+-->
+<policyconfig>
+  <vendor>LexOS</vendor>
+  <vendor_url>https://github.com/alexmarceauprevost812-source/lexOS-2.0</vendor_url>
+
+  <action id="org.lexos.perf.appliquer">
+    <description>Appliquer un profil de performance LexOS</description>
+    <description xml:lang="en">Apply a LexOS performance profile</description>
+    <message>LexOS doit modifier des réglages système (processeur, mémoire, services) pour appliquer ce profil. Le changement est réversible : il suffit de choisir un autre profil.</message>
+    <message xml:lang="en">LexOS needs to change system settings (CPU, memory, services) to apply this profile. The change is reversible: just pick another profile.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <!--  auth_admin_keep, comme LexOS Boost : on essaie souvent deux ou
+            trois profils de suite pour comparer, et redemander le mot de
+            passe à chaque essai transformerait la comparaison en corvée. -->
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/lexos-perf</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

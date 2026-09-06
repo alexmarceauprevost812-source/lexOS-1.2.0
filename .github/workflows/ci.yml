@@ -1242,12 +1242,19 @@ jobs:
       - name: Profils de performance — tous chargeables
         if: ${{ !cancelled() }}
         run: |
-          for p in petit medium performant max; do
+          #  « vif » manquait ici comme il manquait dans PERFS (settings.py) :
+          #  la même omission, à un troisième endroit. Le profil existe depuis
+          #  qu'il a été ajouté à lexos-perf, detect_profile() le RECOMMANDE
+          #  aux portables de 8 Go, et aucune des deux listes blanches ne le
+          #  connaissait. On les tient maintenant ensemble : ce pas-ci les
+          #  charge tous les cinq, et tests/test_lexos_perf_vif.sh compare
+          #  PERFS à normalize() ligne à ligne.
+          for p in petit medium vif performant max; do
             ./config/includes.chroot/usr/bin/lexos-perf "$p" --user-only --quiet \
               || { echo "profil $p en échec"; exit 1; }
           done
           ./config/includes.chroot/usr/bin/lexos-perf list
-          echo "4 profils validés."
+          echo "5 profils validés."
 
       - name: Profil inconnu refusé
         if: ${{ !cancelled() }}
