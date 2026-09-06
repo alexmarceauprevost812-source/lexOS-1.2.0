@@ -191,7 +191,24 @@ window.csd.popup {
     dans libwhiskermenu.so 2.8.3, et le sélecteur a été éprouvé jusqu'aux
     pixels — voir tests/test_lexos_menu_whisker.sh. */
 #whiskermenu-window {
-	background-color: rgba(0, 0, 0, 0.96);
+	/*  ═══ LE MÊME GRIS QUE LE FOND DES FENÊTRES, ET UNE MARCHE ASSUMÉE ═══
+	    Cette couleur était écrite EN DUR, donc le passage du fond des
+	    fenêtres à #121214 — le gris choisi par Alex parmi trois — ne
+	    l'atteignait pas : le menu serait resté noir pur au milieu d'un
+	    système qui ne l'est plus. L'alpha ne bouge pas.
+
+	    ET LA MARCHE AVEC LA BARRE DU HAUT EST VOULUE. #XfcePanelWindow reste
+	    au NOIR FRANC, demandé explicitement par Alex pour la barre. Le menu
+	    qui en descend est donc un cran plus clair qu'elle. Ce n'est pas un
+	    oubli d'harmonisation : si quelqu'un « répare » ça un jour en
+	    ramenant le menu au noir, il défera un choix, pas un défaut.
+
+	    POURQUOI PAS var() OU LE THÈME GÉNÉRÉ : cette feuille est un
+	    squelette statique, posée telle quelle par le hook ; elle ne passe
+	    pas par lexos-theme-gen. Le jour où le fond changera encore, c'est
+	    ici qu'il faudra revenir — d'où ce commentaire, qui nomme la valeur
+	    jumelle. */
+	background-color: rgba(18, 18, 20, 0.96);
 	border-radius: 14px;
 	border: 1px solid rgba(255, 255, 255, 0.07);
 }

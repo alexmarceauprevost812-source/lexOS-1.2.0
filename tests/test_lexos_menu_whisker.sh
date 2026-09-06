@@ -54,7 +54,7 @@ for F in "$CSS" "$PICOM"; do
 done
 
 # =============================================================================
-titre "1. Le fond du menu Whisker est noir"
+titre "1. Le fond du menu Whisker suit celui des fenêtres"
 # =============================================================================
 if grep -q '^#whiskermenu-window {' "$CSS"; then
 	ok "la règle #whiskermenu-window existe"
@@ -65,10 +65,38 @@ fi
 #  LE FOND DE LA RÈGLE ELLE-MÊME, pas un noir trouvé ailleurs dans le
 #  fichier : on lit le bloc, du sélecteur à son accolade fermante.
 BLOC="$(sed -n '/^#whiskermenu-window {/,/^}/p' "$CSS")"
-if grep -qE 'background-color:[[:space:]]*(rgba\([[:space:]]*0,[[:space:]]*0,[[:space:]]*0|#000000|#000\b)' <<< "$BLOC"; then
-	ok "…et elle pose un fond NOIR"
+#  ═══ LES DEUX VALEURS SONT LIÉES, ET C'EST TOUT L'OBJET DE CE CONTRÔLE ═══
+#  Le menu était figé à « rgba(0, 0, 0, 0.96) », écrit EN DUR. Quand le fond
+#  des fenêtres est passé de #000000 à #121214 — le gris qu'Alex a choisi
+#  parmi trois — le menu, lui, n'a pas bougé : il serait resté noir pur au
+#  milieu d'un système qui ne l'est plus.
+#
+#  Cette feuille est un squelette STATIQUE, posée telle quelle par le hook ;
+#  elle ne passe pas par lexos-theme-gen et ne peut donc pas employer une
+#  variable. Le lien ne peut être qu'ici : on LIT le BG du générateur et on
+#  exige que le menu porte la même teinte. Sans ça les deux redériveront au
+#  prochain changement de fond, exactement comme la première fois.
+GEN="$RACINE/config/includes.chroot/usr/bin/lexos-theme-gen"
+#  ═══ ON REPÈRE LA BRANCHE SOMBRE PAR SON TEXTE BLANC, PAS PAR UN MOT ═══
+#  Première version : « chercher après la ligne qui dit LexOS Noir ». Elle
+#  mordait sur un COMMENTAIRE du mode clair qui cite ce nom, et rapportait le
+#  crème #F7F5F0. Pire, le nettoyage « garder les caractères hexadécimaux »
+#  gardait le B de « BG » — B est un chiffre hexadécimal. Le contrôle rendait
+#  alors une valeur absurde et passait au vert sur TOUT : trois mutations
+#  n'ont rien déclenché avant que ceci soit corrigé.
+#
+#  La branche sombre est celle dont le texte est blanc. On retient le dernier
+#  BG rencontré et on le rend quand on croise FG="#FFFFFF" — sans ambiguïté
+#  possible, et faux bruyamment si la structure du fichier changeait.
+BG_NOIR="$(awk -F'"' '/^\tBG="#[0-9A-Fa-f]{6}"/{bg=$2} /^\tFG="#FFFFFF"/{print bg; exit}' "$GEN")"
+if [[ -z "$BG_NOIR" ]]; then
+	#  Garde contre le vert sur du vide : sans la valeur de référence, la
+	#  comparaison ci-dessous serait creuse.
+	non "impossible de lire le BG du mode sombre dans lexos-theme-gen"
+elif grep -qE "background-color:[[:space:]]*rgba\([[:space:]]*$((16#${BG_NOIR:1:2})),[[:space:]]*$((16#${BG_NOIR:3:2})),[[:space:]]*$((16#${BG_NOIR:5:2}))" <<< "$BLOC"; then
+	ok "…et elle porte la MÊME teinte que le fond des fenêtres ($BG_NOIR)"
 else
-	non "le fond de #whiskermenu-window n'est pas noir :\n$BLOC"
+	non "le menu et le fond des fenêtres ont divergé — attendu $BG_NOIR :\n$BLOC"
 fi
 
 #  LES SOUS-NŒUDS EN TRANSPARENT, ET C'EST UNE VRAIE CONTRAINTE. Un noir

@@ -95,14 +95,29 @@ for NOEUD in box grid overlay flowbox stack viewport frame; do
 	fi
 done
 
-#  ET LES VRAIES SURFACES RESTENT NOIRES. Un correctif qui rendrait la fenêtre
-#  transparente échangerait un défaut contre un pire.
+#  ET LES VRAIES SURFACES GARDENT LE FOND DU THÈME. Un correctif qui rendrait
+#  la fenêtre transparente échangerait un défaut contre un pire.
+#
+#  ═══ ON LIT LA VALEUR, ON NE LA FIGE PLUS ═══
+#  Ce contrôle exigeait « #000000 » écrit en dur. Le jour où Alex a choisi
+#  #121214 pour le fond des fenêtres — un gris parmi trois qu'il a comparés —
+#  il a rougi sur un changement PARFAITEMENT VOULU, en annonçant « le
+#  correctif a débordé sur les surfaces », ce qui envoyait chercher au mauvais
+#  endroit. Ce qu'il doit tenir, c'est que ces quatre nœuds portent LE FOND DU
+#  THÈME et pas du transparent — pas qu'ils portent une couleur précise
+#  décidée une fois.
+BG_THEME="$(awk -F'"' '/^\tBG="#[0-9A-Fa-f]{6}"/{bg=$2} /^\tFG="#FFFFFF"/{print bg; exit}' \
+	"$RACINE/config/includes.chroot/usr/bin/lexos-theme-gen")"
+if [[ ! "$BG_THEME" =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+	non "fond du mode sombre illisible dans lexos-theme-gen — contrôle sans repère"
+	BG_THEME="#000000"
+fi
 for NOEUD in window dialog popover textview; do
 	CORPS="$(regle_de "$CSS4" "$NOEUD")"
-	if grep -qiE 'background-color:[[:space:]]*#0{6}' <<< "$CORPS" ; then
-		ok "« $NOEUD » reste noir — le fond des fenêtres n'a pas bougé"
+	if grep -qiF "background-color: $BG_THEME" <<< "$CORPS" ; then
+		ok "« $NOEUD » porte le fond du thème ($BG_THEME) — il n'a pas été rendu transparent"
 	else
-		non "« $NOEUD » n'est plus noir : le correctif a débordé sur les surfaces"
+		non "« $NOEUD » ne porte plus le fond du thème ($BG_THEME) : $CORPS"
 	fi
 done
 
