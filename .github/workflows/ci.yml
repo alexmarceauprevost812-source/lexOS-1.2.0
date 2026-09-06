@@ -1623,6 +1623,23 @@ jobs:
           #  de rendu ne pouvait le voir. Ce contrôle-ci est structurel.
           node tests/test_lexos_doublons_js.js
 
+      - name: La position du dock — une seule vérité, et le registre que personne ne tenait
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « le bouton de position du dock reste sur Droite quoi
+          #  qu'on choisisse ». Deuxième étage du même bogue : le premier —
+          #  setDock() déclarée deux fois — a été corrigé plus tôt, et c'est
+          #  ce correctif-là qui a rendu celui-ci visible. rafraichir() s'est
+          #  mis à relire l'état de la machine… pour y trouver
+          #  ~/.config/lexos/dock, un fichier que PERSONNE n'écrit.
+          #
+          #  glib-compile-schemas permet au banc de compiler un faux schéma
+          #  Plank et de jouer l'aller-retour complet « lexos dock <position> »
+          #  → gsettings → _dock_etat(). Sans lui le banc se saute en le
+          #  disant, mais alors il ne mesure plus le cœur de la correction.
+          sudo apt-get install -y -qq libglib2.0-bin
+          bash tests/test_lexos_dock.sh
+
       - name: Le volet — le thème jour/nuit suit vraiment un clic sur sa tuile
         if: ${{ !cancelled() }}
         run: |

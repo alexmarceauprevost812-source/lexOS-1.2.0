@@ -317,6 +317,20 @@ POLICES = {
     "marqueur", "architecte", "fleur", "cursive", "tableau", "craie",
 }
 DOCKS = {"droite", "gauche", "bas", "haut"}
+#  ═══ LE DOCK N'A QU'UNE SEULE VÉRITÉ, ET C'EST gsettings ═══
+#  Ces deux constantes sont la COPIE de ce que « lexos dock » (cmd_dock,
+#  usr/bin/lexos) écrit. Une copie se met à mentir dès qu'on touche l'original
+#  sans elle : tests/test_lexos_dock.sh compare les deux chaînes caractère par
+#  caractère et rougit si elles s'écartent.
+#
+#  Pourquoi une copie plutôt que d'appeler « lexos dock » sans argument : cette
+#  commande écrit une PHRASE pour un humain (« Position du dock : droite
+#  (défaut) »), sur deux lignes, avec des couleurs. Analyser une phrase pour en
+#  tirer une donnée, c'est se rendre dépendant de sa formulation — et LexOS la
+#  reformule souvent.
+DOCK_SCHEMA = "net.launchpad.plank.dock.settings:/net/launchpad/plank/docks/dock1/"
+DOCK_POSITIONS = {"right": "droite", "left": "gauche",
+                  "bottom": "bas", "top": "haut"}
 CADRAGES = {"remplir", "ajuster", "etirer", "centrer", "mosaique"}
 #  PAS DE CLÉ « defaut » : depuis le crochet 0300, wallpaper.png EST un lien
 #  symbolique vers wallpaper-demon.png (les deux noms doivent rester la même
@@ -2783,13 +2797,46 @@ def _energie_etat():
 
 
 def _dock_etat():
-    """Position du dock, telle que LexOS l'a notée."""
-    conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
-    try:
-        v = (conf / "dock").read_text().strip()
-        return v if v in DOCKS else "droite"
-    except OSError:
+    """Position du dock, lue LÀ OÙ PLANK LA PREND — c'est-à-dire gsettings.
+
+    ALEX : « le bouton de position du dock reste sur Droite quoi qu'on
+    choisisse ». Le dock, lui, se déplaçait bien.
+
+    CETTE FONCTION LISAIT ~/.config/lexos/dock. Ce fichier n'est écrit par
+    PERSONNE : vérifié sur tout le dépôt, le chemin n'apparaissait qu'ici.
+    « lexos dock » pose la position dans gsettings et nulle part ailleurs. La
+    lecture retombait donc toujours sur son repli — « droite » — quel que soit
+    le choix. Deux sources de vérité pour un seul réglage, dont une vide.
+
+    Le dépôt avait déjà tranché ce débat pour le Wi-Fi (voir _wifi_auto_lu :
+    « une seule vérité : le fichier que lexos-net écrit et que
+    lexos-net-autoconnect relit »). On tranche pareil ici, dans le même sens :
+    on lit ce qui COMMANDE, on n'ouvre pas un deuxième registre à synchroniser
+    à la main.
+
+    LE REPLI NE VAUT QUE POUR L'ABSENCE. Sans gsettings — donc sans Plank —
+    « droite » est la bonne réponse : c'est le défaut de Plank, et il n'y a
+    pas de dock pour dire autrement. Mais une valeur PRÉSENTE qu'on ne sait
+    pas traduire est rendue telle quelle : aucun bouton ne s'allumera, ce qui
+    est honnête, au lieu d'en allumer un faux. C'était exactement le défaut
+    qu'on répare — répondre « droite » à une question sans réponse.
+    """
+    if shutil.which("gsettings") is None:
         return "droite"
+    try:
+        r = subprocess.run(["gsettings", "get", DOCK_SCHEMA, "position"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "droite"
+    #  Schéma absent (Plank pas installé) : gsettings sort en erreur. C'est le
+    #  même cas que « gsettings absent », et le même repli.
+    if r.returncode != 0:
+        return "droite"
+    #  gsettings rend la chaîne AVEC ses apostrophes : «'right'».
+    brut = r.stdout.strip().strip("'\"")
+    if not brut:
+        return "droite"
+    return DOCK_POSITIONS.get(brut, brut)
 
 
 def _libre_etat():
