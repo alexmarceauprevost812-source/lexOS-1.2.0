@@ -16,6 +16,24 @@ terminal-top:   "10%"
 terminal-width: "84%"
 terminal-height:"80%"
 terminal-border:"0"
+#  ═══ LA ZONE TERMINAL EST PEINTE EN NOIR — C'ÉTAIT LE RECTANGLE BLEU ═══
+#  ALEX, PHOTO DU ThinkPad : après avoir choisi LexOS, « un grand rectangle
+#  bleu-turquoise à vagues » au milieu de l'écran, avec « Loading Linux… »
+#  par-dessus. « On dirait que mon logiciel est complètement planté. »
+#
+#  Ce rectangle, c'est la zone terminal ci-dessus (8 % → 92 % en largeur,
+#  10 % → 90 % en hauteur) : la fenêtre où GRUB écrit ses messages quand il
+#  quitte le menu pour charger le noyau. Sans « terminal-box », GRUB n'y peint
+#  rien à nous : il y laisse transparaître l'image de fond posée par
+#  /etc/grub.d/05_debian_theme — celle de desktop-base, les vagues turquoise
+#  de trixie. Le thème LexOS gagnait pour le MENU ; il ne disait rien de la
+#  zone terminal, et c'est Debian qui la remplissait.
+#
+#  Neuf tranches (centre, quatre bords, quatre coins), toutes du noir plein
+#  — sur le modèle des select_*.png. Avec ça, la zone est noire quel que soit
+#  le fond en dessous ; /etc/default/grub.d/lexos.cfg coupe EN PLUS l'image
+#  de desktop-base, pour que le repli n'ait jamais de bleu à montrer.
+terminal-box:   "terminal_box_*.png"
 
 # ───────────────────── LISTE DES DÉMARRAGES ─────────────────────
 # Géométrie calée sur le cadre dessiné dans background.png :

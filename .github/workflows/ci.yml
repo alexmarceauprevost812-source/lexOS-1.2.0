@@ -2199,6 +2199,20 @@ jobs:
           sudo apt-get install -y --no-install-recommends plymouth >/dev/null
           bash tests/test_lexos_plymouth.sh
 
+      - name: Le thème GRUB — plus de rectangle bleu sous « Loading Linux… »
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX, PHOTO DU ThinkPad : après avoir choisi LexOS, un grand
+          #  rectangle bleu-turquoise à vagues au milieu de l'écran, « on
+          #  dirait que mon logiciel est complètement planté ». C'était la
+          #  zone terminal du thème, sans « terminal-box », qui laissait voir
+          #  l'image de fond de desktop-base. Le banc exige la clé dans LES
+          #  DEUX theme.txt (système installé et ISO), mesure les neuf
+          #  tranches noires pixel par pixel, et JOUE le vrai
+          #  /etc/grub.d/05_debian_theme avec et sans desktop-base.
+          sudo apt-get install -y -qq grub-common python3-pil
+          bash tests/test_lexos_grub.sh
+
       - name: Les points des espaces de travail — la pilule blanche, la somme juste
         if: ${{ !cancelled() }}
         run: |

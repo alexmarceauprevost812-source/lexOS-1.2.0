@@ -113,16 +113,35 @@ cat > /etc/default/grub.d/lexos.cfg <<EOF
 GRUB_DISTRIBUTOR="${LEXOS_NAME}"
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
 #  ── LE MENU DE DÉMARRAGE ────────────────────────────────────────────────
-#  GRUB_THEME et GRUB_BACKGROUND ne se cumulent pas : le thème gagne, et une
-#  image de fond posée à côté ne fait qu'embrouiller la lecture du fichier.
-#  On nomme donc le thème, et rien d'autre.
-#
 #  Le thème vit dans /usr/share/grub/themes/lexos, livré par includes.chroot.
 #  Ce chemin-là est celui que Debian utilise pour ses propres thèmes
 #  (desktop-base) : grub-mkconfig sait calculer la bonne adresse même quand
 #  /boot est sur une partition séparée, et il charge tout seul les polices
 #  .pf2 trouvées dans le dossier du thème.
 GRUB_THEME="/usr/share/grub/themes/lexos/theme.txt"
+#  ═══ GRUB_BACKGROUND VIDE, ET C'EST VOULU — LE RECTANGLE BLEU ═══
+#  ALEX, PHOTO DU ThinkPad : après avoir choisi LexOS, un grand rectangle
+#  bleu-turquoise à vagues au milieu de l'écran, « Loading Linux… » par-dessus.
+#  « On dirait que mon logiciel est complètement planté. »
+#
+#  Ce bloc disait avant : « GRUB_THEME et GRUB_BACKGROUND ne se cumulent pas :
+#  le thème gagne, on nomme le thème et rien d'autre ». C'est vrai pour
+#  00_header, qui choisit l'un OU l'autre. C'est faux pour
+#  /etc/grub.d/05_debian_theme, qui tourne quoi qu'il arrive et qui, quand
+#  GRUB_BACKGROUND n'est PAS DÉFINI, va chercher l'image de desktop-base
+#  (/usr/share/desktop-base/grub_background.sh, puis desktop-grub.png) et
+#  écrit « background_image … » dans grub.cfg. Le thème gagne pour le menu ;
+#  la ZONE TERMINAL, elle, laissait transparaître cette image — les vagues
+#  turquoise de trixie.
+#
+#  La règle de 05_debian_theme est écrite dans son code (bogue Debian
+#  #608263) : si GRUB_BACKGROUND est DÉFINI — même vide — il n'essaie RIEN
+#  d'autre. Une valeur vide, c'est donc « pas d'image de fond, point », y
+#  compris quand desktop-base est installé, et sans toucher au fichier de
+#  Debian. Le thème pose EN PLUS un terminal-box noir : deux verrous, pour
+#  que le repli n'ait jamais de bleu à montrer. tests/test_lexos_grub.sh
+#  joue le vrai 05_debian_theme avec et sans desktop-base.
+GRUB_BACKGROUND=""
 #  Le thème est calé sur une grille 1920 x 1080. « auto » laisse le firmware
 #  choisir, et sur un téléviseur il choisit parfois un mode que la dalle
 #  n'aime pas ; on propose donc 1080p d'abord, avec des replis, et « auto »
