@@ -411,10 +411,40 @@ fi
 
 #  ═══ ET SANS LightDM, LE GESTE EST REFUSÉ ═══
 #  L'autre sens du même contrôle : un réglage qui ne s'appliquerait à rien ne
-#  doit pas être offert. C'est le cas du coureur de la CI, et il faut qu'il
-#  soit éprouvé pour lui-même plutôt que subi.
-if command -v python3 >/dev/null 2>&1; then
-	MSG="$(cd "$RACINE" && PATH="$CHEMIN" LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \
+#  doit pas être offert.
+#
+#  ═══ « SANS LightDM » ÉTAIT SUBI, IL EST MAINTENANT FABRIQUÉ ═══
+#  Ce contrôle comptait sur le coureur de la CI, qui n'a pas LightDM : il
+#  passait ici en déplaçant seulement LEXOS_LIGHTDM_CONF. Mais
+#  lightdm_present() (lexos-utilisateurs) répond aussi OUI si « lightdm »
+#  est dans le PATH — et CHEMIN se termine par le vrai $PATH. Sur une
+#  machine où LightDM est installé, le banc rougissait pour une raison qui
+#  ne regarde pas le dépôt. Mesuré : installer le paquet ici suffisait à le
+#  faire tomber.
+#  On fabrique donc l'absence, comme ailleurs pour convert et ffmpeg : un
+#  PATH de liens symboliques d'où « lightdm » est retiré. ET « LEXOS_SANS_SBIN
+#  =1 » avec, parce que lexos-utilisateurs REMET /usr/sbin dans son PATH à sa
+#  ligne 51 — sans ce second verrou, le farm ne servait à rien : le vrai
+#  /usr/sbin/lightdm était retrouvé juste après. Mesuré, les deux sont
+#  nécessaires.
+SANS_LDM="$BANC/sans-lightdm-bin"
+rm -rf "$SANS_LDM"; mkdir -p "$SANS_LDM"
+for d in /usr/bin /bin /usr/sbin /sbin; do
+	[ -d "$d" ] || continue
+	for f in "$d"/*; do
+		b="$(basename "$f")"
+		case "$b" in lightdm) continue ;; esac
+		[ -e "$SANS_LDM/$b" ] || ln -s "$f" "$SANS_LDM/$b" 2>/dev/null
+	done
+done
+CHEMIN_SANS_LDM="$BANC/bin:$RACINE/config/includes.chroot/usr/bin:$SANS_LDM"
+if command -v python3 >/dev/null 2>&1 \
+   && PATH="$CHEMIN_SANS_LDM" LEXOS_SANS_SBIN=1 \
+      LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \
+      bash "$OUTIL" --json 2>/dev/null | grep -q '"lightdm": true'; then
+	non "l'absence de LightDM n'a pas pu être fabriquée : le contrôle suivant ne prouverait rien"
+elif command -v python3 >/dev/null 2>&1; then
+	MSG="$(cd "$RACINE" && PATH="$CHEMIN_SANS_LDM" LEXOS_SANS_SBIN=1 LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \
 		python3 -c '
 import sys
 sys.path.insert(0, sys.argv[1])
