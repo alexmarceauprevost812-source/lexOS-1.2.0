@@ -1221,6 +1221,117 @@ else
 fi
 # <<< banc: plymouth
 
+# --- La vidéo d'après-connexion : le carré et son halo -----------------------
+# >>> banc: apres-connexion
+#  ═══ LA VIDÉO D'APRÈS-CONNEXION — LE CARRÉ ET SON HALO ═══
+#  ALEX a changé de fichier : celui-ci est CARRÉ (720 × 720), et rempli de
+#  flammes vives jusqu'aux quatre bords. Le conseil de la consigne
+#  précédente — « pose au centre avec des bandes noires » — ne tient plus :
+#  il valait pour un fichier à fond sombre, où le noir se fondait. Un carré
+#  lumineux au milieu de 420 pixels de noir de chaque côté, ça ne ressemble
+#  pas à une intro, ça ressemble à une panne d'affichage.
+#
+#  ON FABRIQUE DONC UN 1920 × 1080 : la même image agrandie pour remplir
+#  l'écran et FORTEMENT FLOUTÉE en fond, la vidéo carrée nette par-dessus,
+#  centrée. Les côtés deviennent un halo de flammes floues qui PROLONGE
+#  l'image au lieu de la couper. On ne rogne pas : la bannière TI-LEX-AL
+#  touche presque le bord du carré, la rogner la couperait.
+#
+#  ET C'EST FAIT ICI, À LA CONSTRUCTION, UNE FOIS. Flouter en direct à
+#  l'ouverture de session coûterait du processeur exactement là où on
+#  essaie d'en économiser — c'est le moment où le bureau se charge.
+APRES_SRC="$BRAND/apres-connexion.mp4"
+APRES_LARGEUR=1920
+APRES_HAUTEUR=1080
+APRES_COURTE_S=3.5      # la coupe courte, celle du réglage par défaut
+
+#  ═══ LE HALO, FABRIQUÉ COMME LE RESTE — ET FACULTATIF COMME LUI ═══
+#  Sans ffmpeg ou sans le fichier, aucune des deux versions n'est
+#  écrite : lexos-intro ne trouve rien et laisse la session partir
+#  sans vidéo, en le disant dans son journal. Le bureau n'attend
+#  jamais après une décoration.
+if [ -r "$APRES_SRC" ] && have ffmpeg; then
+	#  Le filtre, en trois temps :
+	#    · le fond : la vidéo agrandie pour COUVRIR 1920×1080
+	#      (force_original_aspect_ratio=increase puis crop), puis
+	#      gblur — c'est lui qui fait le halo ;
+	#    · le devant : le carré mis à la hauteur de l'écran, net ;
+	#    · overlay centré. format=yuv420p pour que n'importe quel
+	#      lecteur sache l'afficher.
+	APRES_FILTRE="[0:v]scale=${APRES_LARGEUR}:${APRES_HAUTEUR}:force_original_aspect_ratio=increase,crop=${APRES_LARGEUR}:${APRES_HAUTEUR},gblur=sigma=40[bg];[0:v]scale=${APRES_HAUTEUR}:${APRES_HAUTEUR}:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]"
+	#  ═══ LE JOURNAL DES DEUX PASSES A BESOIN D'UN DOSSIER À LUI ═══
+	#  Sans -passlogfile, ffmpeg écrit « ffmpeg2pass-0.log » DANS LE DOSSIER
+	#  COURANT. Un hook live-build tourne à la racine du chroot : ce fichier
+	#  partirait tel quel dans l'ISO. mktemp le met ailleurs, et le piège
+	#  l'efface même si ffmpeg meurt en route.
+	APRES_TMP="$(mktemp -d)" || APRES_TMP=""
+	if [ -z "$APRES_TMP" ]; then
+		echo "[lexos]   !! mktemp a échoué : pas de vidéo après le mot de passe"
+		APRES_OK=0
+	else
+	APRES_OK=1
+	for DUREE in complete courte; do
+		CIBLE="$BRAND/apres-connexion-16-9.mp4"
+		COUPE=""
+		if [ "$DUREE" = courte ]; then
+			CIBLE="$BRAND/apres-connexion-16-9-courte.mp4"
+			COUPE="-t $APRES_COURTE_S"
+		fi
+		#  ═══ « -t » EST UNE OPTION DE SORTIE ICI, ET C'EST UN CORRECTIF ═══
+		#  Premier jet : « -t 3.5 » AVANT le -i, donc en option d'ENTRÉE.
+		#  Reproduit sur une coupe de 2,08 s de ce même fichier : ffmpeg ne
+		#  rend JAMAIS la main. Le filtre sépare [0:v] en deux branches (le
+		#  fond flouté, le carré net) et overlay attend éternellement une
+		#  branche que la fin d'entrée a déjà close. Sur les 10,2 s d'Alex ça
+		#  ne se voit pas — mais le jour où il envoie un fichier plus court
+		#  que la coupe, la CONSTRUCTION NE SE TERMINE PLUS. Bien pire qu'un
+		#  échec : personne ne saurait où regarder.
+		#  Après le -i, la coupe s'applique au MUXEUR : les filtres voient le
+		#  flux entier, et une source plus courte s'arrête simplement plus
+		#  tôt. Mesuré : 1,5 s par passe au lieu de l'attente sans fin.
+		#  « timeout » reste par-dessus — le filet pour ce qu'on n'a pas
+		#  prévu, jamais l'explication de ce qu'on a compris.
+		#
+		#  DEUX PASSES : à débit imposé, c'est la seule façon de tenir une
+		#  taille prévisible. La 1re ne mesure QUE l'image (-an).
+		# shellcheck disable=SC2086
+		if timeout 600 ffmpeg -y -loglevel error -i "$APRES_SRC" \
+			-filter_complex "$APRES_FILTRE" -map '[v]' -an $COUPE \
+			-c:v libx264 -preset medium -b:v 1600k -passlogfile "$APRES_TMP/passe" \
+			-pass 1 -f null /dev/null </dev/null 2>/dev/null \
+		&& timeout 600 ffmpeg -y -loglevel error -i "$APRES_SRC" \
+			-filter_complex "$APRES_FILTRE" -map '[v]' -map '0:a?' $COUPE \
+			-c:v libx264 -preset medium -b:v 1600k -passlogfile "$APRES_TMP/passe" \
+			-pass 2 -c:a aac -b:a 96k -movflags +faststart \
+			"$CIBLE" </dev/null 2>/dev/null; then
+			:
+		else
+			APRES_OK=0
+			rm -f "$CIBLE"
+			echo "[lexos]   !! apres-connexion ($DUREE) : ffmpeg a échoué — pas de vidéo après le mot de passe"
+		fi
+	done
+	rm -rf "$APRES_TMP"
+	fi
+	if [ "$APRES_OK" = 1 ]; then
+		echo "[lexos]   vidéo d'après-connexion : carré 720x720 -> ${APRES_LARGEUR}x${APRES_HAUTEUR} avec halo flouté (complète + courte)"
+		#  LE CARRÉ NE PART PAS DANS L'ISO : c'est une source de
+		#  construction, comme ouvrir-ordinateur.mp4. Seules les deux
+		#  versions 16:9 sont lues à l'ouverture de session. Et on ne
+		#  retire QUE l'exemplaire du chroot — le banc joue ce
+		#  fragment avec le vrai dossier branding/ du dépôt.
+		if [ "$APRES_SRC" = "/usr/share/lexos/branding/apres-connexion.mp4" ]; then
+			rm -f "$APRES_SRC"
+		fi
+	fi
+elif [ -r "$APRES_SRC" ]; then
+	echo "[lexos]   !! ffmpeg absent : pas de vidéo après le mot de passe (le bureau s'ouvre directement)"
+else
+	echo "[lexos]   pas de vidéo d'après-connexion : branding/apres-connexion.mp4 absent"
+fi
+
+# <<< banc: apres-connexion
+
 # --- Le cache des polices ----------------------------------------------------
 #  POURQUOI C'EST NÉCESSAIRE, ET CE QUI SE PASSAIT SANS.
 #  LexOS embarque UNE police à lui : Patrick Hand (licence OFL), celle du

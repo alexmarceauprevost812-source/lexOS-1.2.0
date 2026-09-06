@@ -1235,6 +1235,71 @@ def _geste_autocollant_etat():
     }
 
 
+def _intro_etat():
+    """La vidéo d'ouverture de session : quel réglage, et le son.
+
+    ═══ POURQUOI LA PAGE DOIT SAVOIR SI mpv EST LÀ ═══
+    mpv vit dans 20-desktop.list, une liste OPTIONNELLE que le hook 0250
+    pose en tolérant l'échec. Sans lui, lexos-intro sort en silence — c'est
+    voulu, une session ne se bloque pas pour une vidéo. Mais quelqu'un qui
+    choisit « complète » et ne voit jamais rien mérite mieux qu'un réglage
+    qui ment : la page le dit.
+    """
+    conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
+
+    def lu(nom, defaut, permis):
+        try:
+            v = (conf / nom).read_text().strip()
+        except OSError:
+            return defaut
+        return v if v in permis else defaut
+
+    marque = Path("/usr/share/lexos/branding")
+    return {
+        #  « courte » au départ : 3,5 s partagées avec le chargement du
+        #  bureau, contre 10 s pour la complète.
+        "choix": lu("intro-video", "courte", ("courte", "complete", "aucune")),
+        #  ═══ LE SON EST COUPÉ AU DÉPART ═══
+        #  Un son à chaque ouverture de session est une décision de vie, pas
+        #  un détail : le jour où on ouvre son portable dans une salle
+        #  d'attente, on s'en souvient. L'option existe, elle n'est pas
+        #  allumée d'office.
+        "son": lu("intro-son", "off", ("on", "off")) == "on",
+        "mpv": bool(shutil.which("mpv")),
+        #  ═══ LES NOMS SONT CEUX DES FICHIERS JOUÉS, PAS DE LA SOURCE ═══
+        #  branding/apres-connexion.mp4 est le CARRÉ déposé par Alex : une
+        #  source de construction, effacée du chroot une fois le 1920 × 1080
+        #  fabriqué. Regarder ce nom-là dirait « la vidéo est là » sur une
+        #  ISO construite sans ffmpeg, où rien n'est jouable. On regarde donc
+        #  exactement les deux fichiers que lexos-intro ouvre.
+        "fichiers": (marque / "apres-connexion-16-9-courte.mp4").exists()
+                    and (marque / "apres-connexion-16-9.mp4").exists(),
+    }
+
+
+def act_intro(arg):
+    """Choisir la vidéo d'ouverture, ou allumer son son.
+
+    « courte » · « complete » · « aucune » pour la vidéo ; « son » bascule
+    le son. Rien d'autre n'est accepté : ce qui s'écrit dans le fichier est
+    relu par lexos-intro à chaque ouverture de session.
+    """
+    conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
+    if arg == "son":
+        nouveau = "off" if _intro_etat()["son"] else "on"
+        cible, valeur = "intro-son", nouveau
+    elif arg in ("courte", "complete", "aucune"):
+        cible, valeur = "intro-video", arg
+    else:
+        return {"ok": False, "erreur": "valeur inattendue"}
+    try:
+        conf.mkdir(parents=True, exist_ok=True)
+        (conf / cible).write_text(valeur + "\n", encoding="utf-8")
+    except OSError as err:
+        return {"ok": False, "erreur": "réglage non enregistré : %s" % err}
+    return {"ok": True}
+
+
 def act_geste_autocollant(arg):
     """Armer ou désarmer le geste « C + appui long » sur une image.
 
@@ -2202,6 +2267,7 @@ ACTIONS = {
     "fuseau": act_fuseau,
     "autocollant": act_autocollant,
     "coin": act_coin,
+    "intro": act_intro,
     "geste-autocollant": act_geste_autocollant,
     "super_apercu": act_super_apercu,
     "apercu": act_apercu,
@@ -3766,6 +3832,7 @@ def etat():
         "energie": _energie_etat(),
         "bluetooth": _bluetooth_complet(),
         "dock": _dock_etat(),
+        "intro": _intro_etat(),
         "barreCachee": _barre_cachee(),
         "bureaux": _bureaux_etat(),
         "apercu": _apercu_etat(),

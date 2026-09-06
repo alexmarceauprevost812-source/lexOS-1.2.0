@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Vidéo d'ouverture LexOS
+Comment=Joue la vidéo d'après-connexion pendant que le bureau se charge
+# L'ORDRE DES ENTRÉES D'AUTOSTART NE SE COMMANDE PAS SOUS XFCE — lu dans le
+# code de xfce4-session (xfsm-global.c, xfsm_launch_desktop_files_on_run_hook) :
+# les fichiers sont énumérés par xfce_resource_match(), qui lit le dossier avec
+# g_dir_read_name() et NE TRIE RIEN. « X-GNOME-Autostart-Phase » n'y est même
+# pas lu — il est gardé ici pour les bureaux qui, eux, le respectent.
+# C'est donc mpv qui garantit le recouvrement, avec « --ontop » et une fenêtre
+# taillée à l'écran : la vidéo passe au-dessus de ce qui se dessine derrière,
+# quel que soit l'ordre de démarrage.
+#
+# ET ELLE NE BLOQUE RIEN. Le bureau se charge PENDANT la vidéo : les dix
+# secondes sont partagées avec le chargement au lieu de s'y ajouter. Un script
+# de session LightDM, lui, aurait bloqué le démarrage du bureau pour les
+# ajouter en entier.
+Exec=lexos-intro
+Icon=video-x-generic
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Initialization
