@@ -313,6 +313,7 @@ ${B}MATÉRIEL APPLE${R}
 
 ${B}IMAGES${R}
   ${A}sticker${R} <image…>     Découpe le sujet en autocollant (PNG transparent)
+  ${A}intro${R}                Rejoue la vidéo d'ouverture de session
                       ${D}IA (rembg) si installée, sinon fond uni (ImageMagick)${R}
 
 ${B}IA${R}
@@ -1076,6 +1077,10 @@ case "$CMD" in
 	ouvrir|installer-fichier) exec lexos-ouvrir "$@" ;;
 	studio)               exec lexos-studio "$@" ;;
 	sticker|autocollant)  exec lexos-sticker "$@" ;;
+	#  La vidéo d'ouverture de session joue toute seule à la connexion
+	#  (autostart). La brancher ici sert à la REVOIR sans rouvrir sa
+	#  session — et le contrôle 16 exige qu'un outil livré soit joignable.
+	intro)                exec lexos-intro "$@" ;;
 	ia|agent)             exec lexos-ia "$@" ;;
 	#  Boost avait son lanceur de bureau mais aucune branche ici : le seul
 	#  outil qu'on ne pouvait pas taper. Le contrôle 16 l'a nommé.
