@@ -20,6 +20,28 @@
 #  session continue. Un écran de veille qui se bloque, on redémarre ; une
 #  session qu'on ne peut pas ouvrir, on ne peut plus rien faire du tout.
 #
+#  ═══ CE QUE CETTE VIDÉO COÛTE VRAIMENT, EN SECONDES ═══
+#  Mesuré sur les fichiers du dépôt, pas estimé :
+#      · menu GRUB ................. 8,000 s   (GRUB_TIMEOUT, hook 0100)
+#      · animation Plymouth ....... 3,533 s   (53 images à 15 im/s)
+#      · cette vidéo, « courte » ... 3,500 s   (défaut)
+#      · cette vidéo, « complète » . 10,029 s
+#  MAIS ON N'ADDITIONNE PAS CES QUATRE NOMBRES, et c'est tout l'intérêt :
+#    · les 8 s de GRUB sont du temps PUR — rien d'autre n'avance pendant ;
+#    · l'animation Plymouth joue PENDANT que le noyau et systemd démarrent,
+#      et Plymouth est tué quand l'écran de connexion prend la main : elle
+#      n'ajoute rien tant que le démarrage dure plus de 3,5 s ;
+#    · cette vidéo-ci joue PENDANT que le bureau se charge : elle n'ajoute
+#      que ce qui DÉPASSE le chargement. Avec « courte » (3,5 s), sur une
+#      machine dont le bureau met plus que ça à s'ouvrir, elle n'ajoute
+#      rien du tout.
+#  Le seul délai ajouté à coup sûr, ce sont donc les 8 s de GRUB — et le
+#  hook 0100 explique ce qu'il faudrait pour les raccourcir quand aucun
+#  Windows n'est là (décision d'Alex).
+#  LE CHIFFRE COMPLET NE SE MESURE QUE SUR SA MACHINE : « systemd-analyze
+#  time » donne le démarrage réel (c'est ce que lit /usr/lib/lexos/boost/
+#  mesure.py), et le reste dépend du disque et de la session.
+#
 #  ═══ L'ORDRE DE L'AUTOSTART NE SE COMMANDE PAS SOUS XFCE ═══
 #  Lu dans le code de xfce4-session (xfsm-global.c, xfsm_launch_desktop_files_
 #  on_run_hook) : les fichiers sont énumérés par xfce_resource_match(), qui
