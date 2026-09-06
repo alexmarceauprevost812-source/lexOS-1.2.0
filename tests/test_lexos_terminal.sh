@@ -41,7 +41,51 @@ set -uo pipefail
 RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="$RACINE/config/includes.chroot/usr/bin/lexos-theme-gen"
 BANC="$(mktemp -d)"
-trap 'rm -rf "$BANC"' EXIT
+XVFB_PID=""
+#  Le serveur X du banc meurt AVEC le banc — y compris sur Ctrl+C au milieu
+#  d'une capture. Avant, la trappe ne faisait que retirer le dossier : un
+#  Xvfb orphelin, avec son « import » accroché à l'écran, a fait pendre la
+#  suite entière d'un autre banc qui avait tiré le même numéro d'affichage.
+nettoyer() {
+	[[ -n "$XVFB_PID" ]] && { kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; }
+	rm -rf "$BANC"
+	return 0
+}
+#  UNE TRAPPE DE SIGNAL QUI NE SORT PAS AVALE LE SIGNAL. « trap nettoyer INT
+#  TERM » : bash exécute nettoyer, puis REPREND le banc là où il en était —
+#  mesuré, un SIGTERM en plein milieu et le banc finit vert comme si de rien
+#  n'était. Ctrl+C et TERM font donc « exit », et c'est la trappe EXIT qui
+#  nettoie — une seule fois, dans tous les cas.
+trap nettoyer EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+#  ═══ XVFB CHOISIT SON NUMÉRO, ET DIT QUAND IL ÉCOUTE ═══
+#  « :$((90 + RANDOM % 400)) » tirait un numéro sans vérifier qu'il était
+#  libre, puis dormait une seconde en espérant le serveur prêt. Avec
+#  -displayfd, Xvfb prend lui-même le premier numéro libre et l'écrit sur le
+#  descripteur au moment où il ACCEPTE les connexions : plus de collision
+#  entre bancs, plus d'attente à l'aveugle. Chaque outil qui parle au serveur
+#  est ensuite sous « timeout » : s'il coince, le banc rougit au lieu de
+#  rester muet.
+#  PAS DE « $(xvfb_lancer …) » : une substitution de commande tourne dans un
+#  SOUS-SHELL, et le XVFB_PID qu'elle pose n'arrive jamais au banc — mesuré,
+#  deux serveurs restés en vie après un banc pourtant vert. La fonction pose
+#  donc DEUX variables globales, XVFB_PID et XVFB_AFF, et n'affiche rien.
+xvfb_lancer() {   # $1 = résolution ; pose XVFB_PID et XVFB_AFF (« :N »)
+	local res="$1" f="$BANC/xvfb.num" i
+	XVFB_AFF=""
+	: > "$f"
+	Xvfb -displayfd 3 -screen 0 "$res" 3>"$f" >/dev/null 2>&1 &
+	XVFB_PID=$!
+	for i in $(seq 1 100); do
+		[[ -s "$f" ]] && break
+		kill -0 "$XVFB_PID" 2>/dev/null || break
+		sleep 0.1
+	done
+	[[ -s "$f" ]] || { kill "$XVFB_PID" 2>/dev/null; XVFB_PID=""; return 1; }
+	XVFB_AFF=":$(tr -dc 0-9 < "$f")"
+}
 
 REUSSIS=0; ECHOUES=0
 ok()   { printf '  \033[32m✅\033[0m %s\n' "$1"; REUSSIS=$((REUSSIS+1)); }
@@ -160,10 +204,8 @@ if command -v xfce4-terminal >/dev/null 2>&1 \
 	&& command -v dbus-run-session >/dev/null 2>&1 \
 	&& xfconfd_present; then
 	genere orange suivre
-	DISP=":$((90 + RANDOM % 400))"
-	Xvfb "$DISP" -screen 0 1024x768x24 >/dev/null 2>&1 &
-	XVFB_PID=$!
-	sleep 1
+	xvfb_lancer 1024x768x24 || true
+	DISP="$XVFB_AFF"
 
 	AVANT_FONT="$(sed -n 's/.*name="font-name"[^>]*value="\([^"]*\)".*/\1/p' "$XML")"
 	AVANT_FG="$(sed -n 's/.*name="color-foreground"[^>]*value="\([^"]*\)".*/\1/p' "$XML")"
@@ -180,7 +222,7 @@ if command -v xfce4-terminal >/dev/null 2>&1 \
 	APRES_FG="$(sed -n 's/.*name="color-foreground"[^>]*value="\([^"]*\)".*/\1/p' "$XML")"
 	APRES_BG="$(sed -n 's/.*name="color-background"[^>]*value="\([^"]*\)".*/\1/p' "$XML")"
 
-	kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
+	kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
 
 	if grep -qi 'migrated' <<< "$SORTIE" ; then
 		non "xfce4-terminal a migré terminalrc au lieu de lire notre canal — il l'a donc trouvé VIDE"
@@ -219,23 +261,25 @@ if command -v xfce4-terminal >/dev/null 2>&1 \
 export PS1='\$ '
 . "$RACINE/config/includes.chroot/usr/share/lexos/shell/interactive.sh"
 EOF
-		DISP=":$((90 + RANDOM % 400))"
-		Xvfb "$DISP" -screen 0 1100x700x24 >/dev/null 2>&1 &
-		XVFB_PID=$!
-		sleep 1
+		xvfb_lancer 1100x700x24 || true
+		DISP="$XVFB_AFF"
+		#  « xdotool search --sync » attend la fenêtre SANS LIMITE, et
+		#  « import » prend un verrou sur l'écran entier : chacun est sous
+		#  timeout, et la session D-Bus entière aussi — rien ici ne peut
+		#  pendre plus d'une minute.
 		( export DISPLAY="$DISP" HOME="$BANC/t" XDG_CONFIG_HOME="$BANC/t/.config" LEXOS_NO_BANNER=1
-		  dbus-run-session -- bash -c '
+		  timeout 60 dbus-run-session -- bash -c '
 			xfce4-terminal --disable-server --geometry=100x24 \
 				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
 			sleep 4
-			W="$(xdotool search --sync --class xfce4-terminal 2>/dev/null | head -1)"
-			[ -n "$W" ] && xdotool windowactivate --sync "$W" 2>/dev/null
+			W="$(timeout 20 xdotool search --sync --class xfce4-terminal 2>/dev/null | head -1)"
+			[ -n "$W" ] && timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
 			sleep 0.5
-			xdotool type --delay 40 "echo BONJOUR"
+			timeout 10 xdotool type --delay 40 "echo BONJOUR"
 			sleep 0.8
-			import -window root "$1"
+			timeout 20 import -window root "$1"
 		  ' _ "$BANC/frappe.png" ) >/dev/null 2>&1
-		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
+		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
 		if [ -s "$BANC/frappe.png" ]; then
 			#  Première ligne du terminal (les 30 premiers pixels de haut).
 			#  Le blanc franc est #FFFFFF exactement ; le vert est celui de

@@ -34,14 +34,51 @@ saut() { printf '  %s—%s  %s\n' "$JAUNE" "$FIN" "$1"; }
 titre(){ printf '\n%s%s%s\n' "$GRAS" "$1" "$FIN"; }
 
 BAC="$(mktemp -d)"
-NETTOIE_X=""
+XVFB_PID=""
 nettoyer() {
-	[[ -n "$NETTOIE_X" ]] && { pkill -f "Xvfb $NETTOIE_X" 2>/dev/null; }
+	[[ -n "$XVFB_PID" ]] && { kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; }
 	pkill -f "yad --title=BANC-AVERT" 2>/dev/null
 	rm -rf "$BAC"
 	return 0
 }
-trap nettoyer EXIT INT TERM
+#  UNE TRAPPE DE SIGNAL QUI NE SORT PAS AVALE LE SIGNAL. « trap nettoyer INT
+#  TERM » : bash exécute nettoyer, puis REPREND le banc là où il en était —
+#  mesuré, un SIGTERM en plein milieu et le banc finit vert comme si de rien
+#  n'était. Ctrl+C et TERM font donc « exit », et c'est la trappe EXIT qui
+#  nettoie — une seule fois, dans tous les cas.
+trap nettoyer EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+#  ═══ XVFB CHOISIT SON NUMÉRO, ET DIT QUAND IL ÉCOUTE ═══
+#  Avant : « :$((90 + RANDOM % 8)) » — huit numéros possibles, sans vérifier
+#  qu'ils sont libres, puis « sleep 2 » en espérant que le serveur soit prêt.
+#  Mesuré : un Xvfb :92 orphelin d'un autre banc (dont l'écran était pris par
+#  un « import » resté en plan) a fait tomber le banc entier sur ce numéro —
+#  xdotool s'est adressé à l'autre serveur, s'est bloqué sur son verrou, et
+#  la suite complète a pendu. Avec -displayfd, Xvfb prend lui-même le premier
+#  numéro libre et l'écrit sur le descripteur quand il ACCEPTE les
+#  connexions : plus de collision, et plus de « sleep » à l'aveugle.
+#  Chaque outil qui parle au serveur est sous « timeout » : s'il coince, le
+#  banc rougit en le disant au lieu de rester muet.
+#  PAS DE « $(xvfb_lancer …) » : une substitution de commande tourne dans un
+#  SOUS-SHELL, et le XVFB_PID qu'elle pose n'arrive jamais au banc — mesuré,
+#  deux serveurs restés en vie après un banc pourtant vert. La fonction pose
+#  donc DEUX variables globales, XVFB_PID et XVFB_AFF, et n'affiche rien.
+xvfb_lancer() {   # $1 = résolution ; pose XVFB_PID et XVFB_AFF (« :N »)
+	local res="$1" f="$BAC/xvfb.num" i
+	XVFB_AFF=""
+	: > "$f"
+	Xvfb -displayfd 3 -screen 0 "$res" 3>"$f" >/dev/null 2>&1 &
+	XVFB_PID=$!
+	for i in $(seq 1 100); do
+		[[ -s "$f" ]] && break
+		kill -0 "$XVFB_PID" 2>/dev/null || break
+		sleep 0.1
+	done
+	[[ -s "$f" ]] || { kill "$XVFB_PID" 2>/dev/null; XVFB_PID=""; return 1; }
+	XVFB_AFF=":$(tr -dc 0-9 < "$f")"
+}
 
 # -----------------------------------------------------------------------------
 titre "1. Le fichier et ses deux fonctions de mesure"
@@ -182,21 +219,22 @@ if ! command -v Xvfb >/dev/null 2>&1 || ! command -v yad >/dev/null 2>&1 \
 else
 	for res in 1920x1080 1366x768; do
 		haut="${res#*x}"
-		aff=":$(( 90 + RANDOM % 8 ))"
-		Xvfb "$aff" -screen 0 "${res}x24" >/dev/null 2>&1 &
-		NETTOIE_X="$aff"
-		sleep 2
-		H="$(DISPLAY="$aff" bash -c "$(declare -f ecran_hauteur hauteur_dialogue); hauteur_dialogue 720")"
+		if ! xvfb_lancer "${res}x24"; then
+			non "$res : Xvfb n'a pas démarré — rien à mesurer"
+			continue
+		fi
+		aff="$XVFB_AFF"
+		H="$(DISPLAY="$aff" timeout 20 bash -c "$(declare -f ecran_hauteur hauteur_dialogue); hauteur_dialogue 720")"
 		seq 1 40 | sed 's/^/ligne d avertissement assez longue pour remplir la largeur /' \
 		  | DISPLAY="$aff" yad --title=BANC-AVERT --width=640 --height="$H" --center \
 		      --borders=16 --text-info --wrap --text="avertissement" \
 		      --button="Annuler:1" --button="Installer:0" >/dev/null 2>&1 &
 		sleep 4
-		W="$(DISPLAY="$aff" xdotool search --name '^BANC-AVERT$' 2>/dev/null | tail -1)"
+		W="$(DISPLAY="$aff" timeout 20 xdotool search --name '^BANC-AVERT$' 2>/dev/null | tail -1)"
 		if [[ -z "$W" ]]; then
 			non "$res : la fenêtre ne s'est pas ouverte — rien à mesurer"
 		else
-			geo="$(DISPLAY="$aff" xdotool getwindowgeometry --shell "$W" 2>/dev/null)"
+			geo="$(DISPLAY="$aff" timeout 20 xdotool getwindowgeometry --shell "$W" 2>/dev/null)"
 			eval "$geo"
 			bas=$(( Y + HEIGHT ))
 			if (( bas <= haut )); then
@@ -206,9 +244,8 @@ else
 			fi
 		fi
 		pkill -f "yad --title=BANC-AVERT" 2>/dev/null
-		pkill -f "Xvfb $aff" 2>/dev/null
-		NETTOIE_X=""
-		sleep 1
+		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
+		XVFB_PID=""
 	done
 fi
 
