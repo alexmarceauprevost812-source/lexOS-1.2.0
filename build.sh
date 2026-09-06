@@ -213,6 +213,14 @@ cp branding/*.webp branding/*.gif "$BRAND_DST"/ 2>/dev/null || true
 #  « cp » sans -r du dessus ignorait — le thème animé retombait sur l'image
 #  fixe sans le dire.
 [ -d branding/mascot-anim-frames ] && cp -r branding/mascot-anim-frames "$BRAND_DST"/ 2>/dev/null
+#  ═══ LA VIDÉO D'OUVERTURE EST UNE SOURCE DE CONSTRUCTION ═══
+#  Le hook 0300 tourne DANS le chroot : il ne peut découper que ce qui s'y
+#  trouve. Sans cette ligne, ouvrir-ordinateur.mp4 serait resté dans le
+#  dépôt, le hook ne l'aurait jamais vue, et l'entrée en matière serait
+#  tombée dans son repli à CHAQUE construction — en le disant, mais sans
+#  que personne comprenne pourquoi. Le hook la RETIRE après le découpage :
+#  7 Mo de vidéo n'ont rien à faire dans l'ISO, seules les images comptent.
+cp branding/*.mp4 "$BRAND_DST"/ 2>/dev/null || true
 ok "branding/ -> usr/share/lexos/branding ($(ls -1 "$BRAND_DST" | wc -l) fichiers)"
 
 # --- Sélection de la saveur --------------------------------------------------

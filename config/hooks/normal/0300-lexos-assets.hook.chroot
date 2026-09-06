@@ -387,6 +387,29 @@ PLY_MASCOTTE="$BRAND/mascotte-splash.png"
 #  dans le dépôt, ça suffit.
 PLY_PLUIE="$BRAND/pluie-demarrage.png"
 
+#  ═══ L'ENTRÉE EN MATIÈRE — LA VIDÉO, EN IMAGES ═══
+#  ALEX : voir sa vidéo « tout de suite après Lenovo ». GRUB ne sait animer
+#  qu'une image fixe (voir hook 0100), et Plymouth (le module "script")
+#  n'anime que des suites d'images — pas de vidéo. ouvrir-ordinateur.mp4 est
+#  donc découpé, À LA CONSTRUCTION, en une suite de PNG fixes, embarqués
+#  dans le thème comme la mascotte ou les lettres.
+#
+#  LE FORMAT EST UN BUDGET, PAS UN GOÛT. L'initramfs est décompressé en
+#  MÉMOIRE À CHAQUE DÉMARRAGE : chaque image ajoutée est payée à chaque
+#  démarrage, pas une fois pour toutes — exactement ce que ce dépôt vient de
+#  corriger en coupant 106 secondes. Mesuré sur ce fichier (10,5 s,
+#  1920×1080), pour une coupe de 3,5 s à 15 im/s (53 images) : 33 Mo en
+#  1280×720 ; 20 Mo en 960×540, 6,5 Mo à 128 couleurs ; 9,8 Mo en 640×360,
+#  3,5 à 4,3 Mo à 128 couleurs — SANS différence visible sur un splash qui
+#  ne dure que 3,5 s. On reste sur 640×360 : au-delà de 960×540/128
+#  couleurs, on rallonge le démarrage, et on paierait l'animation deux fois
+#  — une fois à la regarder, une fois à la charger.
+PLY_INTRO_SRC="$BRAND/ouvrir-ordinateur.mp4"
+PLY_INTRO_N=53          # 3,5 s à 15 im/s — la durée de l'entrée en matière
+PLY_INTRO_FPS=15
+PLY_INTRO_LARGEUR=640
+PLY_INTRO_HAUTEUR=360
+
 #  Les cinq lettres du logo, déjà détourées et déjà agrandies ×2 en PLUS
 #  PROCHE VOISIN par Alex. ON NE LES RÉÉCHANTILLONNE PAS : le logo est du
 #  pixel carré, et n'importe quel agrandissement lissé lui ferait perdre son
@@ -519,6 +542,70 @@ if [ -d "$PLY_SRC" ]; then
 			echo "[lexos]   !! posé par le hook 0250 qui tolère un paquet absent)."
 		fi
 
+		#  ═══ L'ENTRÉE EN MATIÈRE EST FACULTATIVE, ELLE AUSSI ═══
+		#  Sans ffmpeg ou sans le fichier, le splash retombe SANS RIEN DE
+		#  PERDU : la mascotte, les lettres et la pluie s'affichent comme
+		#  avant, immédiatement. Ce n'est pas une dégradation qui casse
+		#  l'écran de démarrage — c'est l'écran de démarrage TEL QU'IL ÉTAIT
+		#  avant cette consigne.
+		PLY_INTRO_OK=0
+		if [ -r "$PLY_INTRO_SRC" ] && have ffmpeg; then
+			rm -f "$PLY_DST"/intro-*.png
+			#  ═══ LE FILTRE, EXPLIQUÉ ═══
+			#  fps=15,scale=640:360 (lanczos) : le format retenu ci-dessus.
+			#  split + palettegen/paletteuse à 128 couleurs : la RÉDUCTION DE
+			#  PALETTE qui fait tenir 53 images dans quelques mégaoctets — le
+			#  principe d'un GIF bien fait, pas une perte à la JPEG.
+			#  « dither=none » : sur un splash de 3,5 s, le grain d'un tramage
+			#  se verrait plus que la nuance qu'il est censé cacher.
+			#  -pix_fmt pal8 : force le PNG à écrire UN OCTET PAR PIXEL (la
+			#  palette à part) plutôt que trois — sans lui, palettegen ne
+			#  ferait que CHOISIR les couleurs, le PNG resterait encodé en
+			#  24 bits et ne pèserait pas moins lourd pour autant.
+			PLY_INTRO_ERR="$(ffmpeg -y -loglevel error -i "$PLY_INTRO_SRC" \
+				-t 3.5 -vf "fps=${PLY_INTRO_FPS},scale=${PLY_INTRO_LARGEUR}:${PLY_INTRO_HAUTEUR}:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=full[p];[s1][p]paletteuse=dither=none" \
+				-frames:v "$PLY_INTRO_N" -start_number 0 -pred mixed \
+				"$PLY_DST/intro-%04d.png" </dev/null 2>&1 >/dev/null)"
+			#  ═══ ON COMPTE CE QUI EST VRAIMENT SORTI, PAS CE QU'ON A DEMANDÉ ═══
+			#  « -frames:v » est un plafond, pas une garantie : ffmpeg peut
+			#  rendre 0 tout en écrivant MOINS d'images (filtre refusé sur
+			#  cette version, source trop courte). Le script Plymouth compte
+			#  sur EXACTEMENT $PLY_INTRO_N images, numérotées sans trou : un
+			#  compte différent, et l'entrée en matière n'entre pas dans le
+			#  script — jamais une séquence à moitié écrite.
+			PLY_INTRO_VUES="$(ls "$PLY_DST"/intro-*.png 2>/dev/null | wc -l)"
+			if [ "$PLY_INTRO_VUES" -eq "$PLY_INTRO_N" ]; then
+				PLY_INTRO_OK=1
+				echo "[lexos]   entrée en matière : ouvrir-ordinateur.mp4 découpée en ${PLY_INTRO_N} images (${PLY_INTRO_LARGEUR}x${PLY_INTRO_HAUTEUR}, 128 couleurs)"
+				#  LA VIDÉO NE RESTE PAS DANS L'ISO. C'est une source de
+				#  construction : une fois découpée, elle ne sert plus à
+				#  rien sur la machine, et 7 Mo dans l'image, c'est 7 Mo
+				#  sur chaque clé USB et chaque disque installé.
+				#
+				#  ═══ ET ON NE L'EFFACE QUE LÀ OÙ ELLE EST UNE COPIE ═══
+				#  Le banc joue ce fragment AVEC LE VRAI DOSSIER branding/
+				#  DU DÉPÔT dans plusieurs passages (section 5 bis, section
+				#  10) : sans cette garde, éprouver l'écran de démarrage
+				#  SUPPRIMERAIT la vidéo source du dépôt. On ne retire donc
+				#  que l'exemplaire du chroot, à son chemin de production.
+				if [ "$PLY_INTRO_SRC" = "/usr/share/lexos/branding/ouvrir-ordinateur.mp4" ]; then
+					rm -f "$PLY_INTRO_SRC"
+				fi
+			else
+				rm -f "$PLY_DST"/intro-*.png
+				echo "[lexos]   !! entrée en matière : ffmpeg a produit ${PLY_INTRO_VUES} image(s) au lieu de ${PLY_INTRO_N} — écran de"
+				echo "[lexos]   !! démarrage SANS la vidéo d'ouverture (mascotte + LEXOS + pluie"
+				echo "[lexos]   !! s'affichent comme avant). Message de ffmpeg : ${PLY_INTRO_ERR}"
+			fi
+		elif [ -r "$PLY_INTRO_SRC" ]; then
+			echo "[lexos]   !! ffmpeg absent : pas d'entrée en matière — écran de démarrage SANS"
+			echo "[lexos]   !! ouvrir-ordinateur.mp4. mascotte + LEXOS + pluie s'affichent comme"
+			echo "[lexos]   !! avant, immédiatement."
+		else
+			echo "[lexos]   pas d'entrée en matière : branding/ouvrir-ordinateur.mp4 absent — Alex"
+			echo "[lexos]   ne l'a pas encore déposé dans le dépôt."
+		fi
+
 		if [ -r "$PLY_PLUIE" ]; then
 			cp "$PLY_PLUIE" "$PLY_DST/pluie-demarrage.png"
 			echo "[lexos]   pluie Matrix : posée en fond de l'écran de démarrage"
@@ -603,6 +690,24 @@ if (mode == "shutdown") {
 if (mode == "reboot") {
     extinction = 1;
 }
+
+// ═══ L'ENTRÉE EN MATIÈRE — RÉGLAGES ═══
+// Ces quatre nombres DOIVENT correspondre à PLY_INTRO_N, PLY_INTRO_FPS,
+// PLY_INTRO_LARGEUR et PLY_INTRO_HAUTEUR du hook 0300, qui fabrique les
+// images à ces dimensions-là : tests/test_lexos_plymouth.sh compare les
+// deux et rougit si l'un bouge sans l'autre.
+intro_n = 53;             // images (3,5 s à 15 im/s)
+intro_fps = 15;
+intro_largeur = 640;
+intro_hauteur = 360;
+// LES DEUX VALEURS PAR DÉFAUT DISENT « PAS D'ENTRÉE EN MATIÈRE ». Sans les
+// images, rien plus bas ne les change, et refresh_callback saute droit au
+// logo — l'écran de démarrage TEL QU'IL ÉTAIT avant cette consigne.
+intro_ok = 0;
+intro_termine = 1;
+// L'horloge du logo repart de zéro à la fin de l'entrée en matière : sans
+// ce décalage, les lettres arriveraient déjà à mi-course.
+intro_decalage = 0;
 
 SCRIPT_TETE
 
@@ -710,6 +815,89 @@ fun placer_lettre(i, ecoule) {
     lettre_sprite[i].SetOpacity(opacite);
 }
 SCRIPT_CORPS
+
+		#  ═══ L'ENTRÉE EN MATIÈRE N'ENTRE QUE SI SES IMAGES EXISTENT ═══
+		#  Même règle que la pluie, la barre et l'extinction : jamais
+		#  « Image("intro-0000.png") » sans le fichier. Ce bloc vient APRÈS
+		#  celui de la mascotte : il la cache, et on ne cache que ce qui a
+		#  déjà été créé.
+		if [ "$PLY_INTRO_OK" = 1 ]; then
+			cat <<'SCRIPT_INTRO_TETE'
+// --- L'entrée en matière : la vidéo d'ouverture, en images ------------------
+// ALEX : « je veux voir ma vidéo tout de suite après Lenovo ». Plymouth ne
+// lit pas de vidéo ; ouvrir-ordinateur.mp4 est découpée à la construction
+// (ffmpeg, hook 0300) en images fixes, chargées ICI, UNE SEULE FOIS.
+// refresh_callback ne fera qu'échanger le Sprite vers une image DÉJÀ
+// chargée : mesuré dans ce même script, redessiner une image pleine
+// fenêtre coûte ~50 ms, soit deux rafraîchissements et demi perdus.
+intro_ok = 1;
+SCRIPT_INTRO_TETE
+			#  Les 53 lignes sont ÉCRITES, pas bouclées dans le script : le
+			#  module « script » a bien des tableaux, mais pas de boucle
+			#  « for » — et une ligne par image se relit sans effort.
+			I=0
+			while [ "$I" -lt "$PLY_INTRO_N" ]; do
+				printf 'intro_image[%d] = Image("intro-%04d.png");\n' "$I" "$I"
+				I=$((I + 1))
+			done
+			cat <<'SCRIPT_INTRO_CORPS'
+intro_sprite = Sprite();
+intro_sprite.SetImage(intro_image[0]);
+intro_sprite.SetX(Window.GetWidth() / 2 - intro_largeur / 2);
+intro_sprite.SetY(Window.GetHeight() / 2 - intro_hauteur / 2);
+// Au-dessus de la barre (20/21), des lettres (15), de la mascotte (10) et
+// de la pluie (1). L'image n'est PAS étirée : 640×360 au centre d'un écran
+// de 1920×1080, comme la mascotte garde sa taille native — étirer coûterait
+// ~50 ms par image, et l'entrée en matière en a 53.
+intro_sprite.SetZ(25);
+intro_sprite.SetOpacity(0);
+
+// ═══ RIEN DE TOUT ÇA À L'EXTINCTION ═══
+// Sondé dans le vrai interpréteur : sans cette garde, le Sprite restait
+// armé à l'opacité 1 pendant l'ARRÊT — refresh_callback n'appelle jamais
+// placer_intro quand extinction vaut 1, donc la première image de la vidéo
+// serait restée figée à l'écran, sous l'écrasement de la vieille télé.
+// Une entrée en matière n'a de sens qu'au démarrage.
+if (extinction == 0) {
+    intro_sprite.SetOpacity(1);
+    intro_termine = 0;
+
+    // Le splash existant transparaîtrait AUTOUR de l'image, plus petite que
+    // l'écran : on le cache le temps de l'entrée en matière.
+    mascotte_sprite.SetOpacity(0);
+    pluie_sprite.SetOpacity(0);
+}
+
+// L'INDICE VIENT DU TEMPS ÉCOULÉ, PAS D'UN COMPTE D'IMAGES. cadence (50)
+// divisée par intro_fps (15) ne tombe pas juste : avancer d'une image tous
+// les « 50/15 » rafraîchissements dériverait. Math.Int existe dans le
+// module (table des symboles de script.so, sondé dans l'interpréteur) et
+// tronque vers zéro — un floor() pour un temps toujours positif.
+fun placer_intro(ecoule) {
+    indice = Math.Int(ecoule * intro_fps);
+    if (indice >= intro_n) {
+        // LA MAIN PASSE AU SPLASH EXISTANT, PAS AU NOIR. La vidéo est une
+        // entrée en matière : mascotte, LEXOS et pluie reprennent ensuite,
+        // avec leur horloge remise à zéro (intro_decalage).
+        intro_termine = 1;
+        intro_decalage = ecoule;
+        intro_sprite.SetOpacity(0);
+        mascotte_sprite.SetOpacity(1);
+        pluie_sprite.SetOpacity(1);
+    } else {
+        intro_sprite.SetImage(intro_image[indice]);
+    }
+}
+SCRIPT_INTRO_CORPS
+		else
+			#  Le stub vide, même raison que placer_extinction plus bas :
+			#  refresh_callback doit toujours avoir quelqu'un à appeler. Il
+			#  n'est jamais appelé (intro_termine vaut 1 d'office), mais une
+			#  fonction inconnue rend une valeur nulle SANS UN MOT — on ne
+			#  laisse pas ce silence-là dans le chemin de secours.
+			printf '// pas d entree en matiere : ouvrir-ordinateur.mp4 ou ffmpeg absents a la construction.\n'
+			printf 'fun placer_intro(ecoule) {\n    ecoule = ecoule;\n}\n'
+		fi
 
 		#  ═══ L'EXTINCTION N'ENTRE DANS LE SCRIPT QUE SI SES IMAGES EXISTENT ═══
 		#  Même règle que la pluie et la barre : jamais « Image("blanc.png") »
@@ -824,11 +1012,20 @@ fun refresh_callback() {
     if (extinction == 1) {
         placer_extinction(ecoule);
     } else {
-        placer_lettre(0, ecoule);
-        placer_lettre(1, ecoule);
-        placer_lettre(2, ecoule);
-        placer_lettre(3, ecoule);
-        placer_lettre(4, ecoule);
+        // intro_termine vaut 1 d'office quand il n'y a pas d'entrée en
+        // matière : on tombe alors directement dans le second « if », avec
+        // un décalage nul — exactement le comportement d'avant.
+        if (intro_termine == 0) {
+            placer_intro(ecoule);
+        }
+        if (intro_termine == 1) {
+            logo_ecoule = ecoule - intro_decalage;
+            placer_lettre(0, logo_ecoule);
+            placer_lettre(1, logo_ecoule);
+            placer_lettre(2, logo_ecoule);
+            placer_lettre(3, logo_ecoule);
+            placer_lettre(4, logo_ecoule);
+        }
     }
 }
 

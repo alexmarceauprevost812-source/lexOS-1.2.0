@@ -245,6 +245,9 @@ else
 	mkdir -p "$BANC/brand"
 	cp "$BRANDING"/lexos-lettre-*.png "$BRANDING/mascotte-splash.png" "$BANC/brand/"
 	[ -r "$BRANDING/pluie-demarrage.png" ] && cp "$BRANDING/pluie-demarrage.png" "$BANC/brand/"
+	#  La vidéo d'ouverture aussi : theme1 est le passage « tout est là », et
+	#  la section 10 y mesure les images de l'entrée en matière.
+	[ -r "$BRANDING/ouvrir-ordinateur.mp4" ] && cp "$BRANDING/ouvrir-ordinateur.mp4" "$BANC/brand/"
 	JOURNAL="$(lance "$BANC/brand" "$BANC/theme1")"
 	SCRIPT="$BANC/theme1/lexos.script"
 
@@ -1076,7 +1079,7 @@ PYBB
 		non "le démarrage transparaît à l'extinction (mascotte, pluie, ou barre encore dessinée : $DEDANS SetImage sous garde sur $TOTAL)"
 	fi
 	if grep -q 'placer_extinction(ecoule);' <<< "$BLOC_EXT" \
-	   && grep -q 'placer_lettre(0, ecoule);' <<< "$CODE"; then
+	   && grep -q 'placer_lettre(0, logo_ecoule);' <<< "$CODE"; then
 		ok "refresh_callback aiguille : placer_extinction à l'arrêt, placer_lettre au démarrage"
 	else
 		non "refresh_callback n'aiguille pas entre extinction et démarrage"
@@ -1253,13 +1256,28 @@ else
 		|| non "le redémarrage ne prend pas la branche d'extinction (mode=$(valeur "$RB" md))"
 
 	#  ─── LE DÉMARRAGE : LA MASCOTTE, LES LETTRES, LA BARRE — VRAIMENT ───
-	BT0="$(sonder 0 0  ext extinction md mode \
+	#  ═══ L'ENTRÉE EN MATIÈRE DÉCALE CES CONTRÔLES, ELLE NE LES ANNULE PAS ═══
+	#  Depuis la vidéo d'ouverture, les premiers rafraîchissements du
+	#  démarrage lui appartiennent : la mascotte y est cachée, les lettres
+	#  n'ont pas commencé. Les contrôles ci-dessous portent sur le splash
+	#  APRÈS elle — on calcule donc le rafraîchissement EXACT de la
+	#  passation, à partir des valeurs du script (pas d'un nombre écrit ici).
+	#  Sans entrée en matière, le décalage vaut 0 et rien ne change.
+	CODE_S9="$(sed 's|//.*$||' "$SCRIPT")"
+	INTRO_SAUT=0
+	if grep -q '^intro_ok = 1;$' <<< "$CODE_S9"; then
+		S9_N="$(sed -n 's/^intro_n = \([0-9]*\);.*/\1/p' <<< "$CODE_S9" | head -1)"
+		S9_FPS="$(sed -n 's/^intro_fps = \([0-9]*\);.*/\1/p' <<< "$CODE_S9" | head -1)"
+		S9_CAD="$(sed -n 's/^cadence = \([0-9]*\);.*/\1/p' <<< "$CODE_S9" | head -1)"
+		INTRO_SAUT="$("$PY" -c "import math,sys; print(math.ceil(int(sys.argv[1])/int(sys.argv[2])*int(sys.argv[3])))" "$S9_N" "$S9_FPS" "$S9_CAD")"
+	fi
+	BT0="$(sonder 0 "$INTRO_SAUT"  ext extinction md mode \
 		masc 'mascotte_sprite.GetOpacity()' pluie 'pluie_sprite.GetOpacity()' l0 'lettre_sprite[0].GetOpacity()')"
-	BT1="$(sonder 0 60 l0 'lettre_sprite[0].GetOpacity()' l4 'lettre_sprite[4].GetOpacity()')"
+	BT1="$(sonder 0 $((INTRO_SAUT + 60)) l0 'lettre_sprite[0].GetOpacity()' l4 'lettre_sprite[4].GetOpacity()')"
 	if [ "$(valeur "$BT0" ext)" = "0" ] && [ "$(valeur "$BT0" md)" = '"boot"' ] \
 	   && [ "$(valeur "$BT0" masc)" = "1" ] && [ "$(valeur "$BT0" pluie)" = "1" ] \
 	   && [ "$(valeur "$BT0" l0)" = "0" ]; then
-		ok "au démarrage : mascotte et pluie visibles dès la première image, les lettres pas encore arrivées"
+		ok "au démarrage : mascotte et pluie visibles dès la première image du splash, les lettres pas encore arrivées"
 	else
 		non "l'état de la première image du démarrage ne correspond pas à ce qui est attendu"
 	fi
@@ -1292,6 +1310,279 @@ else
 		fi
 	else
 		saut "le passage sans convert n'a pas produit de script : le sans-sprite-fantôme n'est pas mesuré"
+	fi
+fi
+
+# =============================================================================
+titre "10. L'entrée en matière — la vidéo d'ouverture, découpée en images"
+# =============================================================================
+#  ALEX : voir sa vidéo « tout de suite après Lenovo ». Plymouth ne lit pas
+#  de vidéo : ouvrir-ordinateur.mp4 est découpée à la CONSTRUCTION en images
+#  fixes. Ce que ce banc mesure, sur le thème produit par le VRAI fragment :
+#    · le compte, les dimensions et le POIDS des images — l'initramfs est
+#      décompressé en mémoire à chaque démarrage, chaque mégaoctet est payé
+#      à chaque fois ;
+#    · les quatre réglages du hook et ceux du script disent la MÊME chose ;
+#    · le repli, joué pour de vrai : sans le .mp4, et sans ffmpeg ;
+#    · le montage : images chargées UNE FOIS, jamais dans refresh_callback ;
+#    · et, plus bas, la séquence JOUÉE dans le vrai interpréteur.
+INTRO_SRC="$BRANDING/ouvrir-ordinateur.mp4"
+#  Le plafond. Mesuré sur ce fichier : 3,7 Mo pour 53 images en 640×360 à
+#  128 couleurs. La consigne autorise jusqu'à 960×540/128 couleurs (~6,5 Mo)
+#  « si le rendu déçoit », et INTERDIT d'aller au-delà. 5 Mo laisse la marge
+#  du format retenu sans laisser passer un retour au 1080p (33 Mo) ni au
+#  PNG non réduit (9,8 Mo en 640×360).
+INTRO_PLAFOND_KO=5120
+
+if [ ! -r "$INTRO_SRC" ]; then
+	saut "branding/ouvrir-ordinateur.mp4 absent : l'entrée en matière n'est pas mesurée (Alex ne l'a pas encore déposée)"
+elif [ -z "$IM" ] || [ "$MANQUE" = 1 ] || [ ! -r "${SCRIPT:-/nonexistent}" ]; then
+	saut "thème non généré plus haut : l'entrée en matière n'est pas mesurée"
+elif ! command -v ffmpeg >/dev/null 2>&1; then
+	saut "ffmpeg absent de cette machine : les images n'ont pas pu être fabriquées ici"
+else
+	INTRO_VUES="$(ls "$BANC/theme1"/intro-*.png 2>/dev/null | wc -l)"
+	#  Le compte attendu n'est pas écrit ici : il est LU dans le hook, pour
+	#  qu'un changement de durée n'ait pas à être reporté à la main dans ce
+	#  banc — et le contrôle suivant vérifie que le script dit le même.
+	INTRO_N_HOOK="$(sed -n 's/^PLY_INTRO_N=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
+	if [ -n "$INTRO_N_HOOK" ] && [ "$INTRO_VUES" = "$INTRO_N_HOOK" ]; then
+		ok "les $INTRO_VUES images de l'entrée en matière sont posées dans le thème"
+	else
+		non "$INTRO_VUES image(s) posée(s), le hook en annonce ${INTRO_N_HOOK:-?}"
+	fi
+
+	#  ═══ LA VIDÉO DOIT ENTRER DANS LE CHROOT, SINON RIEN NE SE PASSE ═══
+	#  Le hook tourne DANS le chroot : il ne découpe que ce qui s'y trouve.
+	#  build.sh ne recopiait que les .svg, .png, .webp et .gif — un .mp4 y
+	#  serait resté invisible, et l'entrée en matière serait tombée dans son
+	#  repli à CHAQUE construction, en le disant, sans que personne fasse le
+	#  lien. On lit les LIGNES DE CODE de build.sh, pas ses commentaires.
+	if grep -qE '^[^#]*cp[[:space:]]+branding/\*\.mp4' "$RACINE/build.sh"; then
+		ok "build.sh recopie la vidéo dans le chroot — le hook peut la découper"
+	else
+		non "build.sh ne recopie aucun .mp4 : le hook ne verrait jamais la vidéo, et le repli jouerait à chaque construction"
+	fi
+	#  ET LE BANC NE DOIT PAS MANGER LA SOURCE. Le fragment retire la vidéo
+	#  après découpage (7 Mo n'ont rien à faire dans l'ISO) — mais plusieurs
+	#  passages le jouent avec le VRAI dossier branding/ du dépôt.
+	if [ -r "$INTRO_SRC" ]; then
+		ok "…et éprouver l'écran de démarrage n'a pas supprimé la vidéo source du dépôt"
+	else
+		non "le banc vient de SUPPRIMER branding/ouvrir-ordinateur.mp4 — la garde de chemin du hook ne tient pas"
+	fi
+
+	#  ═══ LE POIDS, PESÉ ═══
+	INTRO_KO="$(du -sk "$BANC/theme1"/intro-*.png 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+	if [ "${INTRO_KO:-0}" -gt 0 ] && [ "$INTRO_KO" -le "$INTRO_PLAFOND_KO" ]; then
+		ok "l'entrée en matière pèse ${INTRO_KO} Ko dans l'initramfs — sous le plafond de ${INTRO_PLAFOND_KO} Ko"
+	else
+		non "l'entrée en matière pèse ${INTRO_KO:-0} Ko : au-dessus du plafond de ${INTRO_PLAFOND_KO} Ko — le démarrage paierait l'animation deux fois"
+	fi
+
+	#  Les dimensions et la palette : une image 1080p en 24 bits passerait le
+	#  contrôle de poids si elle était seule, pas celui-ci.
+	INTRO_FORMAT="$("$PY" - "$BANC/theme1/intro-0000.png" <<'PYIMG'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1])
+print("%dx%d %s" % (im.size[0], im.size[1], im.mode))
+PYIMG
+)"
+	INTRO_L_HOOK="$(sed -n 's/^PLY_INTRO_LARGEUR=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
+	INTRO_H_HOOK="$(sed -n 's/^PLY_INTRO_HAUTEUR=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
+	if [ "$INTRO_FORMAT" = "${INTRO_L_HOOK}x${INTRO_H_HOOK} P" ]; then
+		ok "les images sont en ${INTRO_L_HOOK}×${INTRO_H_HOOK} et à PALETTE (mode P) — un octet par pixel, pas trois"
+	else
+		non "image 0 : « $INTRO_FORMAT », attendu « ${INTRO_L_HOOK}x${INTRO_H_HOOK} P » (P = palette ; sans elle le poids triple)"
+	fi
+
+	#  ═══ LE HOOK ET LE SCRIPT DISENT LA MÊME CHOSE ═══
+	#  Le heredoc du script est écrit en clair (les variables du shell n'y
+	#  sont PAS développées) : les quatre nombres y sont donc recopiés. Deux
+	#  écritures d'une même valeur finissent toujours par diverger — sauf si
+	#  quelque chose les compare.
+	CODE_I="$(sed 's|//.*$||' "$SCRIPT")"
+	ACCORD=1
+	for COUPLE in "PLY_INTRO_N:intro_n" "PLY_INTRO_FPS:intro_fps" \
+	              "PLY_INTRO_LARGEUR:intro_largeur" "PLY_INTRO_HAUTEUR:intro_hauteur"; do
+		V_HOOK="$(sed -n "s/^${COUPLE%%:*}=\([0-9]*\).*/\1/p" "$HOOK" | head -1)"
+		V_SCRIPT="$(sed -n "s/^${COUPLE##*:} = \([0-9]*\);.*/\1/p" <<< "$CODE_I" | head -1)"
+		if [ -z "$V_HOOK" ] || [ "$V_HOOK" != "$V_SCRIPT" ]; then
+			non "${COUPLE%%:*}=${V_HOOK:-?} dans le hook, ${COUPLE##*:}=${V_SCRIPT:-?} dans le script"
+			ACCORD=0
+		fi
+	done
+	[ "$ACCORD" = 1 ] && ok "les quatre réglages (compte, cadence, largeur, hauteur) sont les mêmes dans le hook et dans le script"
+
+	#  ═══ CHARGÉES UNE FOIS, JAMAIS DANS LE RAFRAÎCHISSEMENT ═══
+	#  Un Image() par rafraîchissement relirait le fichier 15 fois par
+	#  seconde. Le tableau est monté au chargement du script ; placer_intro
+	#  ne fait qu'échanger le Sprite (SetImage) vers une image déjà là.
+	NB_IMG="$(grep -c '^intro_image\[[0-9]*\] = Image("intro-[0-9]*\.png");$' <<< "$CODE_I")"
+	FUN_INTRO="$(sed -n '/^fun placer_intro/,/^}/p' <<< "$CODE_I")"
+	#  « Image( » tout court attraperait « SetImage( » : on ancre sur l'appel
+	#  du CONSTRUCTEUR, qui n'est jamais précédé d'une lettre.
+	if [ "$NB_IMG" = "$INTRO_VUES" ] && ! grep -qE '(^|[^A-Za-z])Image\(' <<< "$FUN_INTRO" \
+	   && grep -q 'intro_sprite.SetImage(intro_image\[indice\]);' <<< "$FUN_INTRO"; then
+		ok "les $NB_IMG images sont chargées UNE fois ; placer_intro n'ouvre aucun fichier, il échange le Sprite"
+	else
+		non "le montage recharge des images pendant l'animation, ou n'en charge pas $INTRO_VUES ($NB_IMG lignes Image())"
+	fi
+	#  Et rien n'est mis à l'échelle : mesuré ailleurs dans ce banc, un
+	#  Image.Scale pleine fenêtre coûte ~50 ms — 53 fois, ce serait 2,6 s.
+	if ! grep -q 'intro_image\[[0-9]*\].Scale(\|intro_sprite.SetImage(.*\.Scale(' <<< "$CODE_I"; then
+		ok "aucune mise à l'échelle des images : elles s'affichent à leur taille, centrées"
+	else
+		non "les images de l'entrée en matière passent par Image.Scale — ~50 ms par image"
+	fi
+
+	# --- Le repli : le .mp4 absent -----------------------------------------
+	#  ON NE LIT PAS LE CODE, ON RETIRE LE FICHIER ET ON REGÉNÈRE.
+	rm -rf "$BANC/brand-intro"; mkdir -p "$BANC/brand-intro"
+	cp "$BRANDING"/lexos-lettre-*.png "$BRANDING/mascotte-splash.png" "$BANC/brand-intro/"
+	[ -r "$BRANDING/pluie-demarrage.png" ] && cp "$BRANDING/pluie-demarrage.png" "$BANC/brand-intro/"
+	J5="$(lance "$BANC/brand-intro" "$BANC/theme5")"
+	S5="$BANC/theme5/lexos.script"
+	if [ -r "$S5" ] && [ "$(ls "$BANC/theme5"/intro-*.png 2>/dev/null | wc -l)" = "0" ]; then
+		ok "sans le .mp4 : aucune image d'entrée en matière, et le thème se construit quand même"
+	else
+		non "sans le .mp4 : des images d'entrée en matière sont apparues, ou le thème ne s'est pas construit"
+	fi
+	S5_CODE="$(sed 's|//.*$||' "$S5" 2>/dev/null)"
+	#  Le NOM placer_intro reste dans refresh_callback (l'appel est gardé par
+	#  intro_termine) : ce qui compte, c'est qu'aucune IMAGE absente ne soit
+	#  citée, qu'intro_ok reste à 0, et que la fonction existe quand même —
+	#  vide — pour que l'appel gardé ne tombe jamais dans le vide.
+	if grep -q '^intro_ok = 0;$' <<< "$S5_CODE" && ! grep -q 'Image("intro-' <<< "$S5_CODE" \
+	   && grep -q '^fun placer_intro(ecoule) {$' <<< "$S5_CODE"; then
+		ok "…le script ne cite aucune image absente, intro_ok reste à 0, et placer_intro existe (vide)"
+	else
+		non "…le script parle quand même de l'entrée en matière : image nulle au démarrage"
+	fi
+	#  ET LE SPLASH D'AVANT EST INTACT : c'est ça, « le thème garde son
+	#  animation actuelle ». Un repli qui casserait la mascotte serait pire
+	#  que pas d'entrée en matière du tout.
+	if grep -q 'Image("mascotte-splash.png")' <<< "$S5_CODE" \
+	   && grep -q 'placer_lettre(0, logo_ecoule);' <<< "$S5_CODE" \
+	   && [ -r "$BANC/theme5/lexos.plymouth" ] \
+	   && grep -q 'ModuleName=script' "$BANC/theme5/lexos.plymouth"; then
+		ok "…et l'écran de démarrage d'avant est intact : mascotte, lettres, thème animé"
+	else
+		non "…mais l'écran de démarrage d'avant a été abîmé par le repli"
+	fi
+	if grep -qi 'entrée en matière\|ouvrir-ordinateur' <<< "$J5"; then
+		ok "…et le journal de construction le DIT"
+	else
+		non "…l'entrée en matière manque en silence"
+	fi
+
+	# --- Le repli : ffmpeg absent ------------------------------------------
+	#  Même méthode que pour convert (section 5 bis) : un PATH sans ffmpeg,
+	#  fabriqué par liens symboliques. Lire la condition dans le fichier
+	#  prouverait la forme de la ligne, pas le comportement.
+	SANS_FF="$BANC/sans-ffmpeg"
+	rm -rf "$SANS_FF"; mkdir -p "$SANS_FF"
+	for d in /usr/bin /bin /usr/sbin /sbin; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*; do
+			b="$(basename "$f")"
+			case "$b" in ffmpeg|ffprobe) continue ;; esac
+			[ -e "$SANS_FF/$b" ] || ln -s "$f" "$SANS_FF/$b" 2>/dev/null
+		done
+	done
+	ln -sf "$STUB/plymouth-set-default-theme" "$SANS_FF/plymouth-set-default-theme" 2>/dev/null
+	if [ -x "$SANS_FF/sh" ] && ! PATH="$SANS_FF" command -v ffmpeg >/dev/null 2>&1; then
+		rm -rf "$BANC/theme6"
+		{ prelude "$BRANDING"; cat "$FRAGMENT"; } > "$BANC/run6.sh"
+		J6="$(env -i PATH="$SANS_FF" \
+			LEXOS_PLYMOUTH_SRC="$BANC/spinner" LEXOS_PLYMOUTH_DST="$BANC/theme6" \
+			"$SANS_FF/sh" "$BANC/run6.sh" 2>&1)"
+		S6_CODE="$(sed 's|//.*$||' "$BANC/theme6/lexos.script" 2>/dev/null)"
+		if [ "$(ls "$BANC/theme6"/intro-*.png 2>/dev/null | wc -l)" = "0" ] \
+		   && grep -q '^intro_ok = 0;$' <<< "$S6_CODE" \
+		   && grep -q 'Image("mascotte-splash.png")' <<< "$S6_CODE"; then
+			ok "sans ffmpeg : pas d'images, pas d'entrée en matière dans le script, et la mascotte est toujours là"
+		else
+			non "sans ffmpeg : le thème n'est pas retombé proprement sur son animation d'avant"
+		fi
+		if grep -qi 'ffmpeg' <<< "$J6" && grep -q '!!' <<< "$J6"; then
+			ok "…et le journal le dit en « !! », en nommant ffmpeg"
+		else
+			non "…mais le journal ne nomme pas ffmpeg"
+		fi
+	else
+		saut "PATH sans ffmpeg impossible à fabriquer ici — le repli n'est pas joué"
+	fi
+
+	# --- La séquence JOUÉE dans le vrai interpréteur ------------------------
+	#  Même harnais que la section 9 : on ne lit plus le script, on le FAIT
+	#  TOURNER dans le module de Plymouth et on demande l'état des Sprites.
+	if [ ! -x "${HARNAIS:-/nonexistent}" ]; then
+		saut "harnais non compilé (section 9) : l'entrée en matière n'est pas JOUÉE"
+	else
+		#  Au premier rafraîchissement : la vidéo est là, le splash d'après
+		#  est caché, et les lettres n'ont pas bougé de leur départ.
+		I0="$(sonder 0 1 iok intro_ok ifin intro_termine \
+			iop 'intro_sprite.GetOpacity()' iw 'intro_sprite.GetImage().GetWidth()' \
+			masc 'mascotte_sprite.GetOpacity()' pluie 'pluie_sprite.GetOpacity()' \
+			lop 'lettre_sprite[0].GetOpacity()')"
+		if [ "$(valeur "$I0" iok)" = "1" ] && [ "$(valeur "$I0" ifin)" = "0" ] \
+		   && [ "$(valeur "$I0" iop)" = "1" ] && [ "$(valeur "$I0" iw)" = "$INTRO_L_HOOK" ] \
+		   && [ "$(valeur "$I0" masc)" = "0" ] && [ "$(valeur "$I0" pluie)" = "0" ] \
+		   && [ "$(valeur "$I0" lop)" = "0" ]; then
+			ok "dès la première image : la vidéo est à l'écran, mascotte et pluie cachées, les lettres pas encore arrivées"
+		else
+			non "première image de l'entrée en matière : $(printf '%s' "$I0" | tr '\n' ' ')"
+		fi
+
+		#  ═══ L'IMAGE AFFICHÉE EST CELLE DE L'INDICE ATTENDU ═══
+		#  Le seul contrôle qui prouve que ça DÉFILE. On compare l'image du
+		#  Sprite à celle du tableau, par identité d'objet — « == » compare
+		#  bien les références dans ce module (sondé).
+		DEFILE=1
+		for COUPLE in "5:1" "50:15" "150:45"; do
+			N="${COUPLE%%:*}"; IDX="${COUPLE##*:}"
+			VU="$("$HARNAIS" -m 0 -i "$BANC/theme1" -s "$FENETRE" -f "$SCRIPT" -r "$N" \
+				-s "m = (intro_sprite.GetImage() == intro_image[$IDX]);" -q m 2>/dev/null \
+				| sed -n 's/^m = //p')"
+			[ "$VU" = "1" ] || { DEFILE=0; non "au rafraîchissement $N, l'image affichée n'est pas intro_image[$IDX]"; }
+		done
+		[ "$DEFILE" = 1 ] \
+			&& ok "la séquence DÉFILE : aux rafraîchissements 5, 50 et 150, l'image affichée est bien la 1re, la 15e et la 45e" \
+			|| true
+
+		#  ═══ LA MAIN PASSE AU SPLASH, ET SON HORLOGE REPART DE ZÉRO ═══
+		FIN="$(sonder 0 200 ifin intro_termine idec intro_decalage \
+			iop 'intro_sprite.GetOpacity()' masc 'mascotte_sprite.GetOpacity()' \
+			pluie 'pluie_sprite.GetOpacity()' \
+			l0 'lettre_sprite[0].GetOpacity()' l4 'lettre_sprite[4].GetOpacity()')"
+		if [ "$(valeur "$FIN" ifin)" = "1" ] && [ "$(valeur "$FIN" iop)" = "0" ] \
+		   && [ "$(valeur "$FIN" masc)" = "1" ] && [ "$(valeur "$FIN" pluie)" = "1" ]; then
+			ok "à la fin de la séquence : la vidéo s'efface, la mascotte et la pluie reviennent — pas de noir"
+		else
+			non "la main ne passe pas au splash : $(printf '%s' "$FIN" | tr '\n' ' ')"
+		fi
+		#  L'horloge du logo repart de zéro : 0,46 s après la fin, la
+		#  PREMIÈRE lettre est arrivée (glisse 0,42 s) et la DERNIÈRE non
+		#  (elle attend son retard de 4 × 0,16 s). Sans le décalage, les cinq
+		#  seraient déjà en place depuis longtemps.
+		if [ "$(valeur "$FIN" l0)" = "1" ] && [ "$(valeur "$FIN" l4)" = "0" ]; then
+			ok "…et l'horloge du logo REPART DE ZÉRO : la 1re lettre est arrivée, la 5e est encore en route"
+		else
+			non "…mais les lettres ne repartent pas de zéro (1re=$(valeur "$FIN" l0), 5e=$(valeur "$FIN" l4)) — le décalage ne s'applique pas"
+		fi
+
+		#  ═══ RIEN DE TOUT ÇA À L'ARRÊT ═══
+		#  Trouvé par le harnais, pas par la lecture : sans garde, le Sprite
+		#  restait armé à l'opacité 1 pendant l'extinction, et la première
+		#  image de la vidéo serait restée figée sous l'écrasement.
+		ARRET="$(sonder 1 10 ifin intro_termine iop 'intro_sprite.GetOpacity()')"
+		if [ "$(valeur "$ARRET" ifin)" = "1" ] && [ "$(valeur "$ARRET" iop)" = "0" ]; then
+			ok "à l'arrêt : l'entrée en matière n'est pas armée du tout (opacité 0, séquence déclarée finie)"
+		else
+			non "à l'arrêt, la vidéo d'ouverture est armée : $(printf '%s' "$ARRET" | tr '\n' ' ')"
+		fi
 	fi
 fi
 
