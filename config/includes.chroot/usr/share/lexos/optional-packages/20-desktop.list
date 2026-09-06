@@ -170,7 +170,9 @@ gnome-system-tools
 # dès le passage sur batterie, un fond animé coûtant une à deux heures
 # d'autonomie sur un portable.
 mpv
-python3-xlib
+#  python3-xlib est passé en liste STRICTE (lexos-core.list.chroot) : le
+#  veilleur du geste « autocollant » démarre tout seul à l'ouverture de
+#  session et ne peut pas dépendre d'un paquet qu'on tolère absent.
 # « lexos wallpaper code » : le fond qui s'écrit tout seul. Pas de vidéo ici
 # — le décor est peint une fois et seules les lignes de code changent, en
 # GTK et cairo. Ces trois paquets sont ce qu'il faut pour les dessiner.

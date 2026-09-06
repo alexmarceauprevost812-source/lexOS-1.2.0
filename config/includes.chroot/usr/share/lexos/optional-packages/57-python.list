@@ -69,7 +69,8 @@ python3-cairo
 #   paquet qui ne peut pas manquer brouille ce rapport pour rien.
 
 #  Fenêtre du fond d'écran vidéo (lexos wallpaper video).
-python3-xlib
+#  python3-xlib : voir lexos-core.list.chroot — il est obligatoire depuis
+#  que le geste « autocollant » en dépend.
 #  Paramètres et Cartes : une fenêtre Qt qui affiche une page locale.
 python3-pyside6.qtcore
 python3-pyside6.qtgui

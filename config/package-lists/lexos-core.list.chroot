@@ -243,3 +243,19 @@ xfce4-appfinder
 #  correctif dépendait du temps qu'il faisait sur les miroirs Debian — la
 #  panne des dossiers blancs de l'ISO 72, encore une fois. Ici, c'est écrit.
 libglib2.0-bin
+
+#  ═══ python3-xlib : LE GESTE « AUTOCOLLANT » EN DÉPEND ═══
+#  /usr/lib/lexos/geste-autocollant est lancé à l'ouverture de session par
+#  etc/skel/.config/autostart. Sans cette bibliothèque il s'arrête aussitôt en
+#  le disant dans son journal — mais personne ne lit un journal qu'on ne sait
+#  pas chercher : le geste serait simplement « sans effet ».
+#
+#  IL N'ÉTAIT QUE DANS DES LISTES FACULTATIVES (20-desktop, 57-python), posées
+#  par le hook 0250 qui TOLÈRE un paquet absent, à dessein. C'est exactement ce
+#  qui a fait sortir une ISO sans écran de démarrage animé : un miroir qui
+#  hoquète, et une fonction disparaît sans un mot. Une dépendance d'un veilleur
+#  qui démarre tout seul n'a rien à faire dans une liste tolérante.
+#
+#  xdotool N'EST PAS ICI, ET C'EST VOULU : python3-xlib sait envoyer XTEST
+#  lui-même (Xlib.ext.xtest), mesuré sur un vrai serveur X. Un paquet de moins.
+python3-xlib

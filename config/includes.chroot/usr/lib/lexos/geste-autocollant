@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+# =============================================================================
+#  geste-autocollant — tenir « C » et le bouton gauche 3 s sur une image
+# =============================================================================
+#  LE GESTE. Dans le gestionnaire de fichiers, garder la touche « C » et le
+#  bouton gauche enfoncés trois secondes sur une photo découpe son sujet et
+#  range le PNG transparent dans ~/Images/Autocollants. C'est le geste
+#  « Autocollants » de Samsung, transposé à la souris.
+#
+#  CE VEILLEUR NE DÉCOUPE RIEN. Toute la découpe est dans lexos-sticker, qui
+#  existait avant lui et qui marche. Ici on ne fait que reconnaître le geste,
+#  trouver le fichier visé, et passer la main.
+#
+#  ═══ POURQUOI UNE CAPTURE DE TOUCHE, ET POURQUOI SEULEMENT SUR THUNAR ═══
+#  Thunar réagit aux lettres tapées : « c » ouvre sa recherche au clavier et
+#  change la sélection. On découperait la mauvaise image, ou rien.
+#  On capture donc « c » sur les FENÊTRES DE THUNAR, jamais sur la racine :
+#  « c » cesse d'atteindre Thunar, et reste parfaitement normal dans le
+#  terminal, l'éditeur, le navigateur — partout ailleurs.
+#
+#  ═══ CE QUI A ÉTÉ MESURÉ, ET CE QUE ÇA A CHANGÉ ═══
+#  Trois comportements de X11 ont été éprouvés sur un vrai serveur (Xvfb) avec
+#  un vrai Thunar, parce que trois décisions en dépendaient. Deux ont infirmé
+#  le dessin de départ :
+#
+#   1. LA CAPTURE SUR LA FENÊTRE DE PREMIER NIVEAU SUFFIT. On craignait de
+#      devoir viser une fenêtre fille : non. Mesure : le champ de recherche de
+#      Thunar (une fenêtre de 176×42) apparaît sans capture, et n'apparaît
+#      plus avec. La fenêtre rendue par WM_CLASS=Thunar est la bonne.
+#
+#   2. IL NE FAUT SURTOUT PAS CAPTURER AVEC « AnyModifier ». C'était le
+#      dessin de départ, et il casse toute la fonction : « Ctrl+C » emploie
+#      LA MÊME TOUCHE, donc notre propre capture l'avalait et Thunar ne
+#      recevait jamais rien. Mesuré : capture AnyModifier posée, « c » jamais
+#      touchée, Ctrl+C envoyé → le presse-papier ne bouge pas.
+#      On capture donc des masques PRÉCIS. Et il en faut plusieurs : avec le
+#      pavé numérique ou la majuscule verrouillée, une capture sur le masque 0
+#      seul NE PREND PLUS — mesuré aussi, la recherche de Thunar s'ouvrait.
+#      Les masques des verrous sont calculés depuis la carte du clavier, pas
+#      supposés : Verr.Num n'est pas Mod2 sur toutes les dispositions.
+#
+#   3. ON NE PEUT PAS SYNTHÉTISER « c » PENDANT QUE « c » EST ENFONCÉE. Le
+#      serveur X ne voit aucun changement d'état et n'émet aucun événement :
+#      le Ctrl+C part dans le vide. Il faut relâcher « c » AVANT d'envoyer.
+#      En revanche, il est inutile de lever la capture — une fois les masques
+#      précis, elle ne gêne plus, et la lever ouvrirait une fenêtre pendant
+#      laquelle Thunar verrait passer la touche.
+#
+#  ═══ POURQUOI PAS xdotool ═══
+#  python3-xlib sait envoyer XTEST lui-même (Xlib.ext.xtest). Mesuré : le
+#  Ctrl+C part et le presse-papier se remplit, sans xdotool. Un paquet de
+#  moins à garantir — et xdotool n'était dans aucune liste stricte.
+#
+#  ═══ LE Ctrl+C NE PART JAMAIS À L'AVEUGLE ═══
+#  Ctrl+C dans un terminal tue le programme en cours. Trois vérifications
+#  avant d'envoyer quoi que ce soit, et au moindre doute on ne fait RIEN :
+#    · la fenêtre active porte WM_CLASS = Thunar ;
+#    · le pointeur est au-dessus de cette même fenêtre ;
+#    · le presse-papier relu ne contient qu'UNE seule URI file:// vers une
+#      image existante.
+# =============================================================================
+import os
+import signal
+import subprocess
+import sys
+import time
+import urllib.parse
+
+SONDAGE = 0.05          # s entre deux lectures — le geste dure 3 s, 50 ms suffit
+DUREE = 3.0             # s : l'appui long
+BOUGE_MAX = 12          # px : au-delà, c'est un glisser-déposer, pas un appui
+EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+
+ETAT = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "lexos", "geste-autocollant")
+JOURNAL = os.path.join(
+    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+    "lexos", "geste-autocollant.log")
+
+
+def note(texte):
+    """Une ligne par déclenchement ET par abandon, avec la raison.
+
+    C'est ce qui permet de comprendre « ça n'a rien fait » sans deviner :
+    un geste qui échoue silencieusement est indébogable, et celui-ci a six
+    façons d'échouer légitimement.
+    """
+    try:
+        os.makedirs(os.path.dirname(JOURNAL), exist_ok=True)
+        with open(JOURNAL, "a", encoding="utf-8") as f:
+            f.write("%s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"), texte))
+    except OSError:
+        pass
+
+
+def encore_demande():
+    """L'interrupteur des Paramètres. Absent = allumé."""
+    try:
+        with open(ETAT, "r", encoding="utf-8") as f:
+            return f.read().strip() != "off"
+    except OSError:
+        return True
+
+
+# =============================================================================
+#  X11
+# =============================================================================
+def masques_de_verrou(d, X, XK):
+    """Toutes les combinaisons de verrous sous lesquelles capturer « c ».
+
+    MESURÉ, PAS SUPPOSÉ : avec Verr.Num ou Maj.Verr enclenché, une capture sur
+    le seul masque 0 ne prend plus et la recherche de Thunar s'ouvre. Il faut
+    donc capturer aussi 0|Lock, 0|Num, 0|Lock|Num. Le bit de Verr.Num est LU
+    dans la carte du clavier : il vaut Mod2 sur une disposition courante, pas
+    sur toutes, et une constante en dur serait juste jusqu'au jour où elle ne
+    l'est plus.
+    """
+    masques = [0, X.LockMask]
+    carte = d.get_modifier_mapping()
+    for keysym in (XK.XK_Num_Lock, XK.XK_Scroll_Lock):
+        code = d.keysym_to_keycode(keysym)
+        if not code:
+            continue
+        for i, colonne in enumerate(carte):
+            if code in colonne:
+                bit = 1 << i
+                masques += [m | bit for m in list(masques)]
+                break
+    return sorted(set(masques))
+
+
+def est_thunar(fen):
+    """WM_CLASS vaut-il Thunar ? Muet sur une fenêtre déjà détruite."""
+    try:
+        cls = fen.get_wm_class()
+    except Exception:
+        return False
+    return bool(cls) and "thunar" in (c.lower() for c in cls)
+
+
+def toplevel_thunar(d, fen):
+    """Remonter jusqu'à la fenêtre de premier niveau qui porte WM_CLASS.
+
+    Le pointeur et le focus rendent souvent une fenêtre FILLE, qui n'a pas de
+    WM_CLASS à elle. On remonte donc jusqu'à la racine en cherchant la
+    première qui en porte une.
+    """
+    try:
+        racine = d.screen().root.id
+        for _ in range(12):
+            if fen is None or fen.id == racine:
+                return None
+            if est_thunar(fen):
+                return fen
+            fen = fen.query_tree().parent
+    except Exception:
+        return None
+    return None
+
+
+class Capture:
+    """Les captures posées, et de quoi toutes les lever d'un coup.
+
+    ═══ POURQUOI CETTE CLASSE EXISTE ═══
+    Un veilleur tué qui laisse une capture posée rend « c » INUTILISABLE dans
+    Thunar jusqu'à la fin de la session, sans que rien ne le dise. C'est le
+    genre de panne qu'on ne retrouve jamais. On tient donc la liste de ce
+    qu'on a posé, et on la lève au SIGTERM comme à la sortie normale.
+    """
+
+    def __init__(self, d, X, XK):
+        self.d, self.X = d, X
+        self.keycode = d.keysym_to_keycode(XK.XK_c)
+        self.masques = masques_de_verrou(d, X, XK)
+        self.posees = {}          # id de fenêtre -> objet fenêtre
+
+    def poser(self, fen):
+        if fen.id in self.posees or not self.keycode:
+            return
+        try:
+            for m in self.masques:
+                fen.grab_key(self.keycode, m, True,
+                             self.X.GrabModeAsync, self.X.GrabModeAsync)
+            self.d.sync()
+            self.posees[fen.id] = fen
+            note("capture posée sur la fenêtre %#x" % fen.id)
+        except Exception as err:
+            note("capture impossible sur %#x : %s" % (fen.id, err))
+
+    def lever_tout(self):
+        for fen in list(self.posees.values()):
+            try:
+                for m in self.masques:
+                    fen.ungrab_key(self.keycode, m)
+            except Exception:
+                pass
+        self.posees.clear()
+        try:
+            self.d.sync()
+        except Exception:
+            pass
+
+    def suivre(self, racine, X):
+        """Poser la capture sur les fenêtres Thunar déjà là, et à venir."""
+        try:
+            racine.change_attributes(event_mask=X.SubstructureNotifyMask)
+            self.d.sync()
+            for fen in racine.query_tree().children:
+                if est_thunar(fen):
+                    self.poser(fen)
+        except Exception as err:
+            note("suivi des fenêtres impossible : %s" % err)
+
+    def vider_evenements(self, X):
+        """Ramasser les nouvelles fenêtres Thunar, sans jamais bloquer."""
+        try:
+            for _ in range(self.d.pending_events()):
+                ev = self.d.next_event()
+                if ev.type == X.CreateNotify and est_thunar(ev.window):
+                    self.poser(ev.window)
+                elif ev.type == X.DestroyNotify:
+                    self.posees.pop(ev.window.id, None)
+        except Exception:
+            pass
+
+
+# =============================================================================
+#  Le presse-papier
+# =============================================================================
+def presse_papier_uris():
+    """Les URI file:// du presse-papier, décodées.
+
+    ═══ DEUX PIÈGES MESURÉS SUR LE VRAI THUNAR ═══
+    · LES URI SONT ENCODÉES EN POURCENTS. « alex marceau prevost.png » arrive
+      en « alex%20marceau%20prevost.png », et « photo été.jpg » en
+      « photo%20%C3%A9t%C3%A9.jpg ». Couper les sept premiers caractères sans
+      décoder donnerait un chemin introuvable dès qu'un nom porte un espace ou
+      un accent — c'est-à-dire presque toujours ici.
+    · LES LIGNES FINISSENT PAR CRLF. splitlines() laisse un « \\r » collé au
+      nom de fichier, et le fichier n'existe alors plus. On nettoie.
+    """
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk, Gdk
+    except Exception as err:
+        note("abandon : python3-gi indisponible (%s)" % err)
+        return []
+    try:
+        cp = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        brut = cp.wait_for_contents(Gdk.Atom.intern("text/uri-list", False))
+        if brut is None:
+            return []
+        texte = brut.get_data().decode("utf-8", "replace")
+    except Exception as err:
+        note("abandon : lecture du presse-papier impossible (%s)" % err)
+        return []
+    uris = []
+    for ligne in texte.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        ligne = ligne.strip()
+        if ligne and not ligne.startswith("#"):
+            uris.append(ligne)
+    return uris
+
+
+def fichier_image_unique(uris):
+    """Une seule URI, un seul fichier, et c'est bien une image. Sinon None."""
+    if len(uris) != 1:
+        note("abandon : %d fichiers sélectionnés, il en faut exactement un"
+             % len(uris))
+        return None
+    uri = uris[0]
+    if not uri.startswith("file://"):
+        note("abandon : le presse-papier ne contient pas un fichier local")
+        return None
+    chemin = urllib.parse.unquote(urllib.parse.urlparse(uri).path)
+    if not os.path.isfile(chemin):
+        note("abandon : « %s » n'existe pas" % chemin)
+        return None
+    if not chemin.lower().endswith(EXTENSIONS):
+        note("abandon : « %s » n'est pas une image" % os.path.basename(chemin))
+        return None
+    return chemin
+
+
+# =============================================================================
+#  Le déclenchement
+# =============================================================================
+def dire(titre, corps):
+    try:
+        subprocess.Popen(["notify-send", "-i", "image-x-generic", titre, corps],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError:
+        pass
+
+
+def declencher(d, X, XK, capture):
+    from Xlib.ext import xtest
+
+    #  ─── 1. La fenêtre active est-elle Thunar ? ───────────────────────────
+    try:
+        active = d.get_input_focus().focus
+    except Exception:
+        return
+    fen = toplevel_thunar(d, active)
+    if fen is None:
+        note("abandon : la fenêtre active n'est pas Thunar")
+        return
+
+    #  ─── 2. Le pointeur est-il au-dessus de CETTE fenêtre ? ───────────────
+    try:
+        p = d.screen().root.query_pointer()
+        sous = toplevel_thunar(d, p.child) if p.child else None
+    except Exception:
+        return
+    if sous is None or sous.id != fen.id:
+        note("abandon : le pointeur n'est pas sur la fenêtre active")
+        return
+
+    #  ─── 3. Envoyer Ctrl+C, mais seulement après avoir relâché « c » ──────
+    #  MESURÉ : tant que « c » est enfoncée, le serveur X ne voit aucun
+    #  changement d'état et n'émet aucun événement — le Ctrl+C part dans le
+    #  vide. On relâche donc d'abord. Inutile en revanche de lever la capture :
+    #  avec des masques précis elle ne gêne pas, et la lever laisserait passer
+    #  la touche jusqu'à Thunar pendant ce court instant.
+    kc_c = d.keysym_to_keycode(XK.XK_c)
+    kc_ctrl = d.keysym_to_keycode(XK.XK_Control_L)
+    try:
+        xtest.fake_input(d, X.KeyRelease, kc_c);   d.sync()
+        time.sleep(0.05)
+        xtest.fake_input(d, X.KeyPress, kc_ctrl);  d.sync()
+        xtest.fake_input(d, X.KeyPress, kc_c);     d.sync()
+        xtest.fake_input(d, X.KeyRelease, kc_c);   d.sync()
+        xtest.fake_input(d, X.KeyRelease, kc_ctrl); d.sync()
+    except Exception as err:
+        note("abandon : envoi de Ctrl+C impossible (%s)" % err)
+        return
+    time.sleep(0.35)          # laisser Thunar remplir le presse-papier
+
+    chemin = fichier_image_unique(presse_papier_uris())
+    if chemin is None:
+        return
+
+    #  ─── 4. Passer la main à lexos-sticker ────────────────────────────────
+    nom = os.path.splitext(os.path.basename(chemin))[0]
+    note("déclenché sur %s" % chemin)
+    try:
+        r = subprocess.run(["lexos-sticker", chemin],
+                           capture_output=True, text=True, timeout=180)
+    except FileNotFoundError:
+        note("échec : lexos-sticker introuvable")
+        dire("Autocollant impossible", "lexos-sticker n'est pas installé.")
+        return
+    except subprocess.TimeoutExpired:
+        note("échec : lexos-sticker a dépassé 180 s")
+        dire("Autocollant abandonné", "La découpe a pris trop de temps.")
+        return
+    if r.returncode == 0:
+        note("réussi : %s.png" % nom)
+        dire("Autocollant créé", "%s.png dans Images/Autocollants" % nom)
+        return
+
+    #  L'ÉCHEC DOIT NOMMER CE QUI MANQUE. « erreur » envoie chercher au
+    #  hasard ; lexos-sticker a deux moteurs et l'un des deux peut manquer.
+    detail = (r.stderr or "").strip().splitlines()
+    detail = detail[-1] if detail else "raison inconnue"
+    note("échec de lexos-sticker (%d) : %s" % (r.returncode, detail))
+    dire("Autocollant impossible", detail[:200])
+
+
+# =============================================================================
+def main():
+    if not encore_demande():
+        note("éteint dans les Paramètres — le veilleur ne s'arme pas")
+        return 0
+    if not os.environ.get("DISPLAY"):
+        print("geste-autocollant : pas de session graphique", file=sys.stderr)
+        return 0
+    try:
+        from Xlib import display, X, XK
+    except ImportError:
+        print("geste-autocollant : python3-xlib manquant", file=sys.stderr)
+        note("python3-xlib manquant — le geste est indisponible")
+        return 0
+    try:
+        d = display.Display()
+    except Exception as err:
+        print("geste-autocollant : %s" % err, file=sys.stderr)
+        return 0
+
+    racine = d.screen().root
+    capture = Capture(d, X, XK)
+    capture.suivre(racine, X)
+
+    #  SORTIE PROPRE, ET CE N'EST PAS UN LUXE : une capture laissée derrière
+    #  rend « c » inutilisable dans Thunar jusqu'à la fin de la session.
+    def sortir(_signo=None, _frame=None):
+        capture.lever_tout()
+        note("arrêt — captures levées")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, sortir)
+    signal.signal(signal.SIGINT, sortir)
+
+    kc_c = capture.keycode
+    etat = "repos"
+    t0 = 0.0
+    pos0 = (0, 0)
+    verif = 0.0
+
+    try:
+        while True:
+            time.sleep(SONDAGE)
+            maintenant = time.monotonic()
+            capture.vider_evenements(X)
+
+            if maintenant - verif > 1.0:
+                verif = maintenant
+                if not encore_demande():
+                    sortir()
+
+            try:
+                p = racine.query_pointer()
+                bouton = bool(p.mask & X.Button1Mask)
+                clavier = d.query_keymap()
+                touche = bool(clavier[kc_c // 8] & (1 << (kc_c % 8)))
+            except Exception:
+                sortir()
+                return 0
+
+            if etat == "fait":
+                if not bouton:
+                    etat = "repos"
+                continue
+
+            if bouton and touche and etat == "repos":
+                etat = "arme"
+                t0 = maintenant
+                pos0 = (p.root_x, p.root_y)
+                continue
+
+            if etat == "arme":
+                if not bouton or not touche:
+                    etat = "repos"
+                    continue
+                #  LE SEUIL DE 12 px N'EST PAS DÉCORATIF : sans lui, un début
+                #  de glisser-déposer avec « C » malencontreusement enfoncée
+                #  lancerait une découpe.
+                if (abs(p.root_x - pos0[0]) > BOUGE_MAX
+                        or abs(p.root_y - pos0[1]) > BOUGE_MAX):
+                    note("abandon : le pointeur a bougé — c'est un glisser")
+                    etat = "repos"
+                    continue
+                if maintenant - t0 >= DUREE:
+                    etat = "fait"
+                    declencher(d, X, XK, capture)
+    finally:
+        capture.lever_tout()
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(0)

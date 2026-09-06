@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Geste autocollant LexOS
+Comment=Tenir « C » et le bouton gauche 3 s sur une image la découpe en autocollant
+# Le veilleur relit ~/.config/lexos/geste-autocollant à chaque seconde et
+# s'arrête tout seul si l'interrupteur des Paramètres passe à « off ». Il ne
+# capture la touche « C » que sur les fenêtres du gestionnaire de fichiers :
+# ailleurs, « C » reste une lettre ordinaire.
+Exec=/usr/lib/lexos/geste-autocollant
+Icon=image-x-generic
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications
