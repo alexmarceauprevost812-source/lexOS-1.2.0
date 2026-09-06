@@ -214,7 +214,7 @@ GRUB_TIMEOUT_STYLE=menu
 #  CE QUI SERAIT POSSIBLE, SI ALEX LE VEUT : un fichier à nous dans
 #  /etc/grub.d/, numéroté APRÈS 30_os-prober, qui écrit dans grub.cfg une
 #  condition évaluée PAR GRUB AU DÉMARRAGE :
-#        if [ "${saved_entry}" = "" ]; then set timeout=3; fi
+#        if [ "\${saved_entry}" = "" ]; then set timeout=3; fi
 #  « saved_entry » n'est écrit dans grubenv QUE par lexos-grub-defaut, et
 #  SEULEMENT quand il a trouvé une entrée Windows (voir
 #  /usr/lib/lexos/grub-defaut-windows). Vide veut donc dire « pas d'autre
