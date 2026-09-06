@@ -192,6 +192,39 @@ GRUB_DISABLE_OS_PROBER=false
 #  un compte à rebours discret, et on ne voit pas qu'il y a un choix.
 GRUB_TIMEOUT=8
 GRUB_TIMEOUT_STYLE=menu
+#  ═══ CES 8 SECONDES RETARDENT L'ANIMATION DE DÉMARRAGE — CE QUI A ÉTÉ
+#      MESURÉ, ET CE QUI N'EST PAS FAIT ═══
+#  ALEX veut voir sa vidéo « tout de suite après Lenovo ». Entre les deux il
+#  y a ce menu. Sur une machine SANS autre système, ces 8 secondes
+#  n'apportent rien. Trois chemins ont été examinés dans les fichiers de la
+#  machine — AUCUN N'EST APPLIQUÉ : le compromis appartient à Alex.
+#
+#  1. LE DÉLAI NE PEUT PAS DÉPENDRE D'os-prober DANS LA MÊME PASSE.
+#     /etc/grub.d/00_header écrit « set timeout= » à partir de GRUB_TIMEOUT,
+#     et il tourne AVANT /etc/grub.d/30_os-prober (00 avant 30) : quand le
+#     délai est écrit, personne ne sait encore si Windows est là.
+#  2. PATCHER 00_header : écarté pour la raison déjà écrite plus bas au
+#     sujet de 30_os-prober — le fichier appartient à grub-common, et une
+#     mise à jour du paquet le réécrirait.
+#  3. RETOUCHER grub.cfg APRÈS COUP (sed) : écarté aussi. grub.cfg est
+#     REFAIT à chaque mise à jour de noyau ; il faudrait une machine à
+#     re-poser la retouche indéfiniment, et le jour où elle cesse de
+#     marcher, personne ne le voit.
+#
+#  CE QUI SERAIT POSSIBLE, SI ALEX LE VEUT : un fichier à nous dans
+#  /etc/grub.d/, numéroté APRÈS 30_os-prober, qui écrit dans grub.cfg une
+#  condition évaluée PAR GRUB AU DÉMARRAGE :
+#        if [ "${saved_entry}" = "" ]; then set timeout=3; fi
+#  « saved_entry » n'est écrit dans grubenv QUE par lexos-grub-defaut, et
+#  SEULEMENT quand il a trouvé une entrée Windows (voir
+#  /usr/lib/lexos/grub-defaut-windows). Vide veut donc dire « pas d'autre
+#  système ». La condition est relue à CHAQUE démarrage — installer Windows
+#  plus tard rend d'office ses 8 secondes au menu, sans rien reconstruire —
+#  et « load_env » est déjà émis par 00_header, donc la variable existe.
+#  Ce que ça coûte : au premier démarrage d'un double amorçage, avant que
+#  lexos-grub-defaut n'ait tourné une fois, le menu passerait à 3 s. Il
+#  revient à 8 s au démarrage suivant.
+#  RIEN DE TOUT ÇA N'EST FAIT ICI. Le menu reste à 8 secondes.
 #  POURQUOI « saved » ET NON « 0 ».
 #  « 0 » désigne la PREMIÈRE entrée du menu — et la première entrée est
 #  LexOS, pas Windows : os-prober tourne dans 30_os-prober, après le
