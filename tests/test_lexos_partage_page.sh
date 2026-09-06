@@ -437,5 +437,145 @@ else
 	saut "python3 absent : la lecture du mode n'a pas été éprouvée"
 fi
 
+# =============================================================================
+titre "10. La fenêtre allégée — et le pied qu'on peut encore atteindre"
+# =============================================================================
+#  ALEX, DEUX PHOTOS : « la fenêtre en montre trop ». Elle affichait, autour du
+#  QR, un paragraphe sur le Wi-Fi, une légende sous le code, un bloc « Ça
+#  marche dans les deux sens », et deux rangées « KDE Connect » et
+#  « Bluetooth ». Six explications pour un geste qui n'en demande aucune.
+HTML="$WEB/index.html"
+CSS="$WEB/style.css"
+JS="$WEB/app.js"
+PY="$IC/usr/lib/lexos/partage.py"
+
+#  ═══ ON CHERCHE LE TEXTE AFFICHÉ, PAS LE MOT ═══
+#  Le commentaire d'index.html RACONTE ce qui a été retiré et cite donc chacun
+#  de ces morceaux. Un grep nu sur le fichier se déclencherait sur l'explication
+#  du correctif — dixième fois que ce piège se présente dans ce dépôt. On
+#  décommente d'abord : on retire <!-- … --> et /* … */, puis on cherche.
+NU="$(python3 - "$HTML" <<'PYNU'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+t = re.sub(r"<!--.*?-->", " ", t, flags=re.S)
+t = re.sub(r"/\*.*?\*/", " ", t, flags=re.S)
+sys.stdout.write(t)
+PYNU
+)"
+partie() { # description, texte qui ne doit PLUS s'afficher
+	if grep -qF "$2" <<< "$NU"; then
+		non "« $2 » s'affiche encore"
+	else
+		ok "retiré : $1"
+	fi
+}
+partie "le paragraphe sur le Wi-Fi"        "Rien à installer côté téléphone"
+partie "la légende sous le QR"             "Scanne avec l'appareil photo"
+partie "le bloc « les deux sens »"         "Ça marche dans les deux sens"
+partie "la rangée du dossier de réception" 'id="recus"'
+#  Les deux rangées d'appareils ne sont plus DANS l'état : elles arrivent sur
+#  demande. Ce qu'on vérifie, c'est qu'elles ont quitté /api/etat — pas
+#  qu'elles ont disparu du produit.
+if grep -q 'e\["moyens"\] = moyens()' "$PY"; then
+	non "kdeconnect-cli et bluetoothctl sont encore appelés à chaque ouverture (4 s chacun)"
+else
+	ok "les appareils proches ont quitté /api/etat"
+fi
+#  SANS LA BARRE DE TÊTE : le Python écrit « /api/appareils » (un chemin
+#  absolu, c'est ce que le serveur compare) et la page « api/appareils » (une
+#  adresse RELATIVE, comme api/etat et api/action juste à côté). Chercher la
+#  forme absolue des deux côtés faisait rougir ce contrôle sur un câblage
+#  parfaitement juste.
+if grep -q 'api/appareils' "$PY" && grep -q 'api/appareils' "$JS"; then
+	ok "…et ils arrivent sur demande, par /api/appareils"
+else
+	non "le bouton « Scanner un appareil proche » n'a pas de source"
+fi
+
+#  ═══ CE QUI RESTE ═══
+garde() { # description, motif
+	if grep -qF "$2" <<< "$NU"; then ok "$1"; else non "$1 — « $2 » absent"; fi
+}
+garde "le QR est toujours là"                  'id="qr"'
+garde "l'adresse est un bouton cliquable"      '<button class="adresse" id="url"'
+garde "la ligne d'état est en place"           'id="etat-texte"'
+garde "le bouton orange demandé par Alex"      'id="appareils"'
+garde "« Ouvrir le dossier des reçus » reste"  'id="ouvrir"'
+garde "« Fermer le partage » reste"            'id="fermer"'
+garde "le compte à rebours reste"              'id="reste"'
+
+# -----------------------------------------------------------------------------
+#  ═══ L'ÉCRITURE BLANCHE DU BOUTON — DEMANDÉE, ET SEULEMENT ICI ═══
+#  Alex : « le reste de LexOS écrit ses boutons orange en noir. Ici blanc. Ne
+#  l'uniformise pas au passage. » Le blanc passe donc par un jeton à lui, pas
+#  par --ac-txt, qui est partagé par tous les panneaux.
+UICSS="$IC/usr/share/lexos/ui.css"
+if grep -qE '^\s*--partage-btn-txt:\s*#FFFFFF;' "$UICSS"; then
+	ok "--partage-btn-txt est déclaré blanc dans ui.css"
+else
+	non "--partage-btn-txt n'est pas déclaré : le bouton n'aurait aucune couleur d'écriture"
+fi
+if grep -q 'var(--partage-btn-txt)' "$CSS"; then
+	ok "…et le bouton l'emploie"
+else
+	non "le bouton n'emploie pas le jeton"
+fi
+#  ET --ac-txt N'A PAS BOUGÉ. C'est l'interdiction explicite d'Alex : le
+#  changer aurait repeint les Paramètres, le Volet et les Cartes du même coup.
+if grep -qE '^\s*--ac-txt:#000;' "$UICSS"; then
+	ok "--ac-txt reste noir — les autres panneaux n'ont pas été touchés"
+else
+	non "--ac-txt a changé : l'écriture blanche a débordé sur tout LexOS"
+fi
+
+# -----------------------------------------------------------------------------
+#  ═══ LES TROIS ÉTATS, ET PAS UN QUATRIÈME ═══
+NIV="$(grep -oE '"niveau": "[a-z-]+"' "$PY" | sort -u | wc -l)"
+if [ "$NIV" -eq 3 ]; then
+	ok "diagnostic() rend exactement trois niveaux"
+else
+	non "diagnostic() rend $NIV niveaux au lieu de trois"
+fi
+for T in "Prêt" "Pare-feu à ouvrir" "Le téléphone doit être sur le même Wi-Fi"; do
+	if grep -qF "$T" "$PY"; then ok "l'état « $T » existe"; else non "l'état « $T » manque"; fi
+done
+#  La page doit savoir peindre les deux classes que le Python peut demander.
+if grep -q '\.etat\.pret' "$CSS" && grep -q '\.etat\.souci' "$CSS"; then
+	ok "la page sait peindre « prêt » et « à faire »"
+else
+	non "un des deux états n'a pas de style : la ligne resterait grise"
+fi
+
+# -----------------------------------------------------------------------------
+#  ═══ LE PIED RESTE ATTEIGNABLE, QUOI QU'ON AFFICHE AU-DESSUS ═══
+#  Mesuré pendant l'écriture : 803 px de contenu dans une fenêtre de 660 dès
+#  qu'on déployait les appareils proches — « Fermer le partage » passait sous
+#  le bord, invisible et donc inatteignable. Même famille que l'avertissement
+#  de l'installateur, qui tenait sur 2146 px.
+#  Trois lignes tiennent la correction ; retirer n'importe laquelle la défait,
+#  et « min-height:0 » est la plus facile à perdre — sans elle, un enfant de
+#  flex ne descend jamais sous sa hauteur de contenu et « overflow » ne
+#  déclenche rien.
+if grep -q '#app{height:100%' "$CSS"; then
+	ok "la page a une hauteur FIXE, elle ne grandit plus avec son contenu"
+else
+	non "#app grandit encore avec son contenu — le pied repassera sous le bord"
+fi
+if grep -q 'flex:1 1 auto;overflow-y:auto;min-height:0' "$CSS"; then
+	ok "la zone centrale défile (avec le min-height:0 qui le rend possible)"
+else
+	non "la zone centrale ne défile pas : le trop-plein poussera le pied dehors"
+fi
+#  Pas de tuyau vers « grep -q » : il ferme le tuyau au premier résultat, et
+#  sous « pipefail » le producteur qui écrit encore fait échouer TOUT le
+#  tuyau — alors que le motif a été trouvé. La substitution de processus sort
+#  le producteur du tuyau. La CI refuse cette forme dans tous les bancs.
+if grep -q '^\.pied{$' "$CSS" \
+   && grep -q 'flex:none' < <(grep -A1 '^\.pied{$' "$CSS"); then
+	ok "le pied est épinglé"
+else
+	non "le pied n'est pas épinglé"
+fi
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [[ "$ECHOUES" -eq 0 ]]

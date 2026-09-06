@@ -16,43 +16,90 @@ body{
   font:14px/1.5 var(--police,"Inter","Ubuntu","DejaVu Sans",system-ui,sans-serif);
   -webkit-font-smoothing:antialiased;
 }
-#app{min-height:100%;display:flex;flex-direction:column}
+/*  ═══ LE PIED EST ÉPINGLÉ, LE MILIEU DÉFILE ═══
+    « min-height » laissait la page GRANDIR avec son contenu : mesuré, 803 px
+    dans une fenêtre de 660 dès qu'on déployait les appareils proches, et le
+    bouton « Fermer le partage » passait sous le bord — invisible, donc
+    inatteignable. Même famille que l'avertissement de l'installateur qui
+    tenait sur 2146 px.
+    Avec une hauteur FIXE et une zone centrale qui défile, les deux boutons du
+    pied restent joignables quoi qu'on affiche au-dessus, et sur n'importe
+    quelle taille de fenêtre. */
+#app{height:100%;display:flex;flex-direction:column}
 
 /* --- Entête --------------------------------------------------------------- */
-.tete{padding:20px 22px 0}
+.tete{padding:14px 22px 0}
 .tete h1{font-size:21px;font-weight:700;letter-spacing:-.015em}
 .tete p{color:var(--fg-dim);font-size:13px;margin-top:6px;max-width:56ch;line-height:1.55}
 
-/* --- Le haut : QR à gauche, tout le reste à droite ------------------------ */
+/* --- Le haut : UNE SEULE COLONNE, le QR gros et centré --------------------
+   ALEX : « la fenêtre en montre trop ». C'était deux colonnes — le code à
+   gauche, quatre blocs d'explications à droite — et l'œil ne savait pas où
+   se poser. Le QR est le seul élément qui compte : il prend le milieu, tout
+   seul, et le reste s'aligne dessous dans l'ordre où l'on s'en sert. */
+/*  ═══ MESURÉ, PAS ESTIMÉ ═══
+    Premier jet : 872 px de contenu dans une fenêtre de 660 — le bouton
+    « Fermer le partage » tombait hors de l'écran, invisible et donc
+    inatteignable. Même famille que l'avertissement de l'installateur, qui
+    tenait sur 2146 px. Alex a demandé une fenêtre COURTE : on resserre, on
+    n'agrandit pas la fenêtre. */
 .haut{
-  display:grid;grid-template-columns:200px 1fr;gap:20px;
-  padding:18px 22px 0;align-items:start;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:10px 22px 14px;
+  /*  min-height:0 est OBLIGATOIRE : sans lui, un enfant de flex ne
+      descend jamais sous sa hauteur de contenu, et « overflow » ne
+      déclenche rien du tout. C'est le piège classique du flexbox. */
+  flex:1 1 auto;overflow-y:auto;min-height:0;width:100%;
 }
-@media (max-width:560px){.haut{grid-template-columns:1fr}}
 
 /*  LE BLANC EST OBLIGATOIRE, PAS DÉCORATIF. Voir le commentaire d'index.html :
     un QR clair sur fond sombre n'est pas lu par une partie des appareils
     photo. C'est la seule surface blanche de LexOS, et elle a une raison
     fonctionnelle. Le padding reproduit la « zone calme » du code. */
-.cadre-qr{background:var(--qr-fond);border-radius:10px;padding:11px}
+.cadre-qr{background:var(--qr-fond);border-radius:10px;padding:11px;width:208px;max-width:100%}
 .cadre-qr img{display:block;width:100%;height:auto;image-rendering:pixelated}
-.legende{color:var(--fg-dim);font-size:12px;text-align:center;margin-top:8px;line-height:1.45}
 
 .etiquette{color:var(--fg-dim);font-size:12px;margin-bottom:6px}
 
+/*  L'ADRESSE EST UN BOUTON, ET SON ÉCRITURE EST BLANCHE.
+    Un bouton plutôt qu'un <code> avec un « Copier » à côté : la cible du clic
+    devient toute la ligne au lieu d'une pastille de douze pixels, et il n'y a
+    plus qu'une chose à comprendre. Le blanc est la demande d'Alex pour CET
+    écran ; l'orange servait à la fois au texte et aux boutons, et l'adresse
+    se lisait alors comme quelque chose à cliquer pour agir. */
 .adresse{
-  display:flex;align-items:center;gap:10px;
+  display:block;width:100%;max-width:420px;
   background:var(--bg-hi);border:1px solid var(--bd);
-  border-radius:10px;padding:9px 11px;
-}
-.adresse code{
-  flex:1;min-width:0;
+  border-radius:10px;padding:10px 12px;
   font-family:ui-monospace,"DejaVu Sans Mono",monospace;font-size:13.5px;
-  color:var(--ac);
+  color:var(--fg);text-align:center;cursor:pointer;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  transition:border-color .14s,color .14s;
+}
+.adresse:hover{border-color:var(--ac);color:var(--ac-hi)}
+.adresse:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.adresse.fait{border-color:var(--ok);color:var(--ok)}
+
+/*  ═══ LA LIGNE D'ÉTAT ═══
+    Trois états, trois couleurs, et une pastille qui les rend lisibles d'un
+    coup d'œil sans avoir à lire. « Prêt » est vert, les deux autres
+    n'inventent pas de rouge : ce ne sont pas des pannes de la machine, ce
+    sont des choses à faire — l'accent leur va mieux. */
+.etat{
+  display:flex;align-items:center;gap:8px;
+  font-size:13.5px;font-weight:600;margin-top:2px;
+}
+.pastille{width:9px;height:9px;border-radius:50%;background:var(--fg-dim);flex:none}
+.etat.pret .pastille{background:var(--ok)}
+.etat.pret{color:var(--ok)}
+.etat.souci .pastille{background:var(--ac)}
+.etat.souci{color:var(--ac)}
+.etat-detail{
+  color:var(--fg-dim);font-size:11.5px;text-align:center;
+  max-width:46ch;line-height:1.45;margin-top:-6px;
 }
 
-.bloc{margin-top:15px}
+.bloc{margin-top:6px;width:100%;max-width:420px}
 
 /* --- Les fichiers partagés ------------------------------------------------ */
 .fichier{
@@ -72,21 +119,10 @@ body{
 /*  LE LISERÉ EST À GAUCHE SEULEMENT, DONC PAS D'ARRONDI. Des coins ronds sur
     une bordure d'un seul côté laissent un trait qui flotte : l'arrondi n'a
     rien à quoi se raccrocher en haut et en bas. */
-.retour{
-  margin-top:15px;padding:11px 13px;
-  background:var(--bg-hi);
-  border:1px solid var(--bd);border-left:3px solid var(--ac);
-  border-radius:0;
-}
-.retour b{font-weight:600;font-size:13px}
-.retour span{display:block;color:var(--fg-dim);font-size:12.5px;margin-top:4px;line-height:1.5}
-.retour code{
-  font-family:ui-monospace,"DejaVu Sans Mono",monospace;
-  color:var(--ac);font-size:12px;
-}
-
-/* --- Les autres moyens ---------------------------------------------------- */
-.autres{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:16px 22px 0}
+/*  LES APPAREILS PROCHES SONT MAINTENANT DERRIÈRE LEUR BOUTON — vides tant
+    qu'on n'a pas demandé, et pleine largeur quand ils arrivent. */
+.autres{display:grid;grid-template-columns:1fr;gap:8px;width:100%;max-width:420px}
+.autres:empty{display:none}
 @media (max-width:560px){.autres{grid-template-columns:1fr}}
 .moyen{
   display:flex;align-items:center;gap:11px;width:100%;text-align:left;
@@ -101,7 +137,7 @@ body{
 
 /* --- Pied ----------------------------------------------------------------- */
 .pied{
-  margin-top:auto;
+  flex:none;
   border-top:1px solid var(--bd);background:var(--bg-side);
   padding:13px 20px;
   display:flex;align-items:center;gap:9px;flex-wrap:wrap;
@@ -137,6 +173,24 @@ body{
 .btn:hover{background:var(--ac-hi);border-color:var(--ac-hi)}
 .btn:active{box-shadow:0 0 0 4px var(--ac-halo)}
 .btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+
+/*  ═══ L'ÉCRITURE BLANCHE, DEMANDÉE POUR CET ÉCRAN SEULEMENT ═══
+    Partout ailleurs dans LexOS un bouton orange plein porte du NOIR — c'est
+    « --ac-txt », posé dans ui.css, qui est PARTAGÉ par tous les panneaux.
+    Alex a demandé du blanc ici. On l'écrit donc dans le style de CE panneau,
+    sur une classe à part, sans toucher au jeton commun : « uniformiser » au
+    passage repeindrait les boutons des Paramètres, du Volet et des Cartes.
+    Le blanc sur l'orange de LexOS reste au-dessus du seuil de lisibilité —
+    c'est le même couple que le bouton « Se connecter » de l'écran de
+    connexion. */
+.btn.orange{color:var(--partage-btn-txt)}
+/*  ═══ LE SURVOL FONCE, IL NE S'ÉCLAIRCIT PAS ═══
+    Le survol ordinaire passe à --ac-hi, une teinte PLUS CLAIRE. Avec une
+    écriture blanche, ce serait le pire des deux mondes : mesuré, le blanc y
+    tombe à 2,60:1 alors qu'il vaut déjà 3,58:1 au repos. On descend donc vers
+    --ac-lo, où le même blanc remonte à 6,17:1 — le bouton répond au doigt et
+    devient PLUS lisible en le faisant, au lieu de moins. */
+.btn.orange:hover{background:var(--ac-lo);border-color:var(--ac-lo);color:var(--partage-btn-txt)}
 
 .btn.gris{background:none;color:var(--fg);border-color:var(--bd)}
 .btn.gris:hover{background:none;border-color:var(--ac);color:var(--ac-hi)}

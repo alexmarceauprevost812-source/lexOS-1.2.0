@@ -39,6 +39,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
+import urllib.request
 import time
 from pathlib import Path
 
@@ -149,6 +151,85 @@ def moyens():
 
 
 # =============================================================================
+#  L'AUTO-VÉRIFICATION — pour que l'outil se teste lui-même
+# =============================================================================
+#  ALEX : « on n'est pas capable de partager réellement, même quand je scanne
+#  le code QR ». Le serveur allait bien, le QR aussi, le jeton aussi. Il n'y
+#  avait AUCUN moyen, depuis la fenêtre, de savoir ce qui coinçait — et donc
+#  aucun moyen de savoir où chercher. Un outil qui ne peut pas dire pourquoi
+#  il ne marche pas fait perdre plus de temps que le défaut lui-même.
+#
+#  TROIS QUESTIONS, ET CE QUE CHACUNE PROUVE VRAIMENT. C'est le point
+#  important : aucune ne prouve tout, et il faut le dire plutôt que d'annoncer
+#  « Prêt » sur une demi-mesure.
+#
+#    1. Le serveur répond-il sur l'ADRESSE DU RÉSEAU, et pas sur 127.0.0.1 ?
+#       Prouve que la prise est ouverte sur la bonne interface et que le jeton
+#       est bon. Ne prouve PAS que le pare-feu laisse passer : du trafic vers
+#       sa propre adresse passe par la boucle locale, qu'ufw autorise par
+#       défaut. C'est justement pourquoi la question 2 existe.
+#
+#    2. ufw est-il actif, et notre port ouvert ? C'est LA cause la plus
+#       probable, et la seule des trois qu'on sache réparer.
+#       On ne demande PAS ce diagnostic à root : « ufw status » l'exige, et
+#       réclamer un mot de passe pour AFFICHER une ligne d'état serait
+#       insupportable. lexos-share, lui, connaît déjà la réponse — il vient de
+#       poser la question avant d'ouvrir le port — et nous la passe.
+#
+#    3. Sommes-nous seulement sur un réseau ? Sans adresse IPv4 autre que la
+#       boucle locale, il n'y a personne à joindre. Aucun programme ne peut
+#       savoir si LE TÉLÉPHONE est sur le même Wi-Fi ; on nomme donc la piste
+#       plutôt que de prétendre l'avoir écartée — beaucoup de routeurs, et
+#       presque tous les réseaux « invité », interdisent à deux appareils de
+#       se parler.
+def diagnostic(url, pare_feu):
+    """Rend {niveau, texte, detail} — trois états, jamais un quatrième."""
+    hote, port = "", ""
+    try:
+        reste = url.split("://", 1)[1]
+        hote_port = reste.split("/", 1)[0]
+        hote, _, port = hote_port.partition(":")
+    except (IndexError, ValueError):
+        pass
+
+    #  3. Une adresse sur le réseau, ou rien.
+    if not hote or hote.startswith("127.") or hote == "localhost":
+        return {"niveau": "reseau",
+                "texte": "Le téléphone doit être sur le même Wi-Fi",
+                "detail": "Cette machine n'a pas d'adresse sur un réseau local."}
+
+    #  2. Le pare-feu, tel que lexos-share l'a trouvé AVANT d'ouvrir.
+    if pare_feu == "ferme":
+        return {"niveau": "pare-feu",
+                "texte": "Pare-feu à ouvrir",
+                "detail": f"ufw refuse les entrées : sudo ufw allow {port}/tcp"}
+
+    #  1. Le serveur répond-il, pour de vrai, sur l'adresse du réseau ?
+    #     Un délai court : la fenêtre ne doit pas rester grise pendant qu'on
+    #     interroge une prise qui ne répondra jamais.
+    try:
+        with urllib.request.urlopen(url, timeout=3) as r:
+            joignable = 200 <= r.status < 400
+    except urllib.error.HTTPError:
+        #  Une réponse d'erreur EST une réponse : la prise est ouverte et
+        #  quelque chose écoute. C'est tout ce que cette question demande.
+        joignable = True
+    except (urllib.error.URLError, OSError, ValueError):
+        joignable = False
+
+    if not joignable:
+        return {"niveau": "reseau",
+                "texte": "Le téléphone doit être sur le même Wi-Fi",
+                "detail": f"Rien ne répond sur {hote}:{port} depuis cette machine."}
+
+    return {"niveau": "pret",
+            "texte": "Prêt",
+            "detail": "Beaucoup de routeurs isolent les appareils entre eux ; "
+                      "si la page ne s'ouvre pas, essaie un autre réseau que "
+                      "le réseau « invité »."}
+
+
+# =============================================================================
 #  Le petit serveur qui sert la page — 127.0.0.1 SEULEMENT
 # =============================================================================
 #  À NE PAS CONFONDRE AVEC LE SERVEUR DE PARTAGE. Celui-là (share-server.py)
@@ -172,9 +253,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/etat":
             e = dict(ETAT)
             reste = int(e.pop("_fin") - time.time())
+            e.pop("_pare_feu", None)
             e["secondes"] = max(0, reste)
-            e["moyens"] = moyens()
+            #  ═══ LES APPAREILS PROCHES NE SONT PLUS DANS L'ÉTAT ═══
+            #  moyens() lance kdeconnect-cli et bluetoothctl, chacun avec son
+            #  délai de quatre secondes. C'était payé à CHAQUE ouverture de la
+            #  fenêtre, pour deux rangées qu'Alex ne voulait plus voir. La
+            #  liste est maintenant derrière son bouton, sur /api/appareils :
+            #  on ne paie que si on la demande.
+            e["diagnostic"] = diagnostic(e.get("url", ""), ETAT.get("_pare_feu", "inconnu"))
             return self._json(200, e)
+        if self.path.split("?")[0] == "/api/appareils":
+            return self._json(200, {"moyens": moyens()})
         return super().do_GET()
 
     def do_POST(self):
@@ -241,6 +331,11 @@ def main():
     ap.add_argument("--url", required=True, help="adresse déjà servie par share-server")
     ap.add_argument("--recus", required=True, help="dossier de réception")
     ap.add_argument("--minutes", type=float, default=15.0)
+    #  Ce que lexos-share a trouvé en interrogeant ufw AVANT d'ouvrir le port.
+    #  On ne le redemande pas ici : « ufw status » exige root, et réclamer un
+    #  mot de passe pour afficher une ligne d'état serait insupportable.
+    ap.add_argument("--pare-feu", default="inconnu",
+                    choices=("absent", "inactif", "ouvert", "ferme", "inconnu"))
     ap.add_argument("fichiers", nargs="*")
     a = ap.parse_args()
 
@@ -254,6 +349,7 @@ def main():
         "qr": qr_data_uri(a.url),
         "fichiers": decris(a.fichiers),
         "_fin": time.time() + a.minutes * 60,
+        "_pare_feu": getattr(a, "pare_feu", "inconnu"),
     })
 
     mimetypes.add_type("text/javascript", ".js")

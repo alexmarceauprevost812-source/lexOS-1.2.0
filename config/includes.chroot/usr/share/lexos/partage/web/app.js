@@ -59,25 +59,45 @@
     return b;
   }
 
+  /*  ═══ LA LIGNE D'ÉTAT — CE QUE LA MACHINE A VÉRIFIÉ ═══
+      ALEX : « on n'est pas capable de partager réellement ». La fenêtre ne
+      disait RIEN de ce qui coinçait ; elle le dit maintenant, en une ligne et
+      trois états. Le détail, en dessous, nomme la piste — y compris celle
+      qu'aucun programme ne peut écarter tout seul : beaucoup de routeurs, et
+      presque tous les réseaux « invité », interdisent à deux appareils du même
+      Wi-Fi de se parler. */
+  function etatPartage(d) {
+    if (!d) { return; }
+    var l = $("etat");
+    l.classList.remove("pret", "souci");
+    l.classList.add(d.niveau === "pret" ? "pret" : "souci");
+    $("etat-texte").textContent = d.texte;
+    $("etat-detail").textContent = d.detail || "";
+  }
+
   function affiche(e) {
     $("url").textContent = e.url;
-    $("recus").textContent = e.recus;
     if (e.qr) { $("qr").src = e.qr; }
+    etatPartage(e.diagnostic);
 
     var box = $("fichiers");
     box.textContent = "";
     if (!e.fichiers.length) {
       var v = document.createElement("p");
       v.className = "vide";
-      v.textContent = "Rien pour l'instant — la page sert quand même à recevoir.";
+      /*  ═══ « RIEN POUR L'INSTANT » RESSEMBLAIT À UNE PANNE ═══
+          Sur la photo d'Alex, aucun fichier n'était choisi : la fenêtre
+          disait « Rien pour l'instant » et le téléphone, en ouvrant la page,
+          « Aucun fichier partagé pour l'instant ». Deux façons de dire la
+          même chose, et les deux se lisent comme un partage qui ne marche
+          pas — alors que tout marchait. On dit donc CE QUE ÇA CHANGE plutôt
+          que ce qui manque. */
+      v.textContent = "Aucun fichier choisi — la page servira seulement " +
+                      "à recevoir depuis le téléphone.";
       box.appendChild(v);
     } else {
       e.fichiers.forEach(function (f) { box.appendChild(ligneFichier(f)); });
     }
-
-    var a = $("autres");
-    a.textContent = "";
-    e.moyens.forEach(function (m) { a.appendChild(moyen(m)); });
 
     fin = Date.now() + e.secondes * 1000;
     tic();
@@ -106,19 +126,22 @@
     });
   }
 
-  $("copier").addEventListener("click", function () {
+  /*  L'ADRESSE EST LE BOUTON. Avant : un <code> et une pastille « Copier »
+      de douze pixels à côté. La cible du clic est maintenant toute la ligne,
+      et il n'y a plus qu'une chose à comprendre. */
+  $("url").addEventListener("click", function () {
     var b = this;
-    var texte = $("url").textContent;
+    var texte = b.textContent;
     /*  navigator.clipboard exige un contexte sûr. 127.0.0.1 en est un aux
         yeux de Chromium — mais QtWebEngine peut être bâti sans l'API, et une
         promesse rejetée laisserait le bouton sans réponse. Le repli par
         execCommand marche partout. */
     var fait = function () {
-      b.textContent = "Copié";
       b.classList.add("fait");
+      b.title = "Copié";
       setTimeout(function () {
-        b.textContent = "Copier";
         b.classList.remove("fait");
+        b.title = "Cliquer pour copier";
       }, 1600);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -137,6 +160,39 @@
       try { document.execCommand("copy"); fait(); } catch (err) { /* tant pis */ }
       document.body.removeChild(z);
     }
+  });
+
+  /*  ═══ LES APPAREILS PROCHES, DERRIÈRE LEUR BOUTON ═══
+      Les rangées « KDE Connect » et « Bluetooth » étaient affichées en
+      permanence, et coûtaient deux appels de quatre secondes à CHAQUE
+      ouverture de la fenêtre — pour une information qu'on regarde rarement.
+      Elles arrivent maintenant quand on les demande. Le bouton dit ce qui se
+      passe pendant l'attente : sans ça, quatre secondes sans réaction se
+      lisent comme un bouton mort — le défaut même qu'on répare ailleurs. */
+  $("appareils").addEventListener("click", function () {
+    var b = this;
+    var libelle = b.textContent;
+    b.disabled = true;
+    b.textContent = "Recherche…";
+    fetch("api/appareils")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var a = $("autres");
+        a.textContent = "";
+        (d.moyens || []).forEach(function (m) { a.appendChild(moyen(m)); });
+      })
+      .catch(function () {
+        var a = $("autres");
+        a.textContent = "";
+        var v = document.createElement("p");
+        v.className = "vide";
+        v.textContent = "La recherche n'a pas abouti.";
+        a.appendChild(v);
+      })
+      .then(function () {
+        b.disabled = false;
+        b.textContent = libelle;
+      });
   });
 
   $("ouvrir").addEventListener("click", function () { action("ouvrir-recus"); });

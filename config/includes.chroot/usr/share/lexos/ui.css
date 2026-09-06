@@ -107,6 +107,20 @@
      cas — une exception se recopie, un jeton s'explique une fois. */
   --qr-fond:#FFFFFF;
 
+  /* --- L'ÉCRITURE DU BOUTON DE LA FENÊTRE DE PARTAGE --------------------
+     ALEX, POUR CET ÉCRAN-LÀ SEULEMENT : le bouton orange écrit en BLANC.
+     Partout ailleurs LexOS écrit du NOIR sur l'accent (--ac-txt), et ce
+     n'est pas un goût : mesuré, le noir sur l'orange donne 5,87:1, le blanc
+     3,58:1 — le seuil du dépôt est 4,5.
+     Le jeton vit ICI plutôt qu'en dur dans le panneau, pour la même raison
+     que --qr-fond juste au-dessus : le contrôle « Rien ne reste noir en mode
+     clair » refuse toute couleur en dur dans une feuille de panneau, et une
+     exception « justifiée en commentaire » se recopie. Il ne suit PAS le
+     mode — c'est une demande, pas une couleur de thème — et rien d'autre ne
+     l'emploie : changer --ac-txt aurait repeint les Paramètres, le Volet et
+     les Cartes du même coup. */
+  --partage-btn-txt:#FFFFFF;
+
   /* --- LES PICTOGRAMMES QUI DISENT LEUR ÉTAT PAR LA COULEUR --------------
      CE QU'ALEX A VU. Photo des Paramètres de l'ISO 76, colonne de gauche :
      à côté de « Wi-Fi », un carré jaune. C'est l'émoji 📶 rendu SANS police

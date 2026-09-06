@@ -42,10 +42,22 @@ try{var m=new URLSearchParams(location.search).get("mode");
 
 <main id="app">
 
+  <!--
+    ═══ CE QUE CETTE FENÊTRE A PERDU, ET POURQUOI ═══
+    ALEX, DEUX PHOTOS : « la fenêtre en montre trop ». Elle affichait, autour
+    du QR, un paragraphe sur le Wi-Fi, une légende sous le code, un bloc
+    « Ça marche dans les deux sens », et deux rangées « KDE Connect » et
+    « Bluetooth ». Six explications pour un geste qui en demande zéro : on
+    scanne, ou on tape l'adresse.
+
+    Ce qui reste est ce qui SERT : le code, l'adresse, ce que la machine sait
+    de l'état du partage, et de quoi refermer. Les appareils proches n'ont pas
+    disparu — ils sont passés derrière leur bouton, ce qui évite en prime
+    d'appeler kdeconnect-cli et bluetoothctl (quatre secondes chacun) à chaque
+    ouverture de la fenêtre.
+  -->
   <header class="tete">
     <h1>Partager</h1>
-    <p>Le téléphone et l'ordinateur doivent être sur le même réseau Wi-Fi.
-       Rien à installer côté téléphone.</p>
   </header>
 
   <!--  LE QR EST SUR DU BLANC, ET C'EST LE SEUL RECTANGLE BLANC DE LexOS.
@@ -54,44 +66,43 @@ try{var m=new URLSearchParams(location.search).get("mode");
         du code, pas de la décoration : qrencode la dessine (-m 2) et la
         rogner casserait la lecture. -->
   <section class="haut">
-    <div>
-      <div class="cadre-qr">
-        <img id="qr" alt="Code QR de l'adresse de partage">
-      </div>
-      <p class="legende">Scanne avec l'appareil photo du téléphone</p>
+    <div class="cadre-qr">
+      <img id="qr" alt="Code QR de l'adresse de partage">
     </div>
 
-    <div class="droite">
-      <p class="etiquette">Ou tape cette adresse dans le navigateur du téléphone</p>
-      <div class="adresse">
-        <code id="url">…</code>
-        <button class="mini" id="copier">Copier</button>
-      </div>
+    <!--  L'ADRESSE, EN BLANC ET CLIQUABLE. Elle est le repli du QR — un
+          téléphone dont l'appareil photo ne lit pas les codes, un ordinateur
+          portable — et le seul texte de la fenêtre qu'on ait à recopier. Un
+          clic la met dans le presse-papiers. -->
+    <button class="adresse" id="url" title="Cliquer pour copier">…</button>
 
-      <div class="bloc">
-        <p class="etiquette">Ce que tu partages</p>
-        <div id="fichiers"></div>
-      </div>
+    <!--  ═══ LA LIGNE D'ÉTAT — L'OUTIL SE TESTE LUI-MÊME ═══
+          Trois états, jamais un quatrième : Prêt · Pare-feu à ouvrir ·
+          Le téléphone doit être sur le même Wi-Fi. C'est la réponse à
+          « on n'est pas capable de partager réellement » : la fenêtre dit
+          maintenant CE QU'ELLE A VÉRIFIÉ, au lieu de laisser chercher. -->
+    <p class="etat" id="etat"><span class="pastille" id="pastille"></span><span id="etat-texte">Vérification…</span></p>
+    <p class="etat-detail" id="etat-detail"></p>
 
-      <!--  DIT À L'ÉCRAN, PARCE QUE PERSONNE NE LE DEVINE. share-server.py
-            accepte DÉJÀ un envoi depuis le téléphone (do_POST), mais rien ne
-            l'annonçait : la fonction existait sans que l'utilisateur le
-            sache. Le chemin de réception est affiché en clair. -->
-      <div class="retour">
-        <b>Ça marche dans les deux sens</b>
-        <span>La même page laisse le téléphone t'envoyer des fichiers.
-          Ils arrivent dans <code id="recus">…</code>.</span>
-      </div>
+    <!--  ═══ L'ÉCRITURE DE CE BOUTON EST BLANCHE, ET SEULEMENT ICI ═══
+          Partout ailleurs dans LexOS, un bouton orange plein porte du NOIR.
+          Alex a demandé du blanc pour cet écran-là. On applique sa demande
+          sans la propager : la règle vit dans le style.css de CE panneau, pas
+          dans ui.css, qui est partagé. Ne pas « uniformiser » au passage. -->
+    <button class="btn orange" id="appareils">Scanner un appareil proche</button>
+    <div class="autres" id="autres"></div>
+
+    <div class="bloc">
+      <p class="etiquette">Ce que tu partages</p>
+      <div id="fichiers"></div>
     </div>
   </section>
-
-  <section class="autres" id="autres"></section>
 
   <footer class="pied">
     <span class="minuterie"><span class="temoin" id="temoin"></span>
       Se ferme tout seul dans <b id="reste">--:--</b></span>
     <button class="btn gris" id="ouvrir">Ouvrir le dossier des reçus</button>
-    <button class="btn" id="fermer">Fermer le partage</button>
+    <button class="btn gris" id="fermer">Fermer le partage</button>
   </footer>
 
 </main>

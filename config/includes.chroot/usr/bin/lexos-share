@@ -188,6 +188,17 @@ cmd_qr() {
 			PARE_FEU_ETAT="absent"
 		fi
 	fi
+	#  ═══ ON NE PASSE QUE DES MOTS CONNUS À LA FENÊTRE ═══
+	#  partage.py déclare « --pare-feu » avec une liste fermée : une valeur
+	#  inattendue — un message d'erreur de pkexec, une ligne vide, une sortie
+	#  traduite — ferait REFUSER la fenêtre par argparse, et le partage
+	#  n'afficherait plus rien du tout. On ramène donc tout le reste à
+	#  « inconnu », qui est justement là pour ça.
+	case "$PARE_FEU_ETAT" in
+		absent|inactif|ouvert|ferme) ;;
+		*) PARE_FEU_ETAT="inconnu" ;;
+	esac
+
 	if [[ "$PARE_FEU_ETAT" == "ferme" ]]; then
 		say "Pare-feu actif : ouverture du port ${PORT} pour la durée du partage…"
 		if [[ "$(pkexec "$PARE_FEU" ouvrir "$PORT" 2>/dev/null)" == "ouvert" ]]; then
@@ -195,6 +206,9 @@ cmd_qr() {
 			#  qui autorise la fermeture en partant. Sans elle, un partage
 			#  refermerait un port que quelqu'un d'autre avait ouvert.
 			PORT_OUVERT_PAR_NOUS="$PORT"
+			#  Et l'état SUIT : sans cette ligne, la fenêtre annoncerait
+			#  « Pare-feu à ouvrir » sur un port qu'on vient d'ouvrir.
+			PARE_FEU_ETAT="ouvert"
 			ok "Port ${PORT} ouvert."
 		else
 			warn "Le port n'a pas pu être ouvert : le téléphone n'atteindra peut-être pas la page."
@@ -248,8 +262,13 @@ cmd_qr() {
 		local -a partages=()
 		(( n > 0 )) && partages=("$stage"/*)
 
+		#  ON PASSE CE QU'ON A TROUVÉ DU PARE-FEU. La fenêtre ne peut pas
+		#  le redemander : « ufw status » exige root, et réclamer un mot de
+		#  passe pour afficher une ligne d'état serait insupportable. Ici on
+		#  vient de poser la question — autant la transmettre.
 		python3 "$PANNEAU" \
 			--url "$url" --recus "$RECV_DIR" --minutes "$MINUTES" \
+			--pare-feu "$PARE_FEU_ETAT" \
 			"${partages[@]}" >/dev/null 2>&1 &
 		#  LE PID EST LE CONTRAT AVEC LA SUITE : le « wait -n » plus bas attend
 		#  la première des deux fins — la fenêtre ou Ctrl+C — pour arrêter le
