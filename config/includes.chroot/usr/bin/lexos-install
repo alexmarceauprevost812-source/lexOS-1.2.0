@@ -28,8 +28,13 @@ if [[ -r /etc/os-release ]]; then
 fi
 
 # --- Sommes-nous en session démo (live) ? -----------------------------------
+#  ═══ LE SEAM DU BANC : ON DÉPLACE CE QU'ON LIT, ON NE DONNE AUCUN DROIT ═══
+#  Sans lui, aucun banc ne peut éprouver le chemin qui MÈNE à Calamares — et
+#  c'est justement le chemin dont la consigne dit qu'il ne doit jamais se
+#  bloquer. Même écriture que lexos-intro et lexos-grub-defaut : une variable
+#  qui change le FICHIER LU, jamais la décision. En vrai, /proc/cmdline.
 IS_LIVE=0
-grep -qa 'boot=live' /proc/cmdline 2>/dev/null && IS_LIVE=1
+grep -qa 'boot=live' "${LEXOS_CMDLINE:-/proc/cmdline}" 2>/dev/null && IS_LIVE=1
 
 # --- Sur quel support tourne-t-on ? -----------------------------------------
 boot_media() {
@@ -250,6 +255,102 @@ fi
 #  échec ici (détecteur absent, GPS et réseau tous deux muets) ne bloque
 #  jamais l'installation — voir lexos-fuseau-confirmer.
 /usr/lib/lexos/lexos-fuseau-confirmer || true
+
+#  ═══ L'ANIMATION D'INSTALLATION — ET SES RÈGLES PLUS STRICTES QU'AILLEURS ═══
+#  ALEX veut une courte animation avant que Calamares apparaisse. Elle est
+#  ICI, et pas plus haut, parce que L'ORDRE COMPTE : on confirme d'abord
+#  (gui_confirm/tty_confirm ci-dessus), on regarde ensuite. Posée avant la
+#  confirmation, elle ferait attendre quelqu'un qui allait répondre « non ».
+#
+#  C'EST LE SEUL ÉCRAN DE LexOS QUE VOIT QUELQU'UN QUI N'A PAS ENCORE LexOS.
+#  S'il se bloque, la personne ne débogue pas : elle range la clé USB. D'où
+#  quatre garanties, dans cet ordre d'importance :
+#    1. RIEN NE BLOQUE CALAMARES. mpv absent, fichier absent, plantage, écran
+#       qui ne répond pas : l'installateur s'ouvre dans tous les cas. La
+#       fonction rend toujours 0, et aucun message d'erreur ne va à l'écran.
+#    2. MINUTERIE DURE DE 15 s, qui TUE le processus. « timeout -k 2 » envoie
+#       TERM à 15 s puis KILL 2 s plus tard : un mpv figé qui ignore TERM ne
+#       retient pas l'installateur pour autant.
+#    3. UNE TOUCHE OU UN CLIC COUPE. Installer LexOS pour la dixième fois ne
+#       doit pas coûter dix secondes à chaque fois.
+#    4. LE SON EXISTE, à volume modéré. Contrairement aux vidéos de session,
+#       celle-ci ne joue qu'UNE FOIS PAR MACHINE : ce n'est pas la même
+#       décision qu'un son à chaque connexion. Pas de réglage dans les
+#       Paramètres pour autant — c'est un écran qu'on voit une fois, avant
+#       même que les Paramètres existent.
+#
+#  LE FORMAT : PLEIN ÉCRAN NOIR, VIDÉO CENTRÉE À SA TAILLE D'ORIGINE.
+#  720 × 870 est un PORTRAIT ; sur un 1920 × 1080 il ne remplit pas. On ne
+#  l'agrandit pas et on ne fabrique pas de halo flouté comme pour la vidéo
+#  d'après-connexion : là-bas le fichier est composé À LA CONSTRUCTION, une
+#  fois pour toutes. Ici on est SUR LA CLÉ USB, en session live, sur une
+#  machine qu'on ne connaît pas — souvent modeste, c'est justement pour ça
+#  qu'on l'installe. On ne dépense pas son processeur pour du décor.
+#  « --video-unscaled=yes » : mpv n'échelonne rien du tout, il pose l'image
+#  à ses pixels d'origine au centre d'une fenêtre noire.
+#
+#  MPV EST-IL SEULEMENT DANS L'ISO ? VÉRIFIÉ AVANT D'ÉCRIRE CECI.
+#  Il vit dans 85-outils-lexos.list (ligne 27), une liste que le hook 0250
+#  installe pour toute saveur sauf « minimal » — et l'ISO n'a plus qu'une
+#  saveur, « pro ». Preuve dans le journal de construction de l'ISO 115 :
+#  le hook 0300 y écrit « entrée en matière : ouvrir-ordinateur.mp4 découpée
+#  en 53 images », une ligne qui ne s'écrit QUE si « have ffmpeg » est vrai —
+#  et ffmpeg est à la ligne 30 de la MÊME liste, posé par le même apt-get.
+#  Le repli reste écrit quand même : une liste facultative est facultative.
+animation_installation() {
+	local video="${LEXOS_INSTALL_VIDEO:-/usr/share/lexos/branding/installation.mp4}"
+	local delai="${LEXOS_INSTALL_DELAI:-15}"
+
+	#  L'interrupteur pour les bancs d'essai et pour une installation en
+	#  public. Il coupe le SON, pas l'animation.
+	local son=(--volume=70)
+	if [[ "${LEXOS_INSTALL_MUET:-0}" = "1" ]]; then
+		son=(--no-audio)
+	elif command -v pactl >/dev/null 2>&1 \
+	     && [[ "$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null)" == *yes* ]]; then
+		#  ═══ LA SOURDINE DU SYSTÈME EST RESPECTÉE, ET DITE ═══
+		#  Le mixeur l'appliquerait de toute façon. On le fait explicitement
+		#  pour que ce soit ÉPROUVABLE au banc : « la session est muette,
+		#  la vidéo l'est aussi » doit être un fait mesurable, pas une
+		#  propriété qu'on espère d'une pile audio.
+		son=(--no-audio)
+	fi
+
+	[[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] || return 0
+	command -v mpv >/dev/null 2>&1 || return 0
+	[[ -r "$video" ]] || return 0
+
+	#  La table des touches, écrite à part : « --no-config » ignore le
+	#  ~/.config/mpv de la personne, donc rien de ce qu'elle a réglé pour ses
+	#  films ne s'applique — ni ses raccourcis, ni son volume.
+	local table=""
+	table="$(mktemp -t lexos-install-input.XXXXXX 2>/dev/null)" || table=""
+	local opts=(--no-config --geometry=100%x100%+0+0 --no-border --ontop
+	            --no-osc --osd-level=0 --keepaspect=yes --video-unscaled=yes
+	            --background-color='#000000'
+	            --no-input-default-bindings --really-quiet --keep-open=no
+	            --cursor-autohide=always "${son[@]}")
+	if [[ -n "$table" ]]; then
+		cat > "$table" <<'TOUCHES'
+ANY_UNICODE quit
+ESC quit
+ENTER quit
+SPACE quit
+BS quit
+MBTN_LEFT quit
+MBTN_RIGHT quit
+MBTN_MID quit
+TOUCHES
+		opts+=(--input-conf="$table")
+	fi
+
+	#  Tout ce qui pourrait parler est renvoyé au néant : pas une ligne à
+	#  l'écran avant l'installateur.
+	timeout -k 2 "$delai" mpv "${opts[@]}" -- "$video" >/dev/null 2>&1 || true
+	[[ -n "$table" ]] && rm -f "$table"
+	return 0
+}
+animation_installation || true
 
 printf '%s»%s Lancement de l'\''installateur…\n' "$O" "$R"
 if [[ $EUID -ne 0 ]]; then
