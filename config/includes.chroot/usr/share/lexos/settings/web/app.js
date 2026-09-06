@@ -774,6 +774,13 @@ async function basculeCoin(){
   const r = await api("coin", "toggle");
   await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "commande refusée"));
 }
+/*  Le geste « C + appui long ». On rafraîchit dans les deux cas : l'échec le
+    plus probable est « python3-xlib manquant », et il doit se voir sur
+    l'interrupteur, pas seulement dans un message qui s'efface. */
+async function basculeGesteAutocollant(){
+  const r = await api("geste-autocollant", "toggle");
+  await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "commande refusée"));
+}
 async function basculeSuperApercu(){
   const r = await api("super_apercu", "toggle");
   await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "xcape n'est pas installé"));
@@ -1748,6 +1755,20 @@ function contenu(cle){
               Il faut y rester un court instant : viser le logo Applications,
               qui habite ce coin, ne déclenche rien.`,
              sw(ap.coin, "basculeCoin()"))}
+      ${srow("Autocollant par appui long",
+             ap.geste && ap.geste.xlib
+               ? `Dans le gestionnaire de fichiers, tenir la touche <b>C</b> et
+                  le bouton gauche <b>trois secondes</b> sur une photo découpe
+                  son sujet et range le PNG transparent dans
+                  <code>Images/Autocollants</code>.<br>
+                  Tant que le geste est armé, <b>C</b> n'ouvre plus la recherche
+                  au clavier du gestionnaire de fichiers — partout ailleurs elle
+                  reste une lettre ordinaire.`
+               : `Demande <code>python3-xlib</code>, qui n'est pas installé :
+                  sans lui le veilleur ne peut pas reconnaître la touche.`,
+             ap.geste && ap.geste.xlib
+               ? sw(ap.geste.actif, "basculeGesteAutocollant()")
+               : `<span class="etat abs">absent</span>`)}
       ${btnOuvrir("multitaches","Ouvrir les réglages de bureaux")}
       <div class="sub" style="margin-top:20px">Partager l'écran entre plusieurs fenêtres</div>
       ${srow("Placer une fenêtre où on veut",

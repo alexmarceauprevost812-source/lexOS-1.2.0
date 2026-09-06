@@ -1131,6 +1131,75 @@ def act_autocollant(arg):
     return _run(["lexos-fond-ecran", "autocollant", "poser", arg])
 
 
+def _geste_autocollant_etat():
+    """Le geste « C + appui long » est-il armé, et peut-il l'être ?
+
+    ABSENT = ALLUMÉ. Le fichier n'existe pas sur une session neuve, et le
+    veilleur démarre quand même : c'est une fonction qu'on offre, pas qu'on
+    fait demander. L'interrupteur sert à l'ÉTEINDRE — un geste qui capture une
+    touche doit pouvoir se couper sans ouvrir un terminal.
+
+    « xlib » n'est pas décoratif : sans python3-xlib le veilleur s'arrête
+    aussitôt en le disant dans son journal, et personne ne lit un journal
+    qu'on ne sait pas chercher. La page le dit à la place.
+    """
+    conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
+    try:
+        actif = (conf / "geste-autocollant").read_text().strip() != "off"
+    except OSError:
+        actif = True
+    try:
+        import importlib.util
+        xlib = importlib.util.find_spec("Xlib") is not None
+    except Exception:
+        xlib = False
+    return {
+        "actif": actif,
+        "xlib": xlib,
+        "veilleur": bool(shutil.which("lexos-sticker")),
+    }
+
+
+def act_geste_autocollant(arg):
+    """Armer ou désarmer le geste « C + appui long » sur une image.
+
+    ON ÉCRIT LE FICHIER **AVANT** D'AGIR SUR LE VEILLEUR, et l'ordre compte :
+    le veilleur relit ce fichier une fois par seconde et s'arrête tout seul
+    quand il vaut « off ». Si on le tuait d'abord, un veilleur relancé entre
+    les deux (par une autre session, par un autostart) repartirait sur
+    l'ancien état.
+
+    L'ARRÊT NE PASSE PAS PAR pkill : on écrit « off » et on laisse le veilleur
+    sortir de lui-même, parce que c'est LUI qui sait lever ses captures de
+    touche. Un veilleur tué en plein vol laisserait « c » inutilisable dans le
+    gestionnaire de fichiers jusqu'à la fin de la session — la panne qu'on ne
+    retrouve jamais. Il a bien un gestionnaire de SIGTERM, mais on ne s'en sert
+    que comme filet, pas comme moyen normal.
+    """
+    if arg not in ("on", "off", "toggle"):
+        return {"ok": False, "erreur": "valeur inattendue"}
+    etat = _geste_autocollant_etat()
+    if arg == "toggle":
+        arg = "off" if etat["actif"] else "on"
+    if arg == "on" and not etat["xlib"]:
+        return {"ok": False,
+                "erreur": "python3-xlib n'est pas installé — le geste ne peut pas s'armer"}
+
+    conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
+    try:
+        conf.mkdir(parents=True, exist_ok=True)
+        (conf / "geste-autocollant").write_text(arg + "\n", encoding="utf-8")
+    except OSError as err:
+        return {"ok": False, "erreur": "réglage non enregistré : %s" % err}
+
+    if arg == "on":
+        #  Relancer tout de suite : sans ça, allumer l'interrupteur ne ferait
+        #  effet qu'à la session suivante, et l'utilisateur essaierait le geste
+        #  en vain juste après l'avoir demandé.
+        return _run(["/usr/lib/lexos/geste-autocollant"], detach=True)
+    return {"ok": True}
+
+
 def act_coin(arg):
     """Le coin haut-gauche ouvre la vue d'ensemble, comme sous Ubuntu."""
     if arg not in ("on", "off", "toggle"):
@@ -2058,6 +2127,7 @@ ACTIONS = {
     "fuseau": act_fuseau,
     "autocollant": act_autocollant,
     "coin": act_coin,
+    "geste-autocollant": act_geste_autocollant,
     "super_apercu": act_super_apercu,
     "apercu": act_apercu,
     "bureau-va": act_bureau_va,
@@ -2841,6 +2911,7 @@ def _apercu_etat():
     return {
         "moteur": moteur,
         "coin": drapeau("coin-actif"),
+        "geste": _geste_autocollant_etat(),
         "super": drapeau("super-apercu"),
         "xcape": bool(shutil.which("xcape")),
     }
