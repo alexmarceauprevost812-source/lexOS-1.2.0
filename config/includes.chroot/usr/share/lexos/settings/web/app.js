@@ -1671,7 +1671,12 @@ function contenu(cle){
           <button class="btn ${c("secu")}" onclick="setFond('secu')">Sécurité</button>
           <button class="btn ${c("demon")}" onclick="setFond('demon')">LexOS 1.0</button>
           <button class="btn ${c("keyart")}" onclick="setFond('keyart')">Explorateur</button>
-          <button class="btn ${c("nomad")}" onclick="setFond('nomad')">Nomad</button>`; })()}
+          <button class="btn ${c("nomad")}" onclick="setFond('nomad')">Nomad</button>
+          ${/*  Les deux images envoyées par Alex. Le nom du bouton est en
+                français et lisible — pas le nom du fichier : personne ne
+                cherche « wallpaper-tilexal.jpg » dans une liste de boutons. */""}
+          <button class="btn ${c("mascotte")}" onclick="setFond('mascotte')">Mascotte</button>
+          <button class="btn ${c("tilexal")}" onclick="setFond('tilexal')">TI-LEX-AL</button>`; })()}
         </div>
         ${(() => {
           /*  ═══ LA VIDÉO D'OUVERTURE — ALEX : « UNE FOIS CONNECTÉ ET ÇA

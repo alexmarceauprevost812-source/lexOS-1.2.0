@@ -132,6 +132,86 @@ if [ -r "$BRAND/lexos-1.0-keyart.png" ] && have convert; then
 		|| echo "[lexos]   !! échec : wallpaper-keyart.png"
 fi
 
+# --- Les fonds d'écran d'Alex : deux JPEG, deux recettes différentes -------
+# >>> banc: fonds-alex
+#  ═══ AUCUN DES DEUX N'EST EN 16:9, ET C'EST TOUT LE TRAVAIL ═══
+#  Alex a envoyé des images qu'il aime ; l'écran, lui, fait 1920 × 1080.
+#  Laissé à xfdesktop, le cadrage « étirer » déforme la mascotte et « rogner »
+#  coupe la bannière — au hasard, selon le style enregistré. On prépare donc
+#  les images ICI, une fois, au format exact de l'écran.
+#
+#  ET LA RECETTE N'EST PAS LA MÊME POUR LES DEUX, parce que les images ne se
+#  ressemblent pas :
+#
+#    · fond-mascotte.jpg (1392 × 1680, PORTRAIT) a un FOND NOIR PUR. Posée au
+#      centre d'un cadre noir, la jointure est invisible : c'est le même noir.
+#      On la met à la hauteur et on centre. ON NE ROGNE RIEN — la main qui
+#      fait les cornes est tout en haut à droite, un rognage la couperait.
+#
+#    · fond-tilexal-banniere.jpg (1920 × 1280, 3:2) va JUSQU'AUX BORDS, pluie
+#      Matrix comprise. Des bandes noires lui donneraient l'air d'une vidéo
+#      mal cadrée. Il faut donc lui retirer 200 px de hauteur, et le tout en
+#      HAUT — mesuré : le contenu descend jusqu'à la ligne 1278 sur 1280
+#      (le buste et le mot « Explore » du chandail touchent le bord bas),
+#      alors qu'en haut les flammes ne commencent qu'à la ligne 41. Essayé
+#      170/30 et regardé : « Explore » se fait couper. À 200/0 le buste reste
+#      entier et le démon déborde du cadre par le haut — ça se tient.
+#
+#  ON GARDE LE JPEG. Les autres fonds sont des SVG rendus en PNG ; ceux-ci
+#  sont des photos-affiches, et un PNG de photo pèse cinq fois plus pour rien
+#  sur une ISO. lexos-fond-ecran accepte déjà .jpg (sa liste d'extensions).
+#
+#  ET SI convert MANQUE, RIEN N'EST PRODUIT ET ÇA SE DIT. Pas d'image
+#  déformée livrée en silence : imagemagick ne vit que dans des listes
+#  facultatives que le hook 0250 pose en tolérant l'échec.
+FONDS_ALEX_OK=0
+if have convert; then
+	FONDS_ALEX_OK=1
+	if [ -r "$BRAND/fond-mascotte.jpg" ]; then
+		#  -resize x1080 : à la hauteur, sans déformer. -gravity center
+		#  -extent 1920x1080 : le cadre noir autour, sans rien rogner.
+		convert "$BRAND/fond-mascotte.jpg" -resize x1080 \
+			-background black -gravity center -extent 1920x1080 \
+			-quality 88 "$BG/wallpaper-mascotte.jpg" \
+			&& echo "[lexos]   -> $BG/wallpaper-mascotte.jpg (portrait centré, fond noir)" \
+			|| { FONDS_ALEX_OK=0; rm -f "$BG/wallpaper-mascotte.jpg"
+			     echo "[lexos]   !! échec : wallpaper-mascotte.jpg"; }
+	else
+		echo "[lexos]   pas de fond mascotte : branding/fond-mascotte.jpg absent"
+	fi
+	if [ -r "$BRAND/fond-tilexal-banniere.jpg" ]; then
+		#  -crop 1920x1080+0+200 : les 200 px pris EN HAUT, +repage pour que
+		#  l'image ne garde pas la mémoire de son ancien cadre.
+		convert "$BRAND/fond-tilexal-banniere.jpg" \
+			-crop 1920x1080+0+200 +repage \
+			-quality 88 "$BG/wallpaper-tilexal.jpg" \
+			&& echo "[lexos]   -> $BG/wallpaper-tilexal.jpg (200 px rognés en haut)" \
+			|| { FONDS_ALEX_OK=0; rm -f "$BG/wallpaper-tilexal.jpg"
+			     echo "[lexos]   !! échec : wallpaper-tilexal.jpg"; }
+	else
+		echo "[lexos]   pas de fond bannière : branding/fond-tilexal-banniere.jpg absent"
+	fi
+else
+	FONDS_ALEX_OK=0
+	echo "[lexos]   !! convert absent : les fonds d'écran d'Alex ne sont PAS mis au"
+	echo "[lexos]   !! format. Aucun n'est posé — mieux vaut leur absence qu'une"
+	echo "[lexos]   !! image étirée ou rognée au hasard par xfdesktop."
+fi
+
+#  ═══ LES SOURCES NE PARTENT PAS DANS L'ISO ═══
+#  Deux raisons, et la seconde est la vraie. La place, d'abord. Mais surtout :
+#  lexos-fond-ecran ratisse /usr/share/lexos/branding (sa liste DOSSIERS).
+#  Laissées là, les sources apparaîtraient dans le choix des fonds d'écran À
+#  CÔTÉ des versions mises au format — mêmes images, mauvais cadrage, et
+#  aucun moyen pour Alex de savoir laquelle est laquelle.
+#  ON N'EFFACE QU'AU CHEMIN DE PRODUCTION, comme pour les vidéos : le banc
+#  joue ce fragment avec le vrai dossier branding/ du dépôt, et sans cette
+#  garde, éprouver les fonds d'écran SUPPRIMERAIT les sources du dépôt.
+if [ "$FONDS_ALEX_OK" = 1 ] && [ "$BRAND" = "/usr/share/lexos/branding" ]; then
+	rm -f "$BRAND/fond-mascotte.jpg" "$BRAND/fond-tilexal-banniere.jpg"
+fi
+# <<< banc: fonds-alex
+
 # --- Le fond par DÉFAUT de XFCE devient celui de LexOS ---------------------
 #  POURQUOI CE BLOC EXISTE (constaté sur le portable 2016, build 35)
 #  Le bon fond d'écran s'affichait à l'ouverture de session… puis laissait

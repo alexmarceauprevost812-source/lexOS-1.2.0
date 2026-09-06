@@ -346,6 +346,13 @@ FONDS = {
     #  logo ASCII orange, filet, TI·LEX·AL, 2.0.0 NOMAD. Le crochet 0300 le
     #  rend en trois tailles depuis branding/wallpaper-nomad.svg.
     "nomad":   "/usr/share/backgrounds/lexos/wallpaper-nomad.png",
+    #  Les deux images envoyées par Alex. En .jpg et pas en .png : ce sont des
+    #  photos-affiches, pas des SVG rendus — un PNG pèserait cinq fois plus
+    #  pour la même image. Le hook 0300 les met au format 1920 × 1080 à la
+    #  construction (le portrait centré sur du noir, la bannière rognée de
+    #  200 px en haut) ; ici on ne nomme QUE le résultat.
+    "mascotte": "/usr/share/backgrounds/lexos/wallpaper-mascotte.jpg",
+    "tilexal":  "/usr/share/backgrounds/lexos/wallpaper-tilexal.jpg",
 }
 LANGUES = {
     "fr_CA.UTF-8", "fr_FR.UTF-8", "en_US.UTF-8", "en_CA.UTF-8", "en_GB.UTF-8",
