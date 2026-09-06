@@ -68,6 +68,11 @@ __lexos_couleurs() {
 	__LEXOS_C_TEXTE='38;5;15'
 	__LEXOS_C_ERREUR='1;38;5;196'
 	__LEXOS_C_DIM='2'
+	#  Les deux rôles de plus de l'invite (voir la règle de couleur, plus
+	#  bas) : le nom en rouge clair, le mot LEXOS en vert foncé. Replis en
+	#  palette 256, les plus proches des valeurs de nuit.
+	__LEXOS_C_UTILISATEUR='38;5;210'
+	__LEXOS_C_LOGO='38;5;29'
 	[ -r "$LEXOS_TERM_ENV" ] || return 0
 	# shellcheck disable=SC1090
 	. "$LEXOS_TERM_ENV" 2>/dev/null || return 0
@@ -80,12 +85,16 @@ __lexos_couleurs() {
 			__LEXOS_C_TEXTE="${LEXOS_PS_TEXTE:-$__LEXOS_C_TEXTE}"
 			__LEXOS_C_ERREUR="${LEXOS_PS_ERREUR:-$__LEXOS_C_ERREUR}"
 			__LEXOS_C_DIM="${LEXOS_PS_DIM:-$__LEXOS_C_DIM}"
+			__LEXOS_C_UTILISATEUR="${LEXOS_PS_UTILISATEUR:-$__LEXOS_C_UTILISATEUR}"
+			__LEXOS_C_LOGO="${LEXOS_PS_LOGO:-$__LEXOS_C_LOGO}"
 			;;
 		*)
 			__LEXOS_C_MACHINE="${LEXOS_PS_MACHINE_256:-$__LEXOS_C_MACHINE}"
 			__LEXOS_C_TEXTE="${LEXOS_PS_TEXTE_256:-$__LEXOS_C_TEXTE}"
 			__LEXOS_C_ERREUR="${LEXOS_PS_ERREUR_256:-$__LEXOS_C_ERREUR}"
 			__LEXOS_C_DIM="${LEXOS_PS_DIM_256:-$__LEXOS_C_DIM}"
+			__LEXOS_C_UTILISATEUR="${LEXOS_PS_UTILISATEUR_256:-$__LEXOS_C_UTILISATEUR}"
+			__LEXOS_C_LOGO="${LEXOS_PS_LOGO_256:-$__LEXOS_C_LOGO}"
 			;;
 	esac
 }
@@ -95,21 +104,28 @@ __lexos_couleurs
 #  Reposée à chaque passage, exprès : voir l'explication en tête de fichier.
 #
 #  LA RÈGLE DE COULEUR, de jour comme de nuit — ALEX, PHOTO DU TERMINAL :
-#  « écriture blanc pour écriture de utilisateur, vert pour lexos » :
-#    · vert    — tout ce que la MACHINE écrit : le nom, la machine, le
-#                CHEMIN et le CHEVRON. L'invite entière, donc.
-#    · blanc   — tout ce que VOUS tapez
-#    · rouge   — ce qui n'a pas marché (fausse commande, commande en échec)
+#  « écriture blanc pour écriture de utilisateur, vert pour lexos », puis,
+#  consigne suivante : « le nom de l'utilisateur en rouge clair, à côté
+#  LEXOS en vert foncé » :
+#    · rouge clair — le NOM de l'utilisateur (\u), et lui seul ;
+#    · vert foncé  — le mot « LEXOS », juste à côté. Il REMPLACE « @\h » :
+#                    la machine s'appelle déjà lexos-pro, répéter son nom
+#                    à côté d'un LEXOS écrit en dur ne dirait rien de plus ;
+#    · vert        — ce que la MACHINE écrit : le CHEMIN, la branche git et
+#                    le CHEVRON ;
+#    · blanc       — tout ce que VOUS tapez ;
+#    · rouge       — ce qui n'a pas marché (fausse commande, commande en
+#                    échec) : le chevron, et lui seul, vire à ce rouge-là.
 #
-#  Le chemin et le chevron étaient orange. Ils sont écrits par la MACHINE :
-#  ils passent au vert. Le chevron garde son rouge quand la commande
-#  précédente a échoué — c'est le seul signal que porte l'invite, on n'y
-#  touche pas.
+#  Le rouge clair du nom et le rouge d'erreur sont DEUX couleurs : le
+#  premier est une signature, le second un signal, et ils ne doivent pas
+#  se lire pareil. Le chevron garde son rouge quand la commande précédente
+#  a échoué — c'est le seul signal que porte l'invite, on n'y touche pas.
 #
-#  De jour, ce sont les mêmes trois rôles, en versions assombries : c'est
+#  De jour, ce sont les mêmes rôles, en versions assombries : c'est
 #  lexos-theme-gen qui fait la conversion, l'invite ne s'en occupe pas. Le
-#  blanc y devient l'encre foncée, sans quoi la frappe disparaîtrait sur le
-#  crème.
+#  blanc y devient l'encre foncée, le rouge clair un rouge sombre — sans
+#  quoi ni la frappe ni le nom ne se liraient sur le crème.
 #
 #  Le blanc de la frappe tient à un détail : PS1 se termine par une couleur
 #  qu'on ne referme PAS. Elle déborde donc sur ce qui est saisi ensuite —
@@ -155,7 +171,10 @@ if [ -n "${BASH_VERSION:-}" ]; then
 			}
 			#  PS1 est en apostrophes simples : bash le REDÉVELOPPE à chaque
 			#  affichage, donc les ${__LEXOS_C_*} suivent le thème courant.
-			PS1='\[\033[${__LEXOS_C_MACHINE}m\]\u\[\033[2m\]@\[\033[0m\033[${__LEXOS_C_MACHINE}m\]\h\[\033[0m\] \[\033[${__LEXOS_C_MACHINE}m\]\w\[\033[0m\]\[\033[${__LEXOS_C_DIM}m\]$(__lexos_git_branch)\[\033[0m\] \[$(__lexos_fleche)\]❯\[\033[0m\] \[\033[${__LEXOS_C_TEXTE}m\]'
+			#  Le nom en rouge clair, « LEXOS » en vert foncé à la place de
+			#  « @\h », puis le chemin, la branche et le chevron en vert
+			#  machine — et la frappe blanche, non refermée, en dernier.
+			PS1='\[\033[${__LEXOS_C_UTILISATEUR}m\]\u\[\033[0m\] \[\033[${__LEXOS_C_LOGO}m\]LEXOS\[\033[0m\] \[\033[${__LEXOS_C_MACHINE}m\]\w\[\033[0m\]\[\033[${__LEXOS_C_DIM}m\]$(__lexos_git_branch)\[\033[0m\] \[$(__lexos_fleche)\]❯\[\033[0m\] \[\033[${__LEXOS_C_TEXTE}m\]'
 			PS0='\e[0m'
 			;;
 	esac

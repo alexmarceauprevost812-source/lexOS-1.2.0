@@ -231,6 +231,12 @@ if [[ "$TERM_EFFECTIF" == "jour" ]]; then
 	TERM_TEXTE="#1B1A17"
 	TERM_ERREUR="#B3261E"
 	TERM_DIM="#6B675E"
+	#  Les deux rôles de l'invite (ALEX : « le nom de l'utilisateur en rouge
+	#  clair, à côté LEXOS en vert foncé »), convertis pour le crème comme
+	#  les autres : un rouge CLAIR sur du crème serait illisible. Mesurés sur
+	#  #F7F5F0 : #9A1B14 donne 7,59:1, #0F5A24 donne 7,68:1.
+	TERM_UTILISATEUR="#9A1B14"
+	TERM_LOGO="#0F5A24"
 	TERM_CURSEUR="$ACCENT_LO"
 	TERM_SEL_BG="$ACCENT_LO"
 	TERM_SEL_FG="#FFFFFF"
@@ -262,6 +268,16 @@ else
 	TERM_TEXTE="#FFFFFF"
 	TERM_ERREUR="#E5484D"
 	TERM_DIM="#8A8A90"
+	#  L'INVITE, TROIS RÔLES — ALEX : « le nom de l'utilisateur en rouge
+	#  clair, à côté LEXOS en vert foncé, ce qu'il tape en blanc franc ».
+	#  Le rouge clair : #FF7B7B, 8,37:1 sur le noir — ce n'est pas le rouge
+	#  d'erreur (#E5484D), qui reste au chevron des commandes en échec.
+	#  Le vert FONCÉ se lit mal sur du noir en dessous de #0F7A2E environ
+	#  (3,84:1) : #159A3D, regardé sur du noir, donne 5,72:1 et reste
+	#  nettement plus sombre que le vert machine #00D700 — le mot LEXOS se
+	#  distingue du chemin sans se confondre avec lui.
+	TERM_UTILISATEUR="#FF7B7B"
+	TERM_LOGO="#159A3D"
 	TERM_CURSEUR="$ACCENT"
 	TERM_SEL_BG="$ACCENT"
 	TERM_SEL_FG="$BTN_FG"
@@ -1479,10 +1495,19 @@ if [[ "$TERM_EFFECTIF" == "jour" ]]; then
 	PS_MACHINE_256="38;5;22"    # vert foncé
 	PS_TEXTE_256="38;5;234"     # #1C1C1C, le plus proche de #1B1A17
 	PS_ERREUR_256="1;38;5;88"   # rouge foncé
+	PS_UTILISATEUR_256="38;5;88"   # #870000, le plus proche de #9A1B14 (9,49:1 sur crème)
+	#  LEXOS de jour en 256 couleurs : le plus proche de #0F5A24 serait 22
+	#  (#005F00) — mais c'est déjà le vert machine ci-dessus, et le cube 256
+	#  n'a AUCUN vert pur plus sombre que 22 : impossible d'y garder « LEXOS
+	#  plus foncé que le chemin ». On prend 23 (#005F5F), le vert-bleu de
+	#  même profondeur : distinct, 6,88:1 sur le crème. Mesuré, pas estimé.
+	PS_LOGO_256="38;5;23"
 else
 	PS_MACHINE_256="38;5;40"    # exactement #00D700, voir la section terminal plus haut
 	PS_TEXTE_256="38;5;15"      # le blanc brillant de la palette
 	PS_ERREUR_256="1;38;5;196"
+	PS_UTILISATEUR_256="38;5;210"  # #FF8787, le plus proche de #FF7B7B (9,07:1 sur noir)
+	PS_LOGO_256="38;5;29"          # #00875F, le plus proche de #159A3D (4,63:1 — au-dessus du seuil)
 fi
 
 cat > "$CONF_DIR/terminal.env" <<EOF
@@ -1499,10 +1524,14 @@ LEXOS_PS_MACHINE='$(ansi_vrai "$TERM_FG")'
 LEXOS_PS_TEXTE='$(ansi_vrai "$TERM_TEXTE")'
 LEXOS_PS_ERREUR='1;$(ansi_vrai "$TERM_ERREUR")'
 LEXOS_PS_DIM='$(ansi_vrai "$TERM_DIM")'
+LEXOS_PS_UTILISATEUR='$(ansi_vrai "$TERM_UTILISATEUR")'
+LEXOS_PS_LOGO='$(ansi_vrai "$TERM_LOGO")'
 LEXOS_PS_MACHINE_256='${PS_MACHINE_256}'
 LEXOS_PS_TEXTE_256='${PS_TEXTE_256}'
 LEXOS_PS_ERREUR_256='${PS_ERREUR_256}'
 LEXOS_PS_DIM_256='2'
+LEXOS_PS_UTILISATEUR_256='${PS_UTILISATEUR_256}'
+LEXOS_PS_LOGO_256='${PS_LOGO_256}'
 EOF
 
 # =============================================================================

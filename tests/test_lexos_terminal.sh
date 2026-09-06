@@ -403,6 +403,27 @@ case "$DEV" in
 	*"${ESC}[38;2;0;215;0m"*) ok "…et le vert de la machine y est bien la valeur du terminal (38;2;0;215;0)" ;;
 	*) non "le vert de l'invite n'est pas celui du terminal" ;;
 esac
+#  LES TROIS COULEURS DE L'INVITE (consigne « terminal XFCE », partie 1) :
+#  le nom en rouge clair #FF7B7B, « LEXOS » en vert foncé #159A3D juste à
+#  côté, le vert machine pour le reste — et plus de « @machine ».
+QUI="$(id -un)"
+case "$DEV" in
+	*"${ESC}[38;2;255;123;123m${FIN_RL}${QUI}"*) ok "nuit : le nom « $QUI » est en rouge clair (38;2;255;123;123 = #FF7B7B)" ;;
+	*) non "nuit : le nom n'est pas en rouge clair #FF7B7B" ;;
+esac
+case "$DEV" in
+	*"${ESC}[38;2;21;154;61m${FIN_RL}LEXOS"*) ok "nuit : « LEXOS » est écrit en vert foncé (38;2;21;154;61 = #159A3D)" ;;
+	*) non "nuit : « LEXOS » manque, ou n'est pas en vert foncé #159A3D" ;;
+esac
+DEV_TEXTE="$(printf '%s' "$DEV" | tr -d '\001\002' | sed 's/\x1b\[[0-9;]*m//g')"
+case "$DEV_TEXTE" in
+	*"${QUI} LEXOS "*) ok "nuit : l'ordre est « $QUI LEXOS chemin » — LEXOS a pris la place de « @machine »" ;;
+	*) non "nuit : « LEXOS » n'est pas juste à côté du nom : « $DEV_TEXTE »" ;;
+esac
+case "$DEV_TEXTE" in
+	*"@$(hostname)"*) non "nuit : « @$(hostname) » est toujours dans l'invite" ;;
+	*) ok "nuit : plus de « @machine » dans l'invite" ;;
+esac
 
 # -----------------------------------------------------------------------------
 #  L'AGENT IA — vert de la PALETTE, et seulement sur un terminal de nuit.

@@ -86,6 +86,36 @@ for m in re.finditer(r"\033\[([0-9;]*)m|([^\033]+)", brut):
 PY
 segments() { python3 "$DECOUPE"; }
 
+#  Le contraste d'une séquence (38;2;r;g;b ou 38;5;n, avec ou sans « 1; »)
+#  sur un fond #hex — dans un FICHIER, pour la même raison que le découpeur.
+CONTRASTE="$BANC/contraste.py"
+cat > "$CONTRASTE" <<'PYC'
+import sys, re
+def lum(c):
+    v = [int(c[i:i+2], 16)/255 for i in (1, 3, 5)]
+    v = [x/12.92 if x <= 0.03928 else ((x+0.055)/1.055)**2.4 for x in v]
+    return 0.2126*v[0] + 0.7152*v[1] + 0.0722*v[2]
+s = sys.argv[1]
+m = re.match(r"(?:1;)?38;2;(\d+);(\d+);(\d+)$", s)
+if m:
+    fg = "#%02X%02X%02X" % tuple(int(g) for g in m.groups())
+else:
+    m = re.match(r"(?:1;)?38;5;(\d+)$", s)
+    if not m:
+        print("0"); sys.exit()
+    n = int(m.group(1)); niv = [0, 95, 135, 175, 215, 255]
+    if n >= 232:
+        v = 8 + (n-232)*10; fg = "#%02X%02X%02X" % (v, v, v)
+    elif n >= 16:
+        k = n-16; fg = "#%02X%02X%02X" % (niv[k//36], niv[(k//6) % 6], niv[k % 6])
+    else:
+        print("0"); sys.exit()
+a, b = lum(fg), lum(sys.argv[2])
+if a < b:
+    a, b = b, a
+print("%.2f" % ((a+0.05)/(b+0.05)))
+PYC
+
 # =============================================================================
 titre "1. UNE SEULE LIGNE — « faire en sorte que ça suive --> »"
 # =============================================================================
@@ -131,12 +161,14 @@ else
 fi
 
 # =============================================================================
-titre "2. « vert pour lexos » — tout ce que la machine écrit porte UNE couleur"
+titre "2. Trois rôles : le nom en rouge clair, LEXOS en vert foncé, la machine en vert"
 # =============================================================================
-#  Le nom, la machine, le chemin et le chevron sont écrits par la MACHINE.
-#  Ils doivent porter la MÊME couleur — pas trois teintes proches, une
-#  seule. Ce banc ne connaît pas la valeur du vert : il vérifie qu'il n'y en
-#  a QU'UNE, puis (section 5) qu'elle vient du fichier généré.
+#  ALEX, consigne « terminal XFCE » : « le nom de l'utilisateur en rouge
+#  clair, à côté LEXOS en vert foncé ». Le mot LEXOS REMPLACE « @\h ». Le
+#  chemin et le chevron restent écrits par la MACHINE et portent la MÊME
+#  couleur. Ce banc ne connaît aucune valeur : il vérifie que le nom, LEXOS
+#  et le chevron portent TROIS couleurs distinctes, que chemin et chevron
+#  n'en font qu'une, et (section 5) que chacune vient du fichier généré.
 mapfile -t SEG < <(printf '%s' "$P_OK" | segments)
 
 #  La couleur en vigueur au moment où un texte donné est écrit.
@@ -161,20 +193,39 @@ C_CHEMIN="$(couleur_de "$(basename "$BANC/home")" || true)"
 #  faux HOME : on le cherche par son dernier segment, qui y figure toujours.
 C_CHEMIN="$(couleur_de "$(basename "$PWD")" || true)"
 C_NOM="$(couleur_de "$(id -un)" || true)"
+C_LOGO="$(couleur_de "LEXOS" || true)"
 
 if [ -z "$C_CHEVRON" ]; then
 	non "impossible de relever la couleur du chevron"
 else
 	ok "le chevron est peint (séquence $C_CHEVRON)"
 	if [ -n "$C_CHEMIN" ] && [ "$C_CHEMIN" = "$C_CHEVRON" ]; then
-		ok "le chemin porte la MÊME couleur que le chevron"
+		ok "le chemin porte la MÊME couleur que le chevron (vert machine)"
 	else
 		non "le chemin ($C_CHEMIN) et le chevron ($C_CHEVRON) ne sont pas de la même couleur"
 	fi
-	if [ -n "$C_NOM" ] && [ "$C_NOM" = "$C_CHEVRON" ]; then
-		ok "le nom d'utilisateur porte la MÊME couleur que le chevron"
+	if [ -n "$C_NOM" ] && [ "$C_NOM" != "$C_CHEVRON" ]; then
+		ok "le nom d'utilisateur a SA couleur ($C_NOM), distincte du vert machine"
 	else
-		non "le nom ($C_NOM) et le chevron ($C_CHEVRON) ne sont pas de la même couleur"
+		non "le nom ($C_NOM) porte encore la couleur de la machine ($C_CHEVRON) — il doit être rouge clair"
+	fi
+	if [ -n "$C_LOGO" ] && [ "$C_LOGO" != "$C_CHEVRON" ] && [ "$C_LOGO" != "$C_NOM" ]; then
+		ok "« LEXOS » est écrit, avec une troisième couleur ($C_LOGO) — ni celle du nom, ni celle de la machine"
+	else
+		non "« LEXOS » manque de l'invite, ou porte la couleur du nom ($C_NOM) ou de la machine ($C_CHEVRON) : vu « $C_LOGO »"
+	fi
+	#  « @\h » a disparu : LEXOS le remplace. On cherche le nom de machine
+	#  précédé de « @ » dans le TEXTE développé, pas dans le fichier.
+	TEXTE_INVITE="$(for L in "${SEG[@]}"; do [ "${L%%$'\t'*}" = "t" ] && printf '%s' "${L#*$'\t'}"; done)"
+	if [[ "$TEXTE_INVITE" == *"@$(hostname)"* ]] || [[ "$TEXTE_INVITE" == *"$(id -un)@"* ]]; then
+		non "l'invite écrit encore « @machine » : LEXOS devait le remplacer"
+	else
+		ok "plus de « @machine » : le mot LEXOS a pris la place"
+	fi
+	if [[ "$TEXTE_INVITE" == *"$(id -un) LEXOS "* ]]; then
+		ok "l'ordre est « nom LEXOS chemin » — LEXOS juste à côté du nom"
+	else
+		non "LEXOS n'est pas juste à côté du nom : « $TEXTE_INVITE »"
 	fi
 fi
 
@@ -294,6 +345,21 @@ for MODE in nuit jour; do
 	[ "$VU_M" = "$ATTENDU_M" ] \
 		&& ok "$MODE : le vert de l'invite est celui du fichier ($ATTENDU_M)" \
 		|| non "$MODE : le fichier dit $ATTENDU_M, l'invite affiche $VU_M"
+	#  Les deux rôles de la consigne « terminal XFCE » : le nom, LEXOS.
+	ATTENDU_U="$(sed -n "s/^LEXOS_PS_UTILISATEUR='\(.*\)'$/\1/p" "$ENV")"
+	ATTENDU_L="$(sed -n "s/^LEXOS_PS_LOGO='\(.*\)'$/\1/p" "$ENV")"
+	VU_U="$(couleur_de "$(id -un)" || true)"
+	VU_L="$(couleur_de "LEXOS" || true)"
+	[ -n "$ATTENDU_U" ] && [ "$VU_U" = "$ATTENDU_U" ] \
+		&& ok "$MODE : le rouge clair du nom est celui du fichier ($ATTENDU_U)" \
+		|| non "$MODE : le fichier dit « $ATTENDU_U » pour le nom, l'invite affiche « $VU_U »"
+	[ -n "$ATTENDU_L" ] && [ "$VU_L" = "$ATTENDU_L" ] \
+		&& ok "$MODE : le vert foncé de LEXOS est celui du fichier ($ATTENDU_L)" \
+		|| non "$MODE : le fichier dit « $ATTENDU_L » pour LEXOS, l'invite affiche « $VU_L »"
+	ATTENDU_E="$(sed -n "s/^LEXOS_PS_ERREUR='\(.*\)'$/\1/p" "$ENV")"
+	[ -n "$ATTENDU_U" ] && [ "1;$ATTENDU_U" != "$ATTENDU_E" ] && [ "$ATTENDU_U" != "${ATTENDU_E#1;}" ] \
+		&& ok "$MODE : le rouge clair du nom n'est PAS le rouge d'erreur du chevron (signature ≠ signal)" \
+		|| non "$MODE : le nom et l'erreur portent le même rouge — on ne distinguerait plus une commande en échec"
 	[ "$VU_T" = "$ATTENDU_T" ] \
 		&& ok "$MODE : la couleur de frappe est celle du fichier ($ATTENDU_T)" \
 		|| non "$MODE : le fichier dit $ATTENDU_T, l'invite affiche $VU_T"
@@ -309,6 +375,19 @@ for MODE in nuit jour; do
 	[ -n "$ATTENDU_256" ] && [ "$VU_256" = "$ATTENDU_256" ] \
 		&& ok "$MODE : sans COLORTERM, l'invite retombe sur la palette 256 ($ATTENDU_256)" \
 		|| non "$MODE : repli 256 attendu $ATTENDU_256, vu $VU_256"
+	ATTENDU_U256="$(sed -n "s/^LEXOS_PS_UTILISATEUR_256='\(.*\)'$/\1/p" "$ENV")"
+	ATTENDU_L256="$(sed -n "s/^LEXOS_PS_LOGO_256='\(.*\)'$/\1/p" "$ENV")"
+	VU_U256="$(couleur_de "$(id -un)" || true)"
+	VU_L256="$(couleur_de "LEXOS" || true)"
+	[ -n "$ATTENDU_U256" ] && [ "$VU_U256" = "$ATTENDU_U256" ] && [ -n "$ATTENDU_L256" ] && [ "$VU_L256" = "$ATTENDU_L256" ] \
+		&& ok "$MODE : en 256 couleurs, le nom ($ATTENDU_U256) et LEXOS ($ATTENDU_L256) retombent sur leurs replis" \
+		|| non "$MODE : replis 256 du nom/LEXOS attendus $ATTENDU_U256 / $ATTENDU_L256, vus $VU_U256 / $VU_L256"
+	#  …et ces replis restent TROIS couleurs : un repli 256 de LEXOS égal au
+	#  vert machine fondrait le mot dans le chemin en console texte.
+	ATTENDU_M256="$(sed -n "s/^LEXOS_PS_MACHINE_256='\(.*\)'$/\1/p" "$ENV")"
+	[ -n "$ATTENDU_M256" ] && [ "$ATTENDU_L256" != "$ATTENDU_M256" ] && [ "$ATTENDU_U256" != "$ATTENDU_M256" ] && [ "$ATTENDU_U256" != "$ATTENDU_L256" ] \
+		&& ok "$MODE : en 256 couleurs aussi, nom / LEXOS / machine sont trois couleurs distinctes" \
+		|| non "$MODE : en 256 couleurs, deux des trois rôles se confondent (nom $ATTENDU_U256, LEXOS $ATTENDU_L256, machine $ATTENDU_M256)"
 
 	#  Le contraste, mesuré sur le VRAI fond du mode. Une frappe blanche sur
 	#  le crème du thème de jour serait invisible : c'est pour ça que jour et
@@ -334,6 +413,16 @@ PY
 	else
 		non "$MODE : la frappe ne donne que $RAPPORT:1 sur $BG — illisible"
 	fi
+	#  Le nom et LEXOS aussi — en couleur vraie ET en 256 : « le vert foncé
+	#  sur fond noir se lit mal », le seuil est mesuré sur le vrai fond.
+	for ROLE in "nom:$ATTENDU_U" "LEXOS:$ATTENDU_L" "nom-256:$ATTENDU_U256" "LEXOS-256:$ATTENDU_L256"; do
+		R="$(python3 "$CONTRASTE" "${ROLE#*:}" "$BG")"
+		if awk -v r="$R" 'BEGIN{exit !(r >= 4.5)}'; then
+			ok "$MODE : ${ROLE%%:*} donne $R:1 sur $BG"
+		else
+			non "$MODE : ${ROLE%%:*} ne donne que $R:1 sur $BG — « le vert foncé sur fond noir se lit mal »"
+		fi
+	done
 done
 
 # =============================================================================
