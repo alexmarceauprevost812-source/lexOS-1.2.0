@@ -324,5 +324,79 @@ PYIMG
 fi
 
 # =============================================================================
+titre "6. LE RÉGLAGE DES PARAMÈTRES ÉCRIT CE QUE LE PROGRAMME LIT"
+# =============================================================================
+#  ═══ LE DÉFAUT DE FAMILLE QU'ON ÉVITE ICI ═══
+#  Une page qui écrit dans un fichier, un programme qui en lit un autre : les
+#  deux marchent seuls, le réglage ne fait rien, et personne ne voit
+#  pourquoi. On ne compare donc pas deux chemins écrits à la main — on FAIT
+#  écrire la page, puis on FAIT lire le programme, et on regarde s'il obéit.
+SETTINGS="$RACINE/config/includes.chroot/usr/lib/lexos"
+if ! command -v python3 >/dev/null 2>&1 || [ ! -r "$SETTINGS/settings.py" ]; then
+	saut "python3 ou settings.py absent : le réglage n'est pas éprouvé"
+else
+	rm -rf "$BANC/reglage"; mkdir -p "$BANC/reglage"
+	#  Le défaut, AVANT que rien ne soit écrit.
+	DEFAUT="$(cd "$SETTINGS" && XDG_CONFIG_HOME="$BANC/reglage" python3 -c '
+import settings
+e = settings._intro_etat()
+print("%s %s" % (e["choix"], "on" if e["son"] else "off"))
+' 2>/dev/null)"
+	if [ "$DEFAUT" = "courte off" ]; then
+		ok "au départ : vidéo « courte » et son COUPÉ — le son ne s'allume pas tout seul"
+	else
+		non "défauts inattendus : « $DEFAUT » (attendu « courte off »)"
+	fi
+
+	#  La page écrit « aucune » ; le programme doit s'arrêter dessus.
+	ECRIT="$(cd "$SETTINGS" && XDG_CONFIG_HOME="$BANC/reglage" python3 -c '
+import settings
+print(settings.act_intro("aucune").get("ok"))
+' 2>/dev/null)"
+	lance XDG_CONFIG_HOME="$BANC/reglage"
+	if [ "$ECRIT" = "True" ] && grep -q 'aucune' <<< "$(journal)"; then
+		ok "« Aucune » choisi dans les Paramètres : lexos-intro le lit et ne joue rien"
+	else
+		non "le réglage écrit par la page n'est pas celui que le programme lit (écrit=$ECRIT, journal « $(journal | head -1) »)"
+	fi
+
+	#  Et une valeur inventée est refusée par la page : ce qui atterrit dans
+	#  le fichier est relu à chaque ouverture de session.
+	REFUS="$(cd "$SETTINGS" && XDG_CONFIG_HOME="$BANC/reglage" python3 -c '
+import settings
+print(settings.act_intro("nimportequoi").get("ok"))
+' 2>/dev/null)"
+	[ "$REFUS" = "False" ] \
+		&& ok "une valeur inventée est refusée par la page, pas écrite dans le fichier" \
+		|| non "la page a accepté une valeur inventée"
+
+	#  L'interrupteur du son bascule, dans les deux sens.
+	SONS="$(cd "$SETTINGS" && XDG_CONFIG_HOME="$BANC/reglage" python3 -c '
+import settings
+a = settings._intro_etat()["son"]
+settings.act_intro("son"); b = settings._intro_etat()["son"]
+settings.act_intro("son"); c = settings._intro_etat()["son"]
+print("%s %s %s" % (a, b, c))
+' 2>/dev/null)"
+	[ "$SONS" = "False True False" ] \
+		&& ok "l'interrupteur du son bascule dans les deux sens" \
+		|| non "l'interrupteur du son : « $SONS » (attendu « False True False »)"
+
+	#  La page doit exposer l'état, sinon les boutons ne peuvent pas montrer
+	#  le choix courant — le défaut corrigé pour les fonds d'écran.
+	APP="$RACINE/config/includes.chroot/usr/share/lexos/settings/web/app.js"
+	if grep -q 'etat.intro' "$APP" && grep -q 'setIntro' "$APP" && grep -q 'basculeIntroSon' "$APP"; then
+		ok "la page lit etat.intro et porte les deux commandes (choix + son)"
+	else
+		non "la page ne lit pas l'état de la vidéo, ou n'a pas ses commandes"
+	fi
+	if grep -q '"intro": act_intro,' "$SETTINGS/settings.py"; then
+		ok "…et le moteur connaît l'action « intro »"
+	else
+		non "l'action « intro » n'est pas dans la table du moteur : les boutons seraient morts"
+	fi
+fi
+
+# =============================================================================
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]
