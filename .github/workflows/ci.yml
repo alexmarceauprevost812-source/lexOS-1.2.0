@@ -2197,6 +2197,21 @@ jobs:
           #  sur l'API qui a produit ce bogue. Sans le paquet, le banc retombe
           #  sur une liste gelée et le dit ; on préfère la vraie.
           sudo apt-get install -y --no-install-recommends plymouth >/dev/null
+          #  La section 8 mesure blanc.png et bye-bye.png avec Pillow, et la
+          #  section 9 compile un harnais C qui charge le VRAI module script.so
+          #  et fait tourner le thème produit : Pillow, gcc et convert sont
+          #  posés ici même, sans compter sur un pas antérieur du même job.
+          python3 -c 'import PIL' 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-pil >/dev/null
+          command -v convert >/dev/null 2>&1 \
+            || sudo apt-get install -y --no-install-recommends imagemagick >/dev/null
+          command -v gcc >/dev/null 2>&1 \
+            || sudo apt-get install -y --no-install-recommends gcc libc6-dev >/dev/null
+          #  libply.so.5 est fourni par libplymouth5, pas par le paquet
+          #  plymouth : le harnais de la section 9 en a besoin pour charger
+          #  script.so.
+          [ -r /usr/lib/x86_64-linux-gnu/libply.so.5 ] || [ -r /usr/lib/libply.so.5 ] \
+            || sudo apt-get install -y --no-install-recommends libplymouth5 >/dev/null
           bash tests/test_lexos_plymouth.sh
 
       - name: Le thème GRUB — plus de rectangle bleu sous « Loading Linux… »

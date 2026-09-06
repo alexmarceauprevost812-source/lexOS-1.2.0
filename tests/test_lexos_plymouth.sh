@@ -359,10 +359,20 @@ else
 			non "$NB image(s) de lettre chargée(s) au lieu de 5"
 		fi
 
-		if grep -q 'Plymouth.SetRefreshFunction' "$SCRIPT" && grep -q 'Plymouth.GetTime()' "$SCRIPT"; then
-			ok "l'animation est pilotée par l'horloge de Plymouth"
+		#  ═══ UN FAUX VERT, TROUVÉ EN PASSANT ═══
+		#  Ce contrôle exigeait « Plymouth.GetTime() » dans le script — la
+		#  fonction QUI N'EXISTE PAS, retirée depuis l'ISO 112 — et restait
+		#  vert : l'en-tête du script la cite pour expliquer le bogue, et le
+		#  grep lisait ce commentaire. Un contrôle qui aurait rougi si on
+		#  avait RÉPARÉ le script, et qui passait parce qu'on l'expliquait.
+		#  On lit les lignes de code : la fonction de rafraîchissement est
+		#  branchée, et la cadence est imposée.
+		CODE_SCRIPT="$(sed 's|//.*$||' "$SCRIPT")"
+		if grep -q 'Plymouth.SetRefreshFunction(refresh_callback);' <<< "$CODE_SCRIPT" \
+		   && grep -q 'Plymouth.SetRefreshRate(cadence);' <<< "$CODE_SCRIPT"; then
+			ok "l'animation est pilotée par le compteur de rafraîchissements, à cadence imposée (lignes de code)"
 		else
-			non "aucune fonction de rafraîchissement : les lettres ne bougeraient pas"
+			non "pas de fonction de rafraîchissement branchée, ou pas de cadence imposée : les lettres ne bougeraient pas"
 		fi
 
 		#  Une barre minutée qui avance toute seule est un mensonge poli, et
@@ -919,6 +929,370 @@ else
 			non "plymouth-$U.service : pas voulu par $U.target, ou sans condition « splash », ou n'est plus plymouthd"
 		fi
 	done
+fi
+
+# =============================================================================
+titre "8. L'extinction — la vieille télé, en 2 secondes"
+# =============================================================================
+#  ALEX, consigne « fenêtre d'arrêt », partie 2 : à l'arrêt et au redémarrage,
+#  l'écran s'écrase en une ligne blanche comme un vieux téléviseur, noir une
+#  seconde, puis LEXOS. Ce que le banc mesure, sur le thème produit par le
+#  VRAI fragment du hook (theme1, avec convert ; theme4, sans) :
+#    · la branche s'ouvre sur Plymouth.GetMode(), pour « shutdown » ET
+#      « reboot », en lignes de code ;
+#    · les quatre durées sont nommées, en tête, et leur somme tient en 2 s ;
+#    · blanc.png est UN pixel blanc opaque ; bye-bye.png est la composition
+#      exacte des cinq lettres — comparée PIXEL PAR PIXEL à une composition
+#      Pillow, pas « une image de 518 de large » ;
+#    · l'écrasement passe par Image.Scale, le seul procédé du module pour
+#      redessiner une image à une autre taille ;
+#    · le démarrage est caché à l'extinction (mascotte, pluie, barre) ;
+#    · sans convert, le script ne cite aucune des deux images, garde une
+#      placer_extinction vide, et le journal le dit en « !! ».
+if [ -z "$IM" ] || [ "$MANQUE" = 1 ] || [ ! -r "${SCRIPT:-/nonexistent}" ]; then
+	saut "thème non généré plus haut : l'extinction n'est pas mesurée"
+elif [ -z "$PY" ] || ! "$PY" -c 'import PIL' >/dev/null 2>&1; then
+	#  Les sections 1 et 2 décodent les PNG à la main, à dessein. Ici on
+	#  compare une composition d'images : Pillow est nécessaire, et son
+	#  absence se DIT — sans elle, deux contrôles rougissaient avec un
+	#  message faux (« blanc.png n'est pas un pixel blanc opaque » alors
+	#  qu'elle l'était).
+	saut "python3 ou Pillow absent : blanc.png et bye-bye.png ne sont PAS mesurées"
+else
+	CODE="$(sed 's|//.*$||' "$SCRIPT")"
+	if grep -q 'mode = Plymouth.GetMode();' <<< "$CODE" \
+	   && grep -q 'if (mode == "shutdown")' <<< "$CODE" \
+	   && grep -q 'if (mode == "reboot")' <<< "$CODE"; then
+		ok "la branche d'extinction s'ouvre sur Plymouth.GetMode(), pour « shutdown » ET « reboot »"
+	else
+		non "pas de branche sur GetMode() pour shutdown et reboot (lignes de code) — l'arrêt montrerait le démarrage"
+	fi
+	#  Les durées : nommées, en tête (avant la première « fun »), et lisibles
+	#  comme des nombres.
+	TETE="$(sed 's|//.*$||' "$SCRIPT" | sed '/^fun /q')"
+	SOMME="$("$PY" - "$TETE" <<'PYSUM'
+import re, sys
+tete = sys.argv[1]; total = 0.0; n = 0
+for nom in ("tele_ecrasement_duree", "tele_point_duree", "tele_noir_duree", "tele_adieu_duree"):
+    m = re.search(r'^\s*' + nom + r'\s*=\s*([0-9.]+)\s*;', tete, re.M)
+    if not m: print("MANQUE", nom); sys.exit(0)
+    total += float(m.group(1)); n += 1
+print("%.2f" % total)
+PYSUM
+)"
+	case "$SOMME" in
+		MANQUE*) non "une durée d'extinction n'est pas en tête du script, en variable nommée : $SOMME" ;;
+		*) if "$PY" -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 2.0 else 1)" "$SOMME"; then
+			   ok "quatre durées nommées en tête, somme $SOMME s ≤ 2,0 s"
+		   else
+			   non "les quatre durées font $SOMME s : plus que les 2 s demandées"
+		   fi ;;
+	esac
+	#  Les images, mesurées.
+	if [ -r "$BANC/theme1/blanc.png" ] && [ "$("$PY" - "$BANC/theme1/blanc.png" <<'PYB'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGBA")
+print(im.size == (1, 1) and im.getpixel((0, 0)) == (255, 255, 255, 255))
+PYB
+)" = "True" ]; then
+		ok "blanc.png : un pixel, blanc, opaque"
+	else
+		non "blanc.png manque ou n'est pas un pixel blanc opaque — l'écrasement n'aurait rien à étirer"
+	fi
+	if [ -r "$BANC/theme1/bye-bye.png" ]; then
+		DIFF="$("$PY" - "$BANC/theme1/bye-bye.png" "$BRANDING" <<'PYBB'
+import sys
+from PIL import Image
+b = Image.open(sys.argv[1]).convert("RGBA")
+dx = [0, 102, 202, 304, 418]
+lettres = [Image.open("%s/lexos-lettre-%d.png" % (sys.argv[2], i)).convert("RGBA") for i in range(5)]
+larg = max(x + l.size[0] for x, l in zip(dx, lettres)); haut = max(l.size[1] for l in lettres)
+if b.size != (larg, haut): print("taille %dx%d au lieu de %dx%d" % (b.size[0], b.size[1], larg, haut)); sys.exit(0)
+ref = Image.new("RGBA", (larg, haut), (0, 0, 0, 0))
+for x, l in zip(dx, lettres): ref.alpha_composite(l, (x, 0))
+diff = sum(1 for p, q in zip(ref.get_flattened_data() if hasattr(ref, "get_flattened_data") else ref.getdata(),
+                                 b.get_flattened_data() if hasattr(b, "get_flattened_data") else b.getdata()) if p != q)
+print(diff)
+PYBB
+)"
+		if [ "$DIFF" = "0" ]; then
+			ok "bye-bye.png est la composition EXACTE des cinq lettres aux décalages du logo (0 pixel d'écart avec Pillow)"
+		else
+			non "bye-bye.png diffère de la composition des lettres : $DIFF"
+		fi
+	else
+		non "bye-bye.png n'a pas été fabriquée alors que convert est là"
+	fi
+	#  Le procédé, et ce qui est caché.
+	#  ═══ ÉTIRER UNE FOIS, DÉCOUPER ENSUITE ═══
+	#  Mesuré dans le vrai interpréteur : Image.Scale d'un pixel vers
+	#  1920×1080 coûte ~50 ms, à 50 images par seconde — l'horloge du script
+	#  compte des IMAGES, elle se serait donc étirée pendant l'écrasement.
+	#  Le plein écran est étiré une seule fois, sous garde d'extinction, et
+	#  chaque image n'en prend qu'une découpe (~5 ms).
+	if grep -q 'tele_plein = tele_image.Scale(Window.GetWidth(), Window.GetHeight());' <<< "$CODE" \
+	   && grep -q 'tele_sprite.SetImage(tele_plein.Crop(0, 0, largeur, h));' <<< "$CODE" \
+	   && grep -q 'tele_sprite.SetImage(tele_plein.Crop(0, 0, l, tele_ligne_hauteur));' <<< "$CODE"; then
+		ok "le blanc est étiré UNE fois (Image.Scale) puis découpé à chaque image (Image.Crop) — hauteur, puis largeur"
+	else
+		non "l'écrasement étire l'image à chaque passage, ou ne passe pas par Crop : ~50 ms par image, l'horloge dérive"
+	fi
+	SCALES="$(grep -c 'tele_image.Scale(' <<< "$CODE")"
+	[ "${SCALES:-0}" = "1" ] \
+		&& ok "…et le pixel blanc n'est étiré qu'à UN seul endroit du script" \
+		|| non "tele_image.Scale apparaît $SCALES fois : le coût par image revient"
+	#  ═══ PAS DE « | grep -q » : on capture, puis on lit d'une chaîne ═══
+	#  Règle du dépôt : sous « set -o pipefail », un grep -q qui ferme le
+	#  tuyau tôt fait échouer le producteur, et le verdict devient faux.
+	#  Les blocs « if (extinction == 1) { … } » en ENTIER — il y en a
+	#  plusieurs, de longueurs différentes (une ligne pour la mascotte,
+	#  deux pour la barre) : un « grep -A1 » n'en verrait que le début, et
+	#  déclarerait manquante une ligne qui est là.
+	BLOC_EXT="$(awk '/if \(extinction == 1\) \{/{d=1} d{print} /^\}|^    \}|^\t*\}$/{if(d)d=0}' <<< "$CODE")"
+	CACHES=1
+	grep -q 'mascotte_sprite.SetOpacity(0);' <<< "$BLOC_EXT" || CACHES=0
+	grep -q 'pluie_sprite.SetOpacity(0);'    <<< "$BLOC_EXT" || CACHES=0
+	#  ═══ LA BARRE : CE QUE LA GARDE ENFERME, PAS SA PRÉSENCE ═══
+	#  Premier jet : le contrôle se contentait de trouver la ligne « if
+	#  (extinction == 0) { ». Mutation jouée par la revue : garde VIDE et
+	#  corps de la barre déplacé dehors — le banc restait vert alors que la
+	#  barre se dessinait à l'arrêt. On exige donc que les deux SetImage
+	#  soient DANS la garde, et qu'aucun ne soit dehors.
+	BARRE_CODE="$(sed -n '/^fun progress_callback/,/^}/p' <<< "$CODE")"
+	GARDE="$(sed -n '/if (extinction == 0) {/,/^  }/p' <<< "$BARRE_CODE")"
+	DEDANS="$(grep -c 'progress_[bf]g_sprite.SetImage(' <<< "$GARDE")"
+	TOTAL="$(grep -c 'progress_[bf]g_sprite.SetImage(' <<< "$BARRE_CODE")"
+	[ "${DEDANS:-0}" -ge 2 ] && [ "$DEDANS" = "$TOTAL" ] || CACHES=0
+	#  Et les deux sprites de la barre sont RENDUS TRANSPARENTS : mesuré
+	#  dans le vrai interpréteur, un Sprite naît opaque en (0,0) — sans
+	#  ça, un pixel vert sur un pixel gris reste en haut à gauche pendant
+	#  le noir et l'adieu, alors même que progress_callback ne dessine rien.
+	grep -q 'progress_bg_sprite.SetOpacity(0);' <<< "$BLOC_EXT" || CACHES=0
+	grep -q 'progress_fg_sprite.SetOpacity(0);' <<< "$BLOC_EXT" || CACHES=0
+	if [ "$CACHES" = 1 ]; then
+		ok "à l'extinction : mascotte et pluie cachées, les deux sprites de la barre à l'opacité 0, et tout son dessin sous la garde ($DEDANS/$TOTAL)"
+	else
+		non "le démarrage transparaît à l'extinction (mascotte, pluie, ou barre encore dessinée : $DEDANS SetImage sous garde sur $TOTAL)"
+	fi
+	if grep -q 'placer_extinction(ecoule);' <<< "$BLOC_EXT" \
+	   && grep -q 'placer_lettre(0, ecoule);' <<< "$CODE"; then
+		ok "refresh_callback aiguille : placer_extinction à l'arrêt, placer_lettre au démarrage"
+	else
+		non "refresh_callback n'aiguille pas entre extinction et démarrage"
+	fi
+	if grep -q 'adieu_sprite.SetOpacity(t);' <<< "$CODE" \
+	   && grep -q 'adieu_image = Image("bye-bye.png");' <<< "$CODE" \
+	   && grep -q 'adieu_sprite.SetZ(40);' <<< "$CODE"; then
+		ok "LEXOS (bye-bye.png) monte en opacité au-dessus de tout (Z 40) après le noir"
+	else
+		non "bye-bye.png n'est pas affichée, ou pas au-dessus du reste"
+	fi
+	#  Les phases se décident par des « if » successifs. « && », « || »,
+	#  « else if » et « return » EXISTENT dans le module (table des symboles
+	#  de script.so, sondés dans l'interpréteur) : ce n'est pas une réserve
+	#  sur le langage, c'est un choix de lisibilité — chaque ligne se lit
+	#  seule, et une phase de plus s'ajoute sans toucher aux autres.
+	TELE_CODE="$(sed -n '/^fun placer_extinction/,/^}/p' <<< "$CODE")"
+	if [ -n "$TELE_CODE" ] && ! grep -qE '&&|\|\||else if|return' <<< "$TELE_CODE"; then
+		ok "placer_extinction se lit en « if » successifs, sans &&, ||, else if ni return"
+	else
+		non "placer_extinction a perdu sa forme en « if » successifs"
+	fi
+	#  Sans convert : rien de cité qui n'existe pas, une fonction vide, et un cri.
+	if [ -r "${S4:-/nonexistent}" ]; then
+		S4_CODE="$(sed 's|//.*$||' "$S4")"
+		if ! grep -qE 'Image\("(blanc|bye-bye)\.png"\)' <<< "$S4_CODE" \
+		   && grep -q 'fun placer_extinction(ecoule)' <<< "$S4_CODE" \
+		   && grep -q 'placer_extinction(ecoule);' <<< "$S4_CODE"; then
+			ok "sans convert : aucune des deux images n'est citée, placer_extinction existe (vide) et reste appelée"
+		else
+			non "sans convert : le script cite une image absente, ou n'a plus de placer_extinction"
+		fi
+		if grep -qi 'extinction' <<< "$J4" && grep -q '!!' <<< "$J4"; then
+			ok "…et le journal dit en « !! » que l'extinction sera sans animation"
+		else
+			non "…mais le journal ne dit pas que l'extinction est dégradée"
+		fi
+		[ -e "$BANC/theme4/blanc.png" ] || [ -e "$BANC/theme4/bye-bye.png" ] \
+			&& non "sans convert, une image d'extinction traîne quand même dans le thème" \
+			|| ok "sans convert, aucune image d'extinction n'est laissée dans le thème"
+	else
+		saut "le passage sans convert n'a pas tourné : la dégradation de l'extinction n'est pas mesurée"
+	fi
+fi
+
+# =============================================================================
+titre "9. Le harnais réel — FAIRE TOURNER le script dans le module de Plymouth"
+# =============================================================================
+#  ═══ POURQUOI CE QUI PRÉCÈDE NE SUFFIT PAS ═══
+#  Toutes les sections précédentes LISENT le script produit : elles cherchent
+#  des lignes, comptent des accolades, comparent des motifs. C'est ainsi que
+#  l'ISO 112 est partie sans logo — le script appelait « GetTime() », une
+#  fonction absente du module, l'interpréteur rendait une valeur nulle sans
+#  un mot, et un banc qui ne lit que du texte ne pouvait rien voir : le
+#  fichier était bien formé, bien copié, le thème bien le thème animé.
+#
+#  Cette section EXÉCUTE le script dans le vrai module de Plymouth
+#  (/usr/lib/*/plymouth/script.so, celui que Plymouth charge lui-même) grâce
+#  à tests/aide/plymouth-harnais.c, compilé ici. On avance l'horloge du
+#  thème (l'équivalent du temps qui passe), on demande l'état de n'importe
+#  quel sprite, et on compare à ce que la consigne « fenêtre d'arrêt »
+#  demande — pas à ce que le fichier source ÉCRIT.
+HARNAIS_SRC="$RACINE/tests/aide/plymouth-harnais.c"
+HARNAIS="$BANC/harnais"
+SCRIPT_SO=""
+for c in /usr/lib/*/plymouth/script.so /usr/lib/plymouth/script.so; do
+	[ -r "$c" ] && { SCRIPT_SO="$c"; break; }
+done
+LIBPLY=""
+for c in /usr/lib/*/libply.so.5 /usr/lib/libply.so.5; do
+	[ -r "$c" ] && { LIBPLY="$c"; break; }
+done
+if [ -z "$IM" ] || [ "$MANQUE" = 1 ] || [ ! -r "${SCRIPT:-/nonexistent}" ]; then
+	saut "thème non généré plus haut : rien à faire tourner"
+elif ! command -v gcc >/dev/null 2>&1; then
+	saut "gcc absent : le harnais n'est pas compilé, la section 9 est sautée"
+elif [ -z "$SCRIPT_SO" ] || [ -z "$LIBPLY" ]; then
+	saut "script.so ou libply.so.5 absent (paquets plymouth / libplymouth5) : rien à charger"
+elif ! gcc -O0 -o "$HARNAIS" "$HARNAIS_SRC" -ldl 2>"$BANC/harnais.err"; then
+	non "le harnais ne compile pas : $(head -1 "$BANC/harnais.err")"
+else
+	#  Fenêtre factice : sans backend graphique, Window.GetWidth()/GetHeight()
+	#  rendent 0. On les remplace AVANT de charger le script — exactement ce
+	#  que Plymouth fournit lui-même à l'exécution.
+	FENETRE='Window.GetWidth = fun () { return 1920; }; Window.GetHeight = fun () { return 1080; };'
+
+	#  sonder <mode> <compteur> <nom1> <expr1> [<nom2> <expr2> …] -> une
+	#  ligne « nom = valeur » par sonde. Chaque « nom » DOIT être un simple
+	#  identifiant : « -q » du harnais cherche une variable GLOBALE par ce
+	#  nom exact dans la table de hachage — lui passer une expression
+	#  composée (« tele_sprite.GetImage().GetWidth() ») ne trouverait rien,
+	#  d'où l'étape « nom = expression; » qui crée d'abord une variable
+	#  simple. Chaque appel recharge le script à froid : le compteur est
+	#  une horloge ABSOLUE (rafraichissements = 0 au départ), pas un delta
+	#  — la même façon de compter que le script lui-même.
+	sonder() {
+		local mode="$1" n="$2"; shift 2
+		local sondes="" args=()
+		while [ "$#" -ge 2 ]; do
+			sondes="${sondes}$1 = ${2};"
+			args+=(-q "$1")
+			shift 2
+		done
+		"$HARNAIS" -m "$mode" -i "$BANC/theme1" -s "$FENETRE" -f "$SCRIPT" \
+			-r "$n" -s "$sondes" "${args[@]}" 2>"$BANC/sonde.err"
+	}
+	valeur() { sed -n "s/^$2 = //p" <<< "$1" | tail -1; }
+
+	#  ─── L'EXTINCTION, LES QUATRE PHASES, DANS L'INTERPRÉTEUR ───
+	R0="$(sonder 1 0 ext extinction md mode \
+		masc 'mascotte_sprite.GetOpacity()' pluie 'pluie_sprite.GetOpacity()' \
+		bgop 'progress_bg_sprite.GetOpacity()' fgop 'progress_fg_sprite.GetOpacity()')"
+	if [ "$(valeur "$R0" ext)" = "1" ] && [ "$(valeur "$R0" md)" = '"shutdown"' ]; then
+		ok "Plymouth.GetMode() rend bien « shutdown », et extinction s'arme en conséquence"
+	else
+		non "à l'arrêt, extinction ne s'arme pas (mode=$(valeur "$R0" md))"
+	fi
+	TOUT_CACHE=1
+	for V in masc pluie bgop fgop; do
+		[ "$(valeur "$R0" "$V")" = "0" ] || TOUT_CACHE=0
+	done
+	[ "$TOUT_CACHE" = 1 ] \
+		&& ok "dès la première image de l'extinction : mascotte, pluie et barre sont à l'opacité 0 (mesuré dans l'interpréteur, pas lu dans le script)" \
+		|| non "quelque chose du démarrage reste visible dès la première image de l'extinction (masc=$(valeur "$R0" masc) pluie=$(valeur "$R0" pluie) bg=$(valeur "$R0" bgop) fg=$(valeur "$R0" fgop))"
+
+	#  Phase 1 — ÉCRASEMENT : le blanc perd sa HAUTEUR, sa largeur ne bouge
+	#  pas. Deux images séparées pour prouver que ça BOUGE, pas seulement
+	#  que la formule est plausible à un instant.
+	SONDE_TELE="op tele_sprite.GetOpacity() w tim.GetWidth() h tim.GetHeight()"
+	P1A="$(sonder 1 8  tim 'tele_sprite.GetImage()' $SONDE_TELE)"
+	P1B="$(sonder 1 16 tim 'tele_sprite.GetImage()' $SONDE_TELE)"
+	H1A="$(valeur "$P1A" h)"; H1B="$(valeur "$P1B" h)"; W1A="$(valeur "$P1A" w)"
+	if [ "$(valeur "$P1A" op)" = "1" ] && [ "$W1A" = "1920" ] \
+	   && [ "${H1A:-0}" -lt 1080 ] && [ "${H1B:-1080}" -lt "${H1A:-0}" ]; then
+		ok "phase ÉCRASEMENT : le blanc est visible, pleine largeur (1920), et sa hauteur RÉTRÉCIT avec le temps ($H1A → $H1B)"
+	else
+		non "phase ÉCRASEMENT : hauteur $H1A puis $H1B (largeur $W1A) — ne rétrécit pas comme attendu"
+	fi
+
+	#  Phase 2 — POINT : la hauteur est BLOQUÉE à tele_ligne_hauteur (4), et
+	#  c'est la LARGEUR qui rétrécit maintenant.
+	P2A="$(sonder 1 22 tim 'tele_sprite.GetImage()' w tim.GetWidth\(\) h tim.GetHeight\(\))"
+	P2B="$(sonder 1 27 tim 'tele_sprite.GetImage()' w tim.GetWidth\(\) h tim.GetHeight\(\))"
+	W2A="$(valeur "$P2A" w)"; W2B="$(valeur "$P2B" w)"; H2A="$(valeur "$P2A" h)"; H2B="$(valeur "$P2B" h)"
+	if [ "$H2A" = "4" ] && [ "$H2B" = "4" ] && [ "${W2B:-9999}" -lt "${W2A:-0}" ] && [ "${W2A:-0}" -lt "$W1A" ]; then
+		ok "phase POINT : la hauteur est bloquée à 4 px, la largeur continue de rétrécir ($W2A → $W2B)"
+	else
+		non "phase POINT : hauteur $H2A/$H2B (attendu 4/4), largeur $W2A → $W2B — ne suit pas le point attendu"
+	fi
+
+	#  Phase 3 — NOIR : plus rien du blanc, et l'adieu n'a pas commencé.
+	P3="$(sonder 1 60 top 'tele_sprite.GetOpacity()' aop 'adieu_sprite.GetOpacity()')"
+	if [ "$(valeur "$P3" top)" = "0" ] && [ "$(valeur "$P3" aop)" = "0" ]; then
+		ok "phase NOIR : le blanc a disparu, LEXOS n'est pas encore apparu"
+	else
+		non "phase NOIR : blanc=$(valeur "$P3" top), adieu=$(valeur "$P3" aop) — l'écran n'est pas noir"
+	fi
+
+	#  Phase 4 — ADIEU : LEXOS monte en opacité, puis PLAFONNE à 1 — jamais
+	#  au-delà, même largement après la fin du cycle.
+	P4A="$(sonder 1 90  aop 'adieu_sprite.GetOpacity()')"
+	P4B="$(sonder 1 110 aop 'adieu_sprite.GetOpacity()')"
+	A4A="$(valeur "$P4A" aop)"; A4B="$(valeur "$P4B" aop)"
+	if awk -v a="$A4A" 'BEGIN{exit !(a > 0 && a < 1)}' && [ "$A4B" = "1" ]; then
+		ok "phase ADIEU : LEXOS monte en opacité ($A4A à mi-parcours) puis reste à 1, sans jamais dépasser"
+	else
+		non "phase ADIEU : opacité $A4A puis $A4B — ne monte pas vers 1 comme attendu"
+	fi
+
+	#  ─── LE REDÉMARRAGE PREND LA MÊME BRANCHE QUE L'EXTINCTION ───
+	RB="$(sonder 2 0 ext extinction md mode)"
+	[ "$(valeur "$RB" ext)" = "1" ] && [ "$(valeur "$RB" md)" = '"reboot"' ] \
+		&& ok "Plymouth.GetMode() rend « reboot », et extinction s'arme pareil qu'à l'arrêt" \
+		|| non "le redémarrage ne prend pas la branche d'extinction (mode=$(valeur "$RB" md))"
+
+	#  ─── LE DÉMARRAGE : LA MASCOTTE, LES LETTRES, LA BARRE — VRAIMENT ───
+	BT0="$(sonder 0 0  ext extinction md mode \
+		masc 'mascotte_sprite.GetOpacity()' pluie 'pluie_sprite.GetOpacity()' l0 'lettre_sprite[0].GetOpacity()')"
+	BT1="$(sonder 0 60 l0 'lettre_sprite[0].GetOpacity()' l4 'lettre_sprite[4].GetOpacity()')"
+	if [ "$(valeur "$BT0" ext)" = "0" ] && [ "$(valeur "$BT0" md)" = '"boot"' ] \
+	   && [ "$(valeur "$BT0" masc)" = "1" ] && [ "$(valeur "$BT0" pluie)" = "1" ] \
+	   && [ "$(valeur "$BT0" l0)" = "0" ]; then
+		ok "au démarrage : mascotte et pluie visibles dès la première image, les lettres pas encore arrivées"
+	else
+		non "l'état de la première image du démarrage ne correspond pas à ce qui est attendu"
+	fi
+	if [ "$(valeur "$BT1" l0)" = "1" ] && [ "$(valeur "$BT1" l4)" = "1" ]; then
+		ok "…et les cinq lettres sont bien arrivées (opacité 1) après leur temps de glissement"
+	else
+		non "les lettres ne sont pas toutes arrivées à l'opacité 1 après 60 images"
+	fi
+	FGW1="$("$HARNAIS" -m 0 -i "$BANC/theme1" -s "$FENETRE" -f "$SCRIPT" -p 0.1 -s 'x = progress_fg_sprite.GetImage().GetWidth();' -q x 2>/dev/null | sed -n 's/^x = //p')"
+	FGW2="$("$HARNAIS" -m 0 -i "$BANC/theme1" -s "$FENETRE" -f "$SCRIPT" -p 0.9 -s 'x = progress_fg_sprite.GetImage().GetWidth();' -q x 2>/dev/null | sed -n 's/^x = //p')"
+	if [ "${FGW2:-0}" -gt "${FGW1:-0}" ]; then
+		ok "…et la barre RÉAGIT à une vraie progression (10 % → ${FGW1} px, 90 % → ${FGW2} px) — pas une animation minutée"
+	else
+		non "la barre ne réagit pas à la progression : 10 % → $FGW1 px, 90 % → $FGW2 px"
+	fi
+
+	#  ─── SANS CONVERT : PAS DE SPRITE FANTÔME, PAS DE PLANTAGE ───
+	#  theme4 (section 5 bis) n'a ni blanc.png ni bye-bye.png : SCRIPT_TELE_SANS
+	#  ne DÉCLARE MÊME PAS tele_sprite. Le vérifier dans l'interpréteur, pas
+	#  seulement par grep : une variable ABSENTE et une variable à l'opacité 0
+	#  ne sont pas la même preuve.
+	if [ -r "${S4:-/nonexistent}" ]; then
+		R4="$("$HARNAIS" -m 1 -i "$BANC/theme4" -s "$FENETRE" -f "$S4" -r 10 -s 'a = extinction;' -q a -q tele_sprite 2>"$BANC/sonde4.err")"
+		if grep -qi 'erreur' <<< "$R4$(cat "$BANC/sonde4.err" 2>/dev/null)"; then
+			non "sans convert, le script en extinction lève une erreur dans le vrai interpréteur : $R4"
+		elif [ "$(sed -n 's/^tele_sprite = //p' <<< "$R4")" = "ABSENTE" ] && [ "$(sed -n 's/^a = //p' <<< "$R4")" = "1" ]; then
+			ok "sans convert : tele_sprite n'existe même pas dans l'interpréteur (pas un sprite invisible qui traînerait) — aucune erreur à l'exécution"
+		else
+			non "sans convert : tele_sprite existe quand même, ou le script a mal réagi ($R4)"
+		fi
+	else
+		saut "le passage sans convert n'a pas produit de script : le sans-sprite-fantôme n'est pas mesuré"
+	fi
 fi
 
 # =============================================================================

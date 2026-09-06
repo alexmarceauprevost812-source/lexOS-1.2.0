@@ -474,6 +474,51 @@ if [ -d "$PLY_SRC" ]; then
 			echo "[lexos]   !! ═══════════════════════════════════════════════════════════"
 		fi
 
+		#  ═══ L'EXTINCTION — LES DEUX IMAGES DE LA VIEILLE TÉLÉ ═══
+		#  ALEX : à l'arrêt, l'écran s'écrase en une ligne blanche comme un
+		#  vieux téléviseur, puis noir, puis LEXOS. Deux images pour ça :
+		#    · blanc.png — UN pixel blanc, étiré par Image.Scale à la taille
+		#      voulue à chaque rafraîchissement (le procédé de la barre) ;
+		#    · bye-bye.png — les cinq lettres COMPOSÉES en une seule image,
+		#      aux décalages mesurés du logo (0/102/202/304/418), pour un seul
+		#      Sprite à faire apparaître. -page/-layers merge calcule la toile
+		#      d'après les lettres : rien n'est écrit en dur, et si une lettre
+		#      change de taille, l'image suit. Vérifié pixel par pixel contre
+		#      une composition Pillow dans tests/test_lexos_plymouth.sh.
+		#  FACULTATIVES, comme la barre : sans convert, l'extinction est un
+		#  écran noir — et ça se dit en « !! ». Le script produit ne cite
+		#  jamais une image qui n'existe pas.
+		#  LE CODE DE RETOUR DE CONVERT N'EST PAS JETÉ. Revue adversariale,
+		#  reproduit : une lettre CORROMPUE dans branding fait échouer convert
+		#  (rc 1) qui écrit QUAND MÊME une bye-bye.png — complète en taille,
+		#  sans le O. Avec « 2>/dev/null || true » et un simple « -s », cette
+		#  image fausse partait dans l'ISO sans un mot. On garde stderr (la
+		#  seule piste utile), et un échec RETIRE le fichier en nommant la
+		#  cause.
+		if have convert; then
+			convert -size 1x1 xc:'#FFFFFF' "PNG32:$PLY_DST/blanc.png" \
+				|| { rm -f "$PLY_DST/blanc.png"; echo "[lexos]   !! blanc.png : convert a échoué (message ci-dessus)"; }
+			convert -background none \
+				-page +0+0   "$PLY_DST/lexos-lettre-0.png" \
+				-page +102+0 "$PLY_DST/lexos-lettre-1.png" \
+				-page +202+0 "$PLY_DST/lexos-lettre-2.png" \
+				-page +304+0 "$PLY_DST/lexos-lettre-3.png" \
+				-page +418+0 "$PLY_DST/lexos-lettre-4.png" \
+				-layers merge +repage "PNG32:$PLY_DST/bye-bye.png" \
+				|| { rm -f "$PLY_DST/bye-bye.png"; echo "[lexos]   !! bye-bye.png : convert a échoué (message ci-dessus)"; }
+		else
+			echo "[lexos]   !! convert absent : pas d'animation « vieille télé » à l'arrêt."
+		fi
+		if [ ! -s "$PLY_DST/blanc.png" ] || [ ! -s "$PLY_DST/bye-bye.png" ]; then
+			for F in blanc.png bye-bye.png; do
+				[ -s "$PLY_DST/$F" ] || echo "[lexos]   !! $F non fabriquée : extinction SANS animation « vieille télé »"
+			done
+			rm -f "$PLY_DST/blanc.png" "$PLY_DST/bye-bye.png"
+			echo "[lexos]   !! (écran noir jusqu'à l'arrêt ; le démarrage n'est pas touché)."
+			echo "[lexos]   !! Pour la retrouver : imagemagick au moment du hook 0300 (00-core.list,"
+			echo "[lexos]   !! posé par le hook 0250 qui tolère un paquet absent)."
+		fi
+
 		if [ -r "$PLY_PLUIE" ]; then
 			cp "$PLY_PLUIE" "$PLY_DST/pluie-demarrage.png"
 			echo "[lexos]   pluie Matrix : posée en fond de l'écran de démarrage"
@@ -533,6 +578,32 @@ lettre_dx[3] = 304;
 lettre_dx[4] = 418;
 logo_largeur = 518;
 
+// ═══ L'EXTINCTION — LA VIEILLE TÉLÉ, RÉGLAGES ═══
+// À l'arrêt et au redémarrage, Plymouth est relancé par systemd
+// (plymouth-poweroff.service / plymouth-reboot.service, conditionnés par
+// « splash » sur la ligne noyau) et ce même script tourne, avec
+// Plymouth.GetMode() qui répond « shutdown » ou « reboot ». Quatre temps,
+// 2,0 s en tout — l'arrêt d'un SSD peut être plus court, et l'animation
+// est alors coupée : c'est admis, elle ne retarde rien.
+tele_ecrasement_duree = 0.35;   // l'écran blanc s'écrase en une ligne
+tele_point_duree      = 0.20;   // la ligne se resserre en un point
+tele_noir_duree       = 1.00;   // noir complet
+tele_adieu_duree      = 0.45;   // LEXOS apparaît (bye-bye.png), et reste
+tele_ligne_hauteur    = 4;      // épaisseur de la ligne, en pixels
+
+// « || », « && », « else if » et « return » EXISTENT dans le module script —
+// lus dans la table des symboles de script.so et sondés dans l'interpréteur
+// (revue adversariale). Deux « if » restent ici par lisibilité, pas par
+// prudence : chaque ligne se lit seule.
+extinction = 0;
+mode = Plymouth.GetMode();
+if (mode == "shutdown") {
+    extinction = 1;
+}
+if (mode == "reboot") {
+    extinction = 1;
+}
+
 SCRIPT_TETE
 
 		#  La pluie n'entre dans le script QUE si son image a été posée.
@@ -552,6 +623,9 @@ pluie_sprite.SetX(0);
 pluie_sprite.SetY(0);
 pluie_sprite.SetZ(1);
 pluie_sprite.SetOpacity(1);
+if (extinction == 1) {
+    pluie_sprite.SetOpacity(0);
+}
 SCRIPT_PLUIE
 		else
 			printf '// pluie-demarrage.png absente a la construction : pas de couche de pluie.\n'
@@ -566,6 +640,9 @@ mascotte_sprite.SetX(Window.GetWidth() / 2 - mascotte_image.GetWidth() / 2);
 mascotte_sprite.SetY(Window.GetHeight() * mascotte_centre_y - mascotte_image.GetHeight() / 2);
 mascotte_sprite.SetZ(10);
 mascotte_sprite.SetOpacity(1);
+if (extinction == 1) {
+    mascotte_sprite.SetOpacity(0);
+}
 
 // --- Les cinq lettres -------------------------------------------------------
 // Chacune est son propre Sprite : elles n'arrivent pas en même temps.
@@ -632,20 +709,131 @@ fun placer_lettre(i, ecoule) {
     }
     lettre_sprite[i].SetOpacity(opacite);
 }
+SCRIPT_CORPS
+
+		#  ═══ L'EXTINCTION N'ENTRE DANS LE SCRIPT QUE SI SES IMAGES EXISTENT ═══
+		#  Même règle que la pluie et la barre : jamais « Image("blanc.png") »
+		#  sans le fichier. Sans les images, placer_extinction existe quand
+		#  même — vide — pour que refresh_callback ait toujours quelqu'un à
+		#  appeler : une fonction inconnue rend une valeur nulle sans un mot.
+		if [ -r "$PLY_DST/blanc.png" ] && [ -r "$PLY_DST/bye-bye.png" ]; then
+			cat <<'SCRIPT_TELE'
+
+// --- L'extinction : la vieille télé ------------------------------------------
+// Quatre temps, mesurés sur le compteur de rafraîchissements comme le reste :
+//   1. ÉCRASEMENT — un rectangle blanc plein écran perd sa hauteur jusqu'à
+//      n'être qu'une ligne, en courbe cubique (vite, puis doucement) ;
+//   2. POINT — la ligne perd sa largeur jusqu'à un point ;
+//   3. NOIR — plus rien ;
+//   4. ADIEU — LEXOS (bye-bye.png) monte en opacité au centre, et reste.
+// Un seul pixel blanc, étiré par Image.Scale (le procédé de la barre) — une
+// fois —, puis découpé par Image.Crop à chaque passage.
+tele_image = Image("blanc.png");
+tele_sprite = Sprite();
+tele_sprite.SetZ(30);
+tele_sprite.SetOpacity(0);
+// ÉTIRER UNE FOIS, DÉCOUPER ENSUITE. Mesuré dans le vrai interpréteur (revue
+// adversariale) : Image.Scale d'un pixel vers 1920×1080 coûte ~50 ms par
+// image, à 50 images par seconde — l'horloge, qui compte des images, se
+// serait étirée pendant l'écrasement. Un plein écran blanc est étiré UNE
+// fois (sous garde, pour ne rien payer au démarrage) et chaque image n'en
+// prend qu'une découpe : ~5 ms. Image.Crop existe dans ce module.
+if (extinction == 1) {
+    tele_plein = tele_image.Scale(Window.GetWidth(), Window.GetHeight());
+}
+
+adieu_image = Image("bye-bye.png");
+adieu_sprite = Sprite();
+adieu_sprite.SetImage(adieu_image);
+adieu_sprite.SetX(Window.GetWidth() / 2 - adieu_image.GetWidth() / 2);
+adieu_sprite.SetY(Window.GetHeight() / 2 - adieu_image.GetHeight() / 2);
+adieu_sprite.SetZ(40);
+adieu_sprite.SetOpacity(0);
+
+tele_fin_ecrasement = tele_ecrasement_duree;
+tele_fin_point      = tele_fin_ecrasement + tele_point_duree;
+tele_fin_noir       = tele_fin_point + tele_noir_duree;
+
+// La phase se décide par des « if » successifs, du dernier temps au premier,
+// sans « else if » ni « && » : rien n'est supposé du langage.
+fun placer_extinction(ecoule) {
+    largeur = Window.GetWidth();
+    hauteur = Window.GetHeight();
+
+    phase = 4;
+    if (ecoule < tele_fin_noir) {
+        phase = 3;
+    }
+    if (ecoule < tele_fin_point) {
+        phase = 2;
+    }
+    if (ecoule < tele_fin_ecrasement) {
+        phase = 1;
+    }
+
+    if (phase == 1) {
+        t = ecoule / tele_ecrasement_duree;
+        reste = 1 - t;
+        h = tele_ligne_hauteur + (hauteur - tele_ligne_hauteur) * reste * reste * reste;
+        tele_sprite.SetImage(tele_plein.Crop(0, 0, largeur, h));
+        tele_sprite.SetX(0);
+        tele_sprite.SetY(hauteur / 2 - h / 2);
+        tele_sprite.SetOpacity(1);
+    }
+    if (phase == 2) {
+        t = (ecoule - tele_fin_ecrasement) / tele_point_duree;
+        reste = 1 - t;
+        l = 2 + (largeur - 2) * reste * reste;
+        tele_sprite.SetImage(tele_plein.Crop(0, 0, l, tele_ligne_hauteur));
+        tele_sprite.SetX(largeur / 2 - l / 2);
+        tele_sprite.SetY(hauteur / 2 - tele_ligne_hauteur / 2);
+        tele_sprite.SetOpacity(1);
+    }
+    if (phase == 3) {
+        tele_sprite.SetOpacity(0);
+    }
+    if (phase == 4) {
+        tele_sprite.SetOpacity(0);
+        t = (ecoule - tele_fin_noir) / tele_adieu_duree;
+        if (t > 1) {
+            t = 1;
+        }
+        adieu_sprite.SetOpacity(t);
+    }
+}
+SCRIPT_TELE
+		else
+			cat <<'SCRIPT_TELE_SANS'
+
+// --- L'extinction : blanc.png ou bye-bye.png absentes a la construction ------
+// Pas d'animation « vieille tele » : ecran noir jusqu'a l'arret. La fonction
+// existe quand meme, vide, pour que refresh_callback ne l'appelle pas dans le
+// vide.
+fun placer_extinction(ecoule) {
+    ecoule = ecoule;
+}
+SCRIPT_TELE_SANS
+		fi
+
+		cat <<'SCRIPT_CORPS_FIN'
 
 fun refresh_callback() {
     rafraichissements = rafraichissements + 1;
     ecoule = rafraichissements / cadence;
 
-    placer_lettre(0, ecoule);
-    placer_lettre(1, ecoule);
-    placer_lettre(2, ecoule);
-    placer_lettre(3, ecoule);
-    placer_lettre(4, ecoule);
+    if (extinction == 1) {
+        placer_extinction(ecoule);
+    } else {
+        placer_lettre(0, ecoule);
+        placer_lettre(1, ecoule);
+        placer_lettre(2, ecoule);
+        placer_lettre(3, ecoule);
+        placer_lettre(4, ecoule);
+    }
 }
 
 Plymouth.SetRefreshFunction(refresh_callback);
-SCRIPT_CORPS
+SCRIPT_CORPS_FIN
 
 		#  ═══ LA BARRE N'ENTRE DANS LE SCRIPT QUE SI SES IMAGES EXISTENT ═══
 		#  Même raisonnement que pour la pluie, quinze lignes plus haut :
@@ -671,8 +859,19 @@ progress_bg_sprite.SetImage(progress_bg_image);
 progress_fg_sprite.SetImage(progress_fg_image);
 progress_bg_sprite.SetZ(20);
 progress_fg_sprite.SetZ(21);
+// Un Sprite naît OPAQUE, en (0,0) — sondé dans le vrai interpréteur. À
+// l'extinction, progress_callback ne le déplace jamais : sans ces deux
+// lignes, un pixel vert sur un pixel gris resterait dessiné en haut à
+// gauche pendant le noir et l'adieu.
+if (extinction == 1) {
+    progress_bg_sprite.SetOpacity(0);
+    progress_fg_sprite.SetOpacity(0);
+}
 
+// À L'EXTINCTION, PAS DE BARRE : le corps entier est sous « if » (« return »
+// existe aussi, mesuré ; le bloc évite un retour anticipé dans un rappel).
 fun progress_callback(duration, progress) {
+  if (extinction == 0) {
     bar_width = Window.GetWidth() * barre_largeur_ratio;
     bar_height = barre_hauteur;
     bar_x = Window.GetWidth() / 2 - bar_width / 2;
@@ -690,6 +889,7 @@ fun progress_callback(duration, progress) {
     progress_fg_sprite.SetImage(progress_fg_image.Scale(fg_width, bar_height));
     progress_fg_sprite.SetX(bar_x);
     progress_fg_sprite.SetY(bar_y);
+  }
 }
 
 Plymouth.SetBootProgressFunction(progress_callback);
