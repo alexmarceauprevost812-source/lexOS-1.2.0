@@ -270,6 +270,147 @@ treeview.view cell:selected {
 	color: @lexos_noir;
 }
 
+/* --- L'ACCÉLÉRATEUR (« Alt+F4 »), ET LA SPÉCIFICITÉ DE Yaru --------------- */
+/*  ALEX, PHOTO 2, COIN SUPÉRIEUR DROIT : « Éteindre… Alt+F4 » — le raccourci
+    à droite est délavé, presque gris, sur un fond où le reste se lit.
+
+    ═══ CE N'EST NI UN LABEL NI UN « :disabled » : C'EST UN NŒUD À LUI ═══
+    Mesuré sur GTK 3.24.41, pas déduit. En dumpant l'arbre des nœuds CSS d'un
+    vrai GtkMenuItem portant un accélérateur, on obtient :
+
+        menuitem:hover
+          label
+            accelerator
+
+    « accelerator » est donc un nœud CSS DISTINCT, enfant du label — et son
+    état pendant le survol est vierge : pas de « :disabled », contrairement à
+    ce qu'on lit souvent (GTK 2 dessinait bien le raccourci en insensible ;
+    GTK 3.24 lui donne un nœud).
+
+    ═══ POURQUOI IL EST DÉLAVÉ ═══
+    Yaru-dark — le thème de base de l'ISO — porte, ligne 2285 de son CSS :
+
+        menuitem accelerator { color: alpha(currentColor, 0.55); }
+
+    55 % de la couleur héritée. Sur notre orange, ça donne #803106 sur noir :
+    2,36:1 mesuré, quand le seuil de ce dépôt est 4,5:1. Aucune règle de ce
+    fichier ne NOMMAIT « accelerator » — les règles de repos s'arrêtent à
+    « menuitem » et « menuitem label », et l'héritage ne peut rien contre une
+    correspondance directe. Le raccourci était donc laissé au thème.
+
+    On le nomme, aux trois états. Isolées une par une, comme tout ce fichier :
+    « accelerator » existe depuis GTK 3.20, mais une règle qui ne correspond à
+    rien ne coûte rien, et une qui serait refusée ne doit emporter qu'elle. */
+menuitem accelerator {
+	color: @lexos_accent;
+}
+menu menuitem accelerator {
+	color: @lexos_accent;
+}
+#panel_window menuitem accelerator {
+	color: @lexos_accent;
+}
+menuitem:hover accelerator {
+	color: @lexos_noir;
+}
+menuitem:selected accelerator {
+	color: @lexos_noir;
+}
+menu menuitem:hover accelerator {
+	color: @lexos_noir;
+}
+menu menuitem:selected accelerator {
+	color: @lexos_noir;
+}
+#panel_window menuitem:hover accelerator {
+	color: @lexos_noir;
+}
+#panel_window menuitem:selected accelerator {
+	color: @lexos_noir;
+}
+
+/*  ═══ NOS RÈGLES SANS ANCRE ÉTAIENT UN ÉLÉMENT TROP COURTES ═══
+    Le bloc sans ancre plus haut existe pour le popup ORPHELIN — celui qui
+    n'est pas descendant CSS de #panel_window. Or Yaru-dark écrit, ligne 2198 :
+
+        menu menuitem:hover { color: #FFFFFF; background-color: #E95420; }
+
+    C'est (0,1,2). Notre « menuitem:hover » est (0,1,1) : sur ce popup-là,
+    là où aucune règle en #panel_window ne vient au secours, LE THÈME GAGNE —
+    et repeint la ligne en orange d'Ubuntu avec l'écriture blanche, pendant
+    que notre « menuitem label » (0,0,2), qui matche l'étiquette DIRECTEMENT,
+    la garde orange. Orange sur orange : la photo d'Alex, exactement.
+
+    On monte donc les nôtres au même rang, avec « menu » devant. À égalité de
+    spécificité ET de priorité, c'est la feuille lue en dernier qui gagne — et
+    la nôtre est lue après l'import du thème de base (hook 0410). Les formes
+    courtes restent juste au-dessus : elles couvrent les versions de GTK où le
+    popup ne porte pas de nœud « menu ». */
+menu menuitem {
+	background-color: transparent;
+	color: @lexos_accent;
+}
+menu menuitem label {
+	color: @lexos_accent;
+}
+menu menuitem:hover {
+	background-color: @lexos_accent;
+	color: @lexos_noir;
+}
+menu menuitem:selected {
+	background-color: @lexos_accent;
+	color: @lexos_noir;
+}
+menu menuitem:hover label {
+	color: @lexos_noir;
+}
+menu menuitem:selected label {
+	color: @lexos_noir;
+}
+menu menuitem:hover * {
+	color: @lexos_noir;
+}
+menu menuitem:selected * {
+	color: @lexos_noir;
+}
+
+/*  ═══ L'INDICATEUR DU PANNEAU PENDANT QUE SON MENU EST OUVERT ═══
+    ALEX : « le bloc ca_multix + les trois icônes du panneau est dans le même
+    état ». « ca_multix » est l'indicateur de disposition clavier du greeter.
+
+    Quand on clique dessus, le GtkMenu attaché s'ouvre et le parent ne passe
+    PAS en « :hover » mais en « :selected » — c'est gtk_menu_shell_select_item
+    qui pose l'état, pas la souris. Or ce fichier avait bien
+    « #panel_window menuitem:hover » (le fond) et « #panel_window
+    menuitem:selected * » (l'étiquette), mais JAMAIS le fond de « :selected ».
+    L'indicateur gardait donc le fond du thème pendant qu'on lui peignait
+    l'étiquette en noir : noir sur sombre, l'indicateur disparaissait au
+    moment précis où l'on s'en sert.
+
+    Même remarque pour « menubar > menuitem », que Yaru traite à part
+    (ligne 2162 : box-shadow orange Ubuntu + couleur #f08762) : on écrase les
+    deux, et on efface l'ombre qui rappelait l'orange d'Ubuntu sous la nôtre. */
+#panel_window menuitem:selected {
+	background-color: @lexos_accent;
+	color: @lexos_noir;
+}
+#panel_window menubar > menuitem:hover {
+	background-color: @lexos_accent;
+	color: @lexos_noir;
+	box-shadow: none;
+}
+#panel_window menubar > menuitem:selected {
+	background-color: @lexos_accent;
+	color: @lexos_noir;
+	box-shadow: none;
+}
+#panel_window menubar > menuitem:hover * {
+	color: @lexos_noir;
+}
+#panel_window menubar > menuitem:selected * {
+	color: @lexos_noir;
+}
+
 /* --- LE CARRÉ GRIS QUI DEVIENT NOIR --------------------------------------- */
 /*  Les trois noms sont ceux du greeter lui-même (son fichier .ui) :
     « login_window » est la boîte, « content_frame » ce qu'elle contient,

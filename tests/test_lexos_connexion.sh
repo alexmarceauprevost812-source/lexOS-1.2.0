@@ -933,6 +933,185 @@ EOF
 fi
 
 # =============================================================================
+titre "Le raccourci « Alt+F4 » se lit — mesuré sur le vrai nœud « accelerator »"
+# =============================================================================
+#  ALEX, PHOTO 2 : « Éteindre… Alt+F4 » — le raccourci à droite est délavé,
+#  presque gris, sur un fond où le reste se lit.
+#
+#  ═══ CE BANC MESURE UN NŒUD DONT LE NOM A ÉTÉ RELEVÉ, PAS DEVINÉ ═══
+#  En dumpant gtk_style_context_to_string() sur un vrai GtkMenuItem portant un
+#  accélérateur, GTK 3.24.41 rend :
+#        menuitem:hover
+#          label
+#            accelerator
+#  « accelerator » est donc un nœud CSS à part, enfant du label — et non un
+#  label en « :disabled », comme on le lit souvent (c'était vrai en GTK 2).
+#
+#  ET IL FAUT LE MESURER, PAS LE GREPPER. Le nœud était déjà couvert par
+#  « menuitem:hover * » ; ce qui manquait, c'est l'état de REPOS, que
+#  Yaru-dark s'attribue avec « menuitem accelerator { color:
+#  alpha(currentColor, 0.55) } » — 55 % de l'orange sur noir, mesuré à
+#  2,36:1 avant correctif. Un contrôle qui aurait cherché le mot
+#  « accelerator » dans le fichier serait passé au vert sans rien prouver.
+if [ -z "$PY_GI" ] || ! command -v xvfb-run >/dev/null 2>&1; then
+	saute "gi/GTK ou Xvfb absents : le raccourci n'a PAS été mesuré"
+else
+	cat > "$BANC/accel.py" <<'PYAC'
+import sys, gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+Gtk.init([])
+#  ═══ L'ADVERSAIRE, RECOPIÉ DU THÈME DE BASE ═══
+#  Mesurer connexion.css TOUT SEUL ne prouverait pas grand-chose : le bogue
+#  d'Alex était une INTERACTION. Yaru-dark — le thème de base de l'ISO —
+#  écrit ces règles-là, relevées dans son propre CSS (lignes 2198, 2285 et
+#  2162 de /usr/share/themes/Yaru-dark/gtk-3.0/gtk.gresource) :
+#
+#      menu menuitem:hover  { color: #FFFFFF; background-color: #E95420; }
+#      menuitem accelerator { color: alpha(currentColor, 0.55); }
+#
+#  La première est en (0,1,2) et battait notre « menuitem:hover » en
+#  (0,1,1) ; la seconde s'attribuait le raccourci, que rien chez nous ne
+#  nommait. On les rejoue ICI plutôt que de dépendre de la présence de Yaru
+#  sur la machine du banc — et on les charge AVANT les nôtres, dans l'ordre
+#  exact où le hook 0410 compose LexOS-Connexion (@import du thème de base
+#  en première ligne, nos règles ensuite).
+ADVERSAIRE = b"""
+menu menuitem:hover { color: #FFFFFF; background-color: #E95420; }
+menuitem accelerator { color: alpha(currentColor, 0.55); }
+menubar > menuitem:hover { color: #f08762; }
+"""
+adv = Gtk.CssProvider()
+adv.load_from_data(ADVERSAIRE)
+prov = Gtk.CssProvider()
+prov.load_from_path(sys.argv[1])
+
+#  ═══ L'ÉTAT SE POSE SUR CHAQUE NŒUD DU CHEMIN, PAS À LA QUESTION ═══
+#  Première version de ce banc : on demandait get_color(PRELIGHT) sur la
+#  feuille, et le chemin restait au repos. « menuitem:hover accelerator » ne
+#  correspondait alors JAMAIS — GTK cherche l'état sur le nœud « menuitem »
+#  du chemin, et il n'y était pas. Le banc annonçait 1,00:1 orange sur orange
+#  sur un écran qui, mesuré sur une VRAIE fenêtre au même moment, rendait du
+#  noir sur orange. Un faux rouge qui aurait fait « corriger » du code juste.
+#  On pose donc l'état par iter_set_state(), sur tout le chemin — c'est ce que
+#  GTK fait lui-même quand la souris entre dans un menuitem.
+def ctx(noeuds, racine=None, etat=None):
+    ch = Gtk.WidgetPath()
+    for nom, classes in noeuds:
+        i = ch.append_type(Gtk.Widget.__gtype__)
+        ch.iter_set_object_name(i, nom)
+        for c in classes:
+            ch.iter_add_class(i, c)
+        if etat is not None:
+            ch.iter_set_state(i, etat)
+    if racine:
+        ch.iter_set_name(0, racine)
+    c = Gtk.StyleContext(); c.set_path(ch)
+    #  ═══ LES DEUX À « USER », ET C'EST OBLIGATOIRE ═══
+    #  Un StyleContext isolé consulte AUSSI les fournisseurs de l'écran, dont
+    #  le thème réel de la machine du banc, posé par GTK à la priorité
+    #  SETTINGS (400). Poser nos deux feuilles à THEME (200) les faisait donc
+    #  passer sous ce thème-là : le banc mesurait un fond #FAFAFA — celui
+    #  d'Adwaita clair — au lieu du nôtre. On les met toutes les deux à USER
+    #  (800), au-dessus, et l'ordre entre elles reste celui de l'ajout :
+    #  l'adversaire d'abord, nos règles ensuite, comme le hook 0410 compose.
+    c.add_provider(adv, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+    c.add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+    return c
+
+def lum(c):
+    def v(x):
+        return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    return 0.2126 * v(c.red) + 0.7152 * v(c.green) + 0.0722 * v(c.blue)
+
+def hexa(c):
+    return "#%02X%02X%02X" % (round(c.red*255), round(c.green*255), round(c.blue*255))
+
+#  ═══ IL FAUT COMPOSER L'ALPHA, ET C'EST TOUT LE MÉCANISME DU BOGUE ═══
+#  Yaru-dark n'écrit pas une couleur grise : il écrit « alpha(currentColor,
+#  0.55) ». Le canal alpha est LA cause du délavé. Une première version de ce
+#  banc lisait get_color() et comparait les canaux tels quels : elle rendait
+#  5,87:1 sur un texte qui, une fois posé sur le fond, en vaut 2,36. La
+#  mutation qui remettait l'alpha du thème est passée au vert. On compose donc
+#  le texte SUR le fond avant de mesurer, comme l'écran le fait.
+class Compose:
+    def __init__(self, texte, fond):
+        a = texte.alpha
+        self.red   = texte.red   * a + fond.red   * (1 - a)
+        self.green = texte.green * a + fond.green * (1 - a)
+        self.blue  = texte.blue  * a + fond.blue  * (1 - a)
+        self.alpha = 1.0
+
+def contraste(a, b):
+    x, y = sorted((lum(a), lum(b)))
+    return (y + 0.05) / (x + 0.05)
+
+NORMAL = Gtk.StateFlags.NORMAL
+SURVOL = Gtk.StateFlags.PRELIGHT
+
+#  Deux arbres : le popup ORPHELIN (pas de racine nommée — le cas où aucune
+#  règle en #panel_window ne vient au secours) et celui du panneau.
+for racine, nom_racine in ((None, "popup orphelin"), ("panel_window", "panneau")):
+    base = [("window", ["popup"]), ("menu", [])]
+    for etat, nom_etat in ((NORMAL, "au repos"), (SURVOL, "survolé")):
+        #  Le fond du menu lui-même ne survole pas : seul le menuitem le fait.
+        item = ctx(base + [("menuitem", [])], racine, etat)
+        fond = item.get_property("background-color", etat)
+        #  Un fond transparent laisse voir celui du menu : c'est LUI qu'on
+        #  compare, sinon on mesurerait un contraste contre du vide.
+        if fond.alpha < 0.5:
+            fond = ctx(base, racine).get_property("background-color", NORMAL)
+        for feuille in ("label", "accelerator"):
+            chemin = base + [("menuitem", []), ("label", [])]
+            if feuille == "accelerator":
+                chemin = chemin + [("accelerator", [])]
+            t = Compose(ctx(chemin, racine, etat).get_color(etat), fond)
+            r = contraste(fond, t)
+            verdict = "OK" if r >= 4.5 else "NON"
+            print("%s|%s, %s — « %s » : %.2f:1 (%s sur %s)" % (
+                verdict, nom_racine, nom_etat, feuille, r, hexa(t), hexa(fond)))
+PYAC
+	SORTIE_AC="$(xvfb-run -a "$PY_GI" "$BANC/accel.py" "$CSS" 2>/dev/null \
+		| grep -E '^(OK|NON)\|' || true)"
+	if [ -z "$SORTIE_AC" ]; then
+		non "la mesure du raccourci n'a rien rendu"
+	else
+		while IFS='|' read -r VERDICT MESSAGE; do
+			[ -n "$VERDICT" ] || continue
+			[ "$VERDICT" = "OK" ] && ok "$MESSAGE" || non "$MESSAGE"
+		done <<EOF
+$SORTIE_AC
+EOF
+	fi
+fi
+
+#  ═══ ET LES RÈGLES ELLES-MÊMES, POUR QUE L'ÉCHEC NOMME LE COUPABLE ═══
+#  La mesure ci-dessus dit QUE ça ne se lit plus ; ces contrôles-ci disent
+#  LAQUELLE des règles a disparu. Les deux servent : une mesure sans nom
+#  envoie chercher dans 748 lignes.
+#  ═══ LA LIGNE ENTIÈRE, PAS UN MORCEAU ═══
+#  Première version : « grep -qF "$2 {" ». Elle passait au vert sur un
+#  SOUS-ENSEMBLE — « menu menuitem accelerator {" » contient « menuitem
+#  accelerator {" » — si bien que retirer la règle courte ne faisait rougir
+#  personne. La mutation l'a dit. « -x » exige la ligne complète, et le
+#  fichier écrit bien un sélecteur par ligne, suivi de « { ».
+regle() { # description, sélecteur exact
+	if grep -qxF "$2 {" "$CSS"; then ok "$1"; else non "$1 — « $2 » absent"; fi
+}
+regle "le repos du raccourci est écrit"            "menuitem accelerator"
+regle "le survol du raccourci est écrit"           "menuitem:hover accelerator"
+regle "la sélection du raccourci est écrite"       "menuitem:selected accelerator"
+regle "le survol du raccourci sous « menu »"       "menu menuitem:hover accelerator"
+regle "le survol du raccourci dans le panneau"     "#panel_window menuitem:hover accelerator"
+#  Yaru-dark écrit « menu menuitem:hover » (0,1,2). Nos formes courtes
+#  (0,1,1) perdaient contre lui sur le popup orphelin : il faut la forme
+#  longue pour être à égalité, et gagner par l'ordre de lecture.
+regle "la forme longue qui tient tête à Yaru-dark" "menu menuitem:hover"
+regle "l'indicateur du panneau pendant que son menu est ouvert" \
+      "#panel_window menuitem:selected"
+regle "la barre du panneau au survol"              "#panel_window menubar > menuitem:hover"
+
+# =============================================================================
 titre "L'écran refait : la mascotte au masque, la pluie, le bouton orange"
 # =============================================================================
 BRANDING="$RACINE/branding"
