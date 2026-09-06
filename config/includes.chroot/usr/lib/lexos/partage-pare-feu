@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  lexos — ouvrir et refermer le port du partage dans le pare-feu
+# =============================================================================
+#  ALEX : « on n'est pas capable de partager réellement, même quand je scanne
+#  le code QR ». Le serveur allait bien, le téléphone aussi. Entre les deux,
+#  « lexos secure enable » avait posé « ufw default deny incoming » : tout
+#  port entrant refusé, y compris celui du partage. Le téléphone tapait à une
+#  porte murée et n'obtenait rien — pas même une page d'erreur.
+#
+#  ═══ CE PROGRAMME NE FAIT QUE ÇA, ET C'EST VOULU ═══
+#  Il tourne en root, appelé par pkexec (org.lexos.partage.policy). Plus il
+#  est petit, moins il y a à vérifier. Il n'accepte qu'un numéro de port, il
+#  le valide lui-même, et il ne touche qu'aux règles qui portent notre
+#  commentaire — jamais à celles que l'utilisateur a posées.
+#
+#  ═══ POURQUOI UN MOT DE PASSE, ET PAS UNE RÈGLE QUI DISPENSE ═══
+#  Ouvrir un port entrant est exactement ce qu'un pare-feu existe pour
+#  empêcher. Une règle polkit « YES » sans mot de passe rendrait le pare-feu
+#  ouvrable par n'importe quel programme lancé dans la session, sans que
+#  personne le voie — ce serait retirer le pare-feu en prétendant le garder.
+#  On demande donc le mot de passe, avec « auth_admin_keep » pour ne pas le
+#  redemander à chaque partage de la même séance.
+# =============================================================================
+set -uo pipefail
+
+PROG="${0##*/}"
+#  Le commentaire qui marque NOS règles. ufw le garde et le rend dans
+#  « ufw status », ce qui permet de retrouver exactement les nôtres.
+MARQUE="LexOS partage"
+
+die() { printf '%s : %s\n' "$PROG" "$*" >&2; exit 1; }
+
+#  ═══ LE PORT EST VALIDÉ ICI, PAS CHEZ L'APPELANT ═══
+#  Ce programme tourne en root : il ne fait confiance à personne, pas même à
+#  lexos-share. Un port est une suite de chiffres, entre 1024 et 65535 — en
+#  dessous de 1024 ce sont les services du système, que le partage n'a aucune
+#  raison d'ouvrir.
+valider() {
+	local p="${1:-}"
+	[[ "$p" =~ ^[0-9]+$ ]] || die "port invalide : « ${p} »"
+	(( p >= 1024 && p <= 65535 )) || die "port hors plage (1024-65535) : $p"
+	printf '%s' "$p"
+}
+
+ufw_present() { command -v ufw >/dev/null 2>&1; }
+
+#  « ufw status » dit « Status: active » ou « Status: inactive ». On ne lit
+#  QUE cette ligne : le reste de la sortie change avec la version et la
+#  langue, celle-ci non.
+ufw_actif() {
+	ufw_present || return 1
+	ufw status 2>/dev/null | head -n1 | grep -q 'Status: active'
+}
+
+case "${1:-}" in
+	etat)
+		PORT="$(valider "${2:-}")" || exit 1
+		if ! ufw_present; then printf 'absent\n'; exit 0; fi
+		if ! ufw_actif;   then printf 'inactif\n'; exit 0; fi
+		if ufw status 2>/dev/null | grep -q "^${PORT}/tcp"; then
+			printf 'ouvert\n'
+		else
+			printf 'ferme\n'
+		fi
+		;;
+	ouvrir)
+		PORT="$(valider "${2:-}")" || exit 1
+		ufw_present || die "ufw absent — rien à ouvrir."
+		#  Si le pare-feu dort, il n'y a rien à ouvrir : poser une règle
+		#  l'activerait implicitement chez certaines versions d'ufw, ce qui
+		#  serait allumer un pare-feu que l'utilisateur n'a pas demandé.
+		ufw_actif || { printf 'inactif\n'; exit 0; }
+		ufw allow "${PORT}/tcp" comment "$MARQUE" >/dev/null 2>&1 \
+			|| die "impossible d'ouvrir le port ${PORT}."
+		printf 'ouvert\n'
+		;;
+	fermer)
+		PORT="$(valider "${2:-}")" || exit 1
+		ufw_present || exit 0
+		#  ON NE REFERME QUE CE QU'ON A OUVERT. « ufw delete allow » retire la
+		#  règle qui correspond ; si l'utilisateur avait ouvert ce port
+		#  lui-même AVANT le partage, lexos-share ne nous appelle pas (il a
+		#  demandé l'état d'abord et l'a trouvé « ouvert »).
+		ufw delete allow "${PORT}/tcp" >/dev/null 2>&1 || true
+		printf 'ferme\n'
+		;;
+	*)
+		printf 'Usage : %s etat|ouvrir|fermer <port>\n' "$PROG" >&2
+		exit 1
+		;;
+esac

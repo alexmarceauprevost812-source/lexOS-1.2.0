@@ -14,7 +14,76 @@
 set -uo pipefail
 
 PROG="${0##*/}"
-SERVER="/usr/lib/lexos/share-server.py"
+#  Le chemin est ouvrable de l'extérieur pour que le banc d'essai puisse
+#  jouer un partage complet depuis l'arbre du dépôt, sans rien installer.
+#  En usage normal la valeur par défaut s'applique et personne n'a à
+#  connaître cette variable — même couture que LEXOS_TMUX_CONF.
+SERVER="${LEXOS_SHARE_SERVER:-/usr/lib/lexos/share-server.py}"
+#  L'ouvre-porte du pare-feu. Il tourne en root par pkexec ; le chemin est
+#  ouvrable de l'extérieur pour que le banc puisse lui substituer un faux et
+#  vérifier ce qui lui est RÉELLEMENT demandé, sans toucher au pare-feu de la
+#  machine qui fait tourner le banc.
+PARE_FEU="${LEXOS_PARTAGE_PARE_FEU:-/usr/lib/lexos/partage-pare-feu}"
+#  Le port qu'on a ouvert soi-même, et qu'on refermera en partant. Vide tant
+#  qu'on n'a rien ouvert : la fermeture n'est jamais déclenchée à tort.
+PORT_OUVERT_PAR_NOUS=""
+
+#  ═══ REFERMER, MÊME QUAND ÇA SE PASSE MAL ═══
+#  Un port laissé ouvert après un partage est pire que le partage lui-même :
+#  personne ne le voit, et il survit au redémarrage puisque ufw enregistre
+#  ses règles. Le piège EXIT couvre les trois sorties — la fin normale, le
+#  Ctrl+C, et le « die » d'une erreur en chemin.
+#  ═══ UN SEUL PIÈGE, ET TROIS CHOSES À DÉFAIRE ═══
+#  ATTENTION EN TOUCHANT À CECI : « trap … EXIT » REMPLACE le piège précédent,
+#  il ne s'y ajoute pas. cmd_qr posait déjà le sien (« rm -rf $stage ») ; un
+#  second trap EXIT écrit plus haut aurait été effacé en silence au moment
+#  même où le partage démarre — et le port serait resté ouvert précisément
+#  dans le seul cas qui compte. On garde donc UN seul piège, ici, et cmd_qr
+#  lui confie ce qu'il a à défaire au lieu d'en poser un deuxième.
+STAGE_A_EFFACER=""
+PORT_OUVERT_PAR_NOUS=""
+SERVEUR_PID=""
+
+#  L'ORDRE COMPTE : on cesse d'abord de servir, on referme ensuite. L'inverse
+#  laisserait une fenêtre — courte, mais réelle — où le port est déjà fermé
+#  pendant qu'un transfert en cours se fait couper au milieu.
+tout_fermer() {
+	#  LE SERVEUR SURVIVAIT AU Ctrl+C, ET ÇA NE SE VOYAIT NULLE PART. Mesuré en
+	#  jouant l'arrêt de bout en bout : sans fenêtre — en console, par SSH — la
+	#  commande finissait sur un simple « wait "$pid" », et un Ctrl+C rendait la
+	#  main sans rien arrêter. Le partage continuait de servir des fichiers sur
+	#  le réseau pendant que l'écran disait « Partage fermé ». La branche AVEC
+	#  fenêtre, elle, tuait bien le serveur : le défaut ne vivait que là où
+	#  personne ne regarde. Il est pire depuis qu'on ouvre un port — on
+	#  refermait la porte en laissant le serveur derrière.
+	if [[ -n "$SERVEUR_PID" ]]; then
+		kill "$SERVEUR_PID" 2>/dev/null || true
+		SERVEUR_PID=""
+	fi
+	#  Un port laissé ouvert est pire que le partage lui-même : personne ne le
+	#  voit, et il survit au redémarrage puisque ufw enregistre ses règles.
+	if [[ -n "$PORT_OUVERT_PAR_NOUS" ]]; then
+		pkexec "$PARE_FEU" fermer "$PORT_OUVERT_PAR_NOUS" >/dev/null 2>&1 || true
+		PORT_OUVERT_PAR_NOUS=""
+	fi
+	if [[ -n "$STAGE_A_EFFACER" ]]; then
+		rm -rf "$STAGE_A_EFFACER"
+		STAGE_A_EFFACER=""
+	fi
+}
+#  ═══ ET LE PIÈGE DOIT SORTIR, SINON IL AVALE LE Ctrl+C ═══
+#  Écrit d'abord « trap tout_fermer EXIT INT TERM ». Mesuré aussitôt après :
+#  la commande ne s'arrêtait PLUS du tout. Un gestionnaire de signal en bash
+#  s'exécute et REND LA MAIN — il ne termine pas le programme. Avant ce
+#  correctif il n'y avait aucun piège sur INT, et Ctrl+C tuait le processus
+#  net ; en posant le piège on avait remplacé « ça s'arrête » par « ça fait le
+#  ménage et ça continue ». On nettoie donc, PUIS on sort, avec les codes
+#  d'usage (130 = interrompu, 143 = terminé). tout_fermer() vide ses variables
+#  en passant : le piège EXIT, déclenché ensuite par ce « exit », ne refait
+#  rien deux fois.
+trap tout_fermer EXIT
+trap 'tout_fermer; exit 130' INT
+trap 'tout_fermer; exit 143' TERM
 #  LA FENÊTRE DU PARTAGE. Elle n'est PAS le serveur : share-server.py écoute
 #  sur le réseau pour que le téléphone l'atteigne, partage.py ne fait
 #  qu'AFFICHER l'adresse déjà servie. Un seul chemin démarre un serveur, un
@@ -54,8 +123,9 @@ cmd_qr() {
 
 	local stage
 	stage="$(mktemp -d -t lexos-share-XXXXXX)" || die "Dossier temporaire impossible."
-	# shellcheck disable=SC2064
-	trap "rm -rf '$stage'" EXIT
+	#  On CONFIE le dossier au piège commun au lieu d'en poser un deuxième :
+	#  « trap … EXIT » remplace, il n'ajoute pas. Voir tout_fermer(), plus haut.
+	STAGE_A_EFFACER="$stage"
 
 	local n=0 f
 	for f in "$@"; do
@@ -78,6 +148,9 @@ cmd_qr() {
 	python3 "$SERVER" --dir "$stage" --recv "$RECV_DIR" --minutes "$MINUTES" \
 		> >(tee "$out") 2>/dev/null &
 	local pid=$!
+	#  Le piège commun a besoin de ce numéro : c'est lui qui arrête le serveur
+	#  quand la commande finit autrement que par sa fin normale.
+	SERVEUR_PID="$pid"
 
 	# La première ligne écrite par le serveur est l'URL.
 	local tries=0
@@ -88,6 +161,45 @@ cmd_qr() {
 	if [[ -z "$url" ]]; then
 		kill "$pid" 2>/dev/null
 		die "Le serveur de partage n'a pas démarré."
+	fi
+
+	# =========================================================================
+	#  LE PARE-FEU — LA CAUSE LA PLUS PROBABLE, ET ON LA TRAITE
+	# =========================================================================
+	#  ALEX : « on n'est pas capable de partager réellement, même quand je
+	#  scanne le code QR ». Le serveur répondait, le QR était juste. Entre les
+	#  deux, « lexos secure enable » avait posé « ufw default deny incoming ».
+	#
+	#  On demande l'état AVANT d'ouvrir, pour deux raisons : ne pas réclamer un
+	#  mot de passe quand il n'y a pas de pare-feu (le cas courant), et ne pas
+	#  REFERMER en partant un port que l'utilisateur avait ouvert lui-même.
+	PORT="${url##*:}"; PORT="${PORT%%/*}"
+	PARE_FEU_ETAT="inconnu"
+	if [[ "$PORT" =~ ^[0-9]+$ ]] && [[ -x "$PARE_FEU" ]]; then
+		#  L'état se lit SANS élévation quand on peut : « ufw status » exige
+		#  root, donc on passe par pkexec — mais seulement si un agent existe
+		#  pour poser la question. Sans agent, pkexec échoue en silence et le
+		#  partage doit continuer quand même : un pare-feu qu'on n'a pas pu
+		#  interroger ne doit pas empêcher de partager sur un réseau où il
+		#  n'est peut-être même pas actif.
+		if command -v ufw >/dev/null 2>&1; then
+			PARE_FEU_ETAT="$(pkexec "$PARE_FEU" etat "$PORT" 2>/dev/null || printf 'inconnu')"
+		else
+			PARE_FEU_ETAT="absent"
+		fi
+	fi
+	if [[ "$PARE_FEU_ETAT" == "ferme" ]]; then
+		say "Pare-feu actif : ouverture du port ${PORT} pour la durée du partage…"
+		if [[ "$(pkexec "$PARE_FEU" ouvrir "$PORT" 2>/dev/null)" == "ouvert" ]]; then
+			#  ON NOTE QU'ON L'A OUVERT : c'est cette variable, et elle seule,
+			#  qui autorise la fermeture en partant. Sans elle, un partage
+			#  refermerait un port que quelqu'un d'autre avait ouvert.
+			PORT_OUVERT_PAR_NOUS="$PORT"
+			ok "Port ${PORT} ouvert."
+		else
+			warn "Le port n'a pas pu être ouvert : le téléphone n'atteindra peut-être pas la page."
+			warn "À la main : sudo ufw allow ${PORT}/tcp"
+		fi
 	fi
 
 	# =========================================================================

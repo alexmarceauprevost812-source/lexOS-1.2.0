@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  ═══ POURQUOI CE FICHIER EXISTE ═══
+  Le partage sert une page sur le réseau local. « lexos secure enable » pose
+  « ufw default deny incoming » : le téléphone tape alors à une porte murée.
+  Ouvrir le port demande root ; on passe par pkexec, comme LexOS Boost et
+  lexos-perf, plutôt que par un « sudo » qui n'a pas de terminal où demander
+  son mot de passe depuis une fenêtre.
+
+  ═══ POURQUOI ON DEMANDE LE MOT DE PASSE ═══
+  Ouvrir un port entrant est exactement ce qu'un pare-feu existe pour
+  empêcher. Une règle qui l'accorderait sans mot de passe le rendrait
+  ouvrable par n'importe quel programme de la session, sans que personne le
+  voie. « auth_admin_keep » est le compromis : on demande, mais une seule
+  fois par séance — sinon partager trois fichiers de suite deviendrait une
+  corvée, et une corvée finit par faire désactiver le pare-feu pour de bon.
+-->
+<policyconfig>
+  <vendor>LexOS</vendor>
+  <vendor_url>https://github.com/alexmarceauprevost812-source/lexOS-2.0</vendor_url>
+
+  <action id="org.lexos.partage.pare-feu">
+    <description>Ouvrir le port du partage LexOS dans le pare-feu</description>
+    <description xml:lang="en">Open the LexOS sharing port in the firewall</description>
+    <message>LexOS doit ouvrir un port dans le pare-feu pour que le téléphone puisse atteindre le partage. Le port est refermé dès que le partage s'arrête.</message>
+    <message xml:lang="en">LexOS needs to open a firewall port so your phone can reach the share. The port is closed again as soon as sharing stops.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/lexos/partage-pare-feu</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

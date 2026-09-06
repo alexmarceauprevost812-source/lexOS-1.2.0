@@ -387,5 +387,233 @@ else
 	non "act_partage est définie après ACTIONS : le module ne s'importerait pas"
 fi
 
+# =============================================================================
+titre "7. LE PORT FIXE, ET LE PARE-FEU QUI MURAIT LE PARTAGE"
+# =============================================================================
+#  ALEX : « on n'est pas capable de partager réellement, même quand je scanne
+#  le code QR ». Le serveur répondait, le QR était juste, le jeton aussi.
+#  Entre les deux : « lexos secure enable » pose « ufw default deny incoming »,
+#  et le partage tirait un port AU HASARD — 45407 sur sa photo. Le téléphone
+#  tapait à une porte murée, et aucune règle posée à la main n'aurait pu
+#  suivre un port qui change à chaque fois.
+SERVEUR="$RACINE/config/includes.chroot/usr/lib/lexos/share-server.py"
+PARE_FEU="$RACINE/config/includes.chroot/usr/lib/lexos/partage-pare-feu"
+
+if [ ! -r "$SERVEUR" ] || [ ! -x "$PARE_FEU" ]; then
+	non "share-server.py ou partage-pare-feu manquant"
+else
+	#  ═══ ON JOUE LE SERVEUR, ON NE RELIT PAS SA CONSTANTE ═══
+	#  Lire « PORT_PARTAGE = 45407 » ne prouve pas que le défaut d'argparse
+	#  s'en sert : c'est exactement le genre de lien qu'on croit fait et qui
+	#  ne l'est pas. On démarre le serveur et on lit l'adresse qu'il imprime.
+	mkdir -p "$BANC/pt/partage"
+	printf 'coucou\n' > "$BANC/pt/partage/essai.txt"
+	: > "$BANC/pt/url"
+	python3 "$SERVEUR" --dir "$BANC/pt/partage" --minutes 1 > "$BANC/pt/url" 2>/dev/null &
+	PID_S=$!
+	T=0
+	while [ ! -s "$BANC/pt/url" ] && [ "$T" -lt 40 ]; do sleep 0.1; T=$((T+1)); done
+	URL_S="$(head -n1 "$BANC/pt/url" 2>/dev/null || true)"
+	PORT_S="${URL_S##*:}"; PORT_S="${PORT_S%%/*}"
+	if [ "$PORT_S" = "45407" ]; then
+		ok "le partage démarre sur le port fixe 45407 (adresse : $URL_S)"
+	else
+		non "le partage écoute sur « ${PORT_S:-rien} » — le pare-feu ne peut pas le suivre"
+	fi
+	#  Un second partage ne doit pas échouer : il prend le repli.
+	: > "$BANC/pt/url2"
+	python3 "$SERVEUR" --dir "$BANC/pt/partage" --minutes 1 > "$BANC/pt/url2" 2>/dev/null &
+	PID_S2=$!
+	T=0
+	while [ ! -s "$BANC/pt/url2" ] && [ "$T" -lt 40 ]; do sleep 0.1; T=$((T+1)); done
+	URL_S2="$(head -n1 "$BANC/pt/url2" 2>/dev/null || true)"
+	PORT_S2="${URL_S2##*:}"; PORT_S2="${PORT_S2%%/*}"
+	if [ -n "$PORT_S2" ] && [ "$PORT_S2" != "$PORT_S" ]; then
+		ok "un second partage prend le repli ($PORT_S2) au lieu d'échouer"
+	else
+		non "un second partage ne démarre pas (port : « ${PORT_S2:-rien} »)"
+	fi
+	kill "$PID_S" "$PID_S2" 2>/dev/null || true
+	wait "$PID_S" "$PID_S2" 2>/dev/null || true
+
+	# -------------------------------------------------------------------------
+	#  L'OUVRE-PORTE, AVEC UN FAUX ufw. On ne touche PAS au pare-feu de la
+	#  machine qui fait tourner ce banc — ce serait exactement le genre de banc
+	#  qui casse la machine de celui qui l'exécute.
+	mkdir -p "$BANC/pf"
+	cat > "$BANC/pf/ufw" <<'SHUFW'
+#!/bin/sh
+printf '%s\n' "$*" >> "$UFW_TRACE"
+case "$1" in
+	status) printf 'Status: %s\n' "${UFW_ETAT:-active}"
+	        [ -n "${UFW_REGLES:-}" ] && printf '%s\n' "$UFW_REGLES"
+	        exit 0 ;;
+	allow|delete) exit 0 ;;
+esac
+exit 0
+SHUFW
+	chmod +x "$BANC/pf/ufw"
+	export UFW_TRACE="$BANC/pf/trace"
+
+	pf() { : > "$UFW_TRACE"; PATH="$BANC/pf:$PATH" bash "$PARE_FEU" "$@" 2>&1; }
+
+	#  L'état, dans ses quatre réponses.
+	V="$(UFW_ETAT=active pf etat 45407)"
+	[ "$V" = "ferme" ] && ok "pare-feu actif, port absent des règles → « ferme »" \
+	                   || non "état attendu « ferme », obtenu « $V »"
+	V="$(UFW_ETAT=active UFW_REGLES='45407/tcp                  ALLOW       Anywhere' pf etat 45407)"
+	[ "$V" = "ouvert" ] && ok "le port déjà autorisé est vu « ouvert »" \
+	                    || non "état attendu « ouvert », obtenu « $V »"
+	V="$(UFW_ETAT=inactive pf etat 45407)"
+	[ "$V" = "inactif" ] && ok "pare-feu éteint → « inactif », rien à ouvrir" \
+	                     || non "état attendu « inactif », obtenu « $V »"
+
+	#  L'OUVERTURE : ce qui est RÉELLEMENT demandé à ufw.
+	UFW_ETAT=active pf ouvrir 45407 >/dev/null
+	if grep -q '^allow 45407/tcp' "$UFW_TRACE"; then
+		ok "« ouvrir » demande bien « ufw allow 45407/tcp »"
+	else
+		non "« ouvrir » n'a pas demandé la bonne règle :"
+		sed 's/^/      /' "$UFW_TRACE" >&2
+	fi
+	if grep -q 'comment LexOS partage' "$UFW_TRACE"; then
+		ok "la règle porte notre marque — on saura la reconnaître"
+	else
+		non "la règle n'est pas marquée : impossible de distinguer la nôtre"
+	fi
+
+	#  LA FERMETURE, et c'est la moitié qu'on oublie. Un port laissé ouvert
+	#  survit au redémarrage : ufw enregistre ses règles.
+	UFW_ETAT=active pf fermer 45407 >/dev/null
+	if grep -q '^delete allow 45407/tcp' "$UFW_TRACE"; then
+		ok "« fermer » demande bien « ufw delete allow 45407/tcp »"
+	else
+		non "« fermer » ne retire pas la règle :"
+		sed 's/^/      /' "$UFW_TRACE" >&2
+	fi
+
+	#  ═══ LE PORT EST VALIDÉ DANS L'OUTIL QUI TOURNE EN ROOT ═══
+	#  Pas chez l'appelant : ce programme ne fait confiance à personne.
+	for MAUVAIS in "80" "0" "abc" "45407; rm -rf /" "-1" ""; do
+		if UFW_ETAT=active pf ouvrir "$MAUVAIS" >/dev/null 2>&1; then
+			non "« $MAUVAIS » a été accepté comme numéro de port"
+		else
+			ok "« ${MAUVAIS:-（vide）} » est refusé"
+		fi
+	done
+fi
+
+# =============================================================================
+titre "8. lexos-share OUVRE puis REFERME — joué de bout en bout"
+# =============================================================================
+#  Le piège est ce qui garantit qu'un Ctrl+C, une erreur ou la fermeture de la
+#  fenêtre ne laissent derrière ni port ouvert ni serveur en train de servir.
+#  On le JOUE : faux pkexec, faux ouvre-porte qui note ce qu'on lui demande,
+#  pas de bureau graphique (donc pas de fenêtre), et on interrompt au bout de
+#  quelques secondes comme le ferait un Ctrl+C.
+#
+#  ═══ EN AVANT-PLAN, ET C'EST OBLIGATOIRE ═══
+#  Une commande lancée avec « & » depuis un shell NON INTERACTIF hérite SIGINT
+#  et SIGQUIT **ignorés** — mesuré : /proc/PID/status donne alors
+#  « SigIgn: 0000000000000006 », les bits 2 et 3. Et un signal ignoré à
+#  l'entrée ne peut PAS être piégé : le « trap … INT » du programme devient un
+#  no-op silencieux. Une première version de ce banc lançait donc le partage
+#  en arrière-plan et concluait que le Ctrl+C ne refermait rien — sur un
+#  programme qui, en avant-plan, refermait tout. « timeout -s » garde la
+#  commande en avant-plan et lui envoie le vrai signal.
+E2E="$BANC/e2e"
+mkdir -p "$E2E/bin" "$E2E/donne"
+cat > "$E2E/bin/pkexec" <<'SHPK'
+#!/bin/sh
+#  Pas d'élévation dans un banc : on exécute tel quel, sous l'utilisateur.
+exec "$@"
+SHPK
+cat > "$E2E/faux-pare-feu" <<'SHPF'
+#!/bin/sh
+printf '%s %s\n' "$1" "$2" >> "$PF_TRACE"
+case "$1" in
+	etat)   printf 'ferme\n' ;;
+	ouvrir) printf 'ouvert\n' ;;
+	fermer) printf 'ferme\n' ;;
+esac
+SHPF
+cat > "$E2E/bin/ufw" <<'SHU'
+#!/bin/sh
+[ "$1" = status ] && printf 'Status: active\n'
+exit 0
+SHU
+printf '#!/bin/sh\nexit 0\n' > "$E2E/bin/qrencode"
+chmod +x "$E2E/bin"/* "$E2E/faux-pare-feu"
+printf 'salut\n' > "$E2E/donne/a.txt"
+export PF_TRACE="$E2E/trace"
+
+#  Le motif qui désigne LE SERVEUR et rien d'autre. « pgrep -f share-server »
+#  attraperait la ligne de commande de ce banc lui-même — c'est exactement le
+#  défaut que la section 2 de ce fichier surveille, et il s'applique ici aussi.
+MOTIF_SRV='python3 .*share-server[.]py --dir'
+
+joue_arret() { # joue_arret <signal>
+	: > "$PF_TRACE"
+	(
+		unset DISPLAY WAYLAND_DISPLAY
+		export LEXOS_PARTAGE_PARE_FEU="$E2E/faux-pare-feu"
+		export LEXOS_SHARE_SERVER="$RACINE/config/includes.chroot/usr/lib/lexos/share-server.py"
+		export PATH="$E2E/bin:$RACINE/config/includes.chroot/usr/bin:$PATH"
+		export HOME="$E2E"
+		timeout -s "$1" 4 bash "$OUTIL" qr "$E2E/donne/a.txt" >/dev/null 2>&1
+	) || true
+	sleep 1
+}
+
+if ! command -v timeout >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+	saute "timeout ou python3 absents : l'arrêt du partage n'a PAS été joué"
+else
+	for SIG in INT TERM; do
+		joue_arret "$SIG"
+		TRACE="$(tr '\n' ' ' < "$PF_TRACE" 2>/dev/null || true)"
+		if grep -q '^etat ' "$PF_TRACE" 2>/dev/null; then
+			ok "$SIG : l'état du pare-feu est demandé avant d'ouvrir quoi que ce soit"
+		else
+			non "$SIG : le pare-feu n'est pas interrogé"
+		fi
+		if grep -q '^ouvrir ' "$PF_TRACE" 2>/dev/null; then
+			ok "$SIG : le port est ouvert quand le pare-feu le bloque"
+		else
+			non "$SIG : le port n'est pas ouvert — le téléphone reste devant une porte murée"
+		fi
+		if grep -q '^fermer ' "$PF_TRACE" 2>/dev/null; then
+			ok "$SIG : et il est REFERMÉ en partant"
+		else
+			non "$SIG : le port reste ouvert (trace : ${TRACE:-vide}) — il survivrait au redémarrage"
+		fi
+		PO="$(awk '/^ouvrir /{print $2; exit}' "$PF_TRACE" 2>/dev/null || true)"
+		PC="$(awk '/^fermer /{print $2; exit}' "$PF_TRACE" 2>/dev/null || true)"
+		if [ -n "$PO" ] && [ "$PO" = "$PC" ]; then
+			ok "$SIG : le port refermé ($PC) est bien celui qui avait été ouvert"
+		else
+			non "$SIG : ouvert « ${PO:-rien} », refermé « ${PC:-rien} »"
+		fi
+		#  ═══ ET LE SERVEUR, QUI SURVIVAIT ═══
+		#  Sans fenêtre, la commande finissait sur « wait "$pid" » et un signal
+		#  rendait la main sans rien arrêter : le partage continuait de servir
+		#  des fichiers pendant que l'écran disait « Partage fermé ».
+		RESTE="$(pgrep -cf "$MOTIF_SRV" 2>/dev/null || true)"
+		if [ "${RESTE:-0}" -eq 0 ]; then
+			ok "$SIG : plus aucun serveur de partage ne tourne"
+		else
+			non "$SIG : $RESTE serveur(s) continuent de servir le réseau"
+			pkill -f "$MOTIF_SRV" 2>/dev/null || true
+		fi
+		#  Le dossier temporaire part avec le reste — même piège, même sortie.
+		NTMP="$(find /tmp -maxdepth 1 -name 'lexos-share-*' -type d 2>/dev/null | wc -l)"
+		if [ "$NTMP" -eq 0 ]; then
+			ok "$SIG : le dossier temporaire des fichiers partagés est effacé"
+		else
+			non "$SIG : $NTMP dossier(s) temporaire(s) laissés dans /tmp"
+			find /tmp -maxdepth 1 -name 'lexos-share-*' -type d -exec rm -rf {} + 2>/dev/null
+		fi
+	done
+fi
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]

@@ -412,11 +412,52 @@ def local_ip():
     return "127.0.0.1"
 
 
+#  Le port du partage, et ses replis. 45407 est celui qu'Alex avait sur sa
+#  photo : il n'a rien de spécial, sinon d'être déjà passé par là et de ne
+#  correspondre à aucun service connu. Les deux suivants servent quand la
+#  machine partage déjà (deux fenêtres ouvertes en même temps), et le 0 final
+#  est le vieux comportement — on préfère un partage qui démarre sur un port
+#  imprévisible à un partage qui refuse de démarrer.
+PORT_PARTAGE = 45407
+PORTS_REPLI = (45408, 45409, 0)
+
+
+def ouvrir_serveur(port):
+    """Ouvre le serveur sur `port`, ou sur le premier repli disponible.
+
+    On n'essaie PAS de deviner si le port est libre avant de s'en servir :
+    entre le test et l'ouverture, un autre programme peut le prendre. On
+    tente, et on regarde ce que le noyau répond."""
+    for essai in (port,) + PORTS_REPLI:
+        try:
+            return Server(("0.0.0.0", essai), Handler)
+        except OSError as e:
+            #  EADDRINUSE seulement : une adresse refusée pour une autre
+            #  raison (droits, pile réseau absente) ne se répare pas en
+            #  changeant de port, et l'essayer trois fois masquerait la
+            #  vraie cause derrière le dernier message.
+            if e.errno not in (98, 48):      # Linux, BSD
+                raise
+    raise OSError("aucun port disponible pour le partage")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True)
     ap.add_argument("--recv", default=None)
-    ap.add_argument("--port", type=int, default=0)
+    #  ═══ UN PORT FIXE, ET C'EST CE QUI DÉBLOQUE LE PARTAGE ═══
+    #  ALEX : « on n'est pas capable de partager réellement, même quand je
+    #  scanne le code QR ». Le port était tiré au hasard (« --port 0 »,
+    #  45407 sur sa photo) — et « lexos secure enable » pose
+    #  « ufw default deny incoming ». Le téléphone tapait donc à une porte
+    #  murée, et aucune règle de pare-feu posée à la main n'aurait pu suivre
+    #  un port qui change à chaque partage.
+    #
+    #  LA SÉCURITÉ NE VIENT PAS DU PORT, ELLE VIENT DU JETON. C'est déjà écrit
+    #  plus haut, à l'endroit où le jeton est tiré : treize caractères
+    #  d'os.urandom dans l'adresse. Un port fixe ne donne rien à personne —
+    #  sans le jeton, le serveur rend 404 sur tout.
+    ap.add_argument("--port", type=int, default=PORT_PARTAGE)
     ap.add_argument("--minutes", type=int, default=15)
     args = ap.parse_args()
 
@@ -427,7 +468,7 @@ def main():
     # pendant les quinze minutes où le partage vit.
     Handler.token = secrets.token_urlsafe(10)
 
-    httpd = Server(("0.0.0.0", args.port), Handler)
+    httpd = ouvrir_serveur(args.port)
     port = httpd.server_address[1]
     url = f"http://{local_ip()}:{port}/{Handler.token}/"
 
