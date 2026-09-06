@@ -777,17 +777,6 @@ async function basculeCoin(){
 /*  Le geste « C + appui long ». On rafraîchit dans les deux cas : l'échec le
     plus probable est « python3-xlib manquant », et il doit se voir sur
     l'interrupteur, pas seulement dans un message qui s'efface. */
-/*  ═══ LA VIDÉO D'OUVERTURE DE SESSION ═══
-    Trois choix et un interrupteur. On rafraîchit toujours : ce qui doit se
-    voir, c'est le bouton retenu — pas un message qui s'efface. */
-async function setIntro(quoi){
-  const r = await api("intro", quoi);
-  await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "réglage refusé"));
-}
-async function basculeIntroSon(){
-  const r = await api("intro", "son");
-  await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "réglage refusé"));
-}
 async function basculeGesteAutocollant(){
   const r = await api("geste-autocollant", "toggle");
   await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "commande refusée"));
@@ -1673,32 +1662,6 @@ function contenu(cle){
           <button class="btn ${c("keyart")}" onclick="setFond('keyart')">Explorateur</button>
           <button class="btn ${c("nomad")}" onclick="setFond('nomad')">Nomad</button>`; })()}
         </div>
-        ${(() => {
-          /*  ═══ LA VIDÉO D'OUVERTURE — ALEX : « UNE FOIS CONNECTÉ ET ÇA
-                   ÊTRE VALIDÉ, AVANT ARRIVER AU BUREAU » ═══
-              Elle joue PENDANT que le bureau se charge : les secondes sont
-              partagées avec le chargement, pas ajoutées. « Courte » (3,5 s)
-              est le défaut ; « complète » dure 10 s.
-              LE SON EST À PART, ET COUPÉ AU DÉPART. Un son à chaque
-              ouverture de session est une décision de vie, pas un détail —
-              l'option existe, elle ne s'allume pas toute seule. */
-          const I = etat.intro || {};
-          const c = k => I.choix === k ? "sel" : "ghost";
-          const manque = !I.mpv ? `<p class="d">mpv n'est pas installé — la vidéo ne
-            jouera pas. <code>sudo apt install mpv</code> pour la retrouver.</p>`
-            : (!I.fichiers ? `<p class="d">Les vidéos ne sont pas sur cette machine.</p>` : "");
-          return `<h3 style="margin-top:18px">Vidéo d'ouverture de session</h3>
-        <p class="d">Après le mot de passe, pendant que le bureau se charge.
-        Une touche ou un clic l'arrête.</p>
-        <div class="row">
-          <button class="btn ${c("courte")}" onclick="setIntro('courte')">Courte (3,5 s)</button>
-          <button class="btn ${c("complete")}" onclick="setIntro('complete')">Complète (10 s)</button>
-          <button class="btn ${c("aucune")}" onclick="setIntro('aucune')">Aucune</button>
-        </div>
-        ${manque}
-        ${srow("Son de la vidéo",
-               "Coupé au départ — pense à la salle d'attente.",
-               sw(!!I.son, "basculeIntroSon()"))}`; })()}
         <h3 style="margin-top:18px">Étiquettes des dossiers</h3>
         <p class="d">Les dossiers standards portent déjà leurs trois lettres
         (DOC, IMG, MUS…). Pour ceux que tu crées ou renommes, cette commande
