@@ -1195,8 +1195,19 @@ function contenu(cle){
         ? `<p class="notice">Aucune carte Wi-Fi détectée sur cette machine.</p>`
         : srow("Wi-Fi", allume ? "Carte radio allumée" : "Carte radio éteinte",
                sw(allume, "basculeWifi()"))}
+      ${/*  ═══ LE RÉSEAU CONNECTÉ NE S'ÉCRIT PLUS QU'UNE FOIS ═══
+             ALEX : « j'aimerais que ce ne soit pas visible en bas, qu'on le
+             voie juste une fois en haut, une fois connecté. » BELL507
+             apparaissait à DEUX endroits de la même page : cette rangée-ci,
+             et la première ligne de « Réseaux à portée », avec son badge vert
+             et son bouton « Déconnecter ».
+
+             On le sort donc de la liste (le filtre est plus bas) et on
+             REMONTE « Déconnecter » ici — sinon on perdrait le seul moyen de
+             se déconnecter depuis la page. coupeWifi() ne bouge pas. */""}
       ${allume && w.reseau
-        ? srow("Réseau connecté", `${esc(w.reseau)} — signal ${w.signal} %`, barres(w.signal))
+        ? srow("Réseau connecté", `${esc(w.reseau)} — signal ${w.signal} %`,
+               `${barres(w.signal)}<button class="btn ghost" onclick="coupeWifi()">Déconnecter</button>`)
         : (allume ? srow("Réseau connecté", "Aucun — choisis-en un ci-dessous") : "")}
 
       ${/*  LES OUTILS QUI MANQUAIENT.
@@ -1229,26 +1240,35 @@ function contenu(cle){
             n'y a JAMAIS de réseau — et sans réseau, ni météo, ni catalogue,
             ni mises à jour. C'est le premier geste qu'on fait sur une
             machine neuve, et c'était le seul qu'on ne pouvait pas faire ici. */
-        const rs = w.reseaux || [];
-        if(!rs.length) return `<h3 class="cpt-h3">Réseaux à portée</h3>
-          <p class="notice">Aucun réseau trouvé pour l'instant.
+        /*  ON FILTRE LE RÉSEAU ACTIF : il est déjà nommé en haut de la page.
+            « Réseaux à portée » veut donc dire « les AUTRES » — et le titre
+            le dit maintenant, sinon on lirait une liste qui a l'air
+            incomplète. */
+        const rs = (w.reseaux || []).filter(r => !r.actif);
+        /*  Une seule borne à portée, celle où l'on est : la liste serait
+            VIDE. On ne montre pas un titre suivi de rien — on écrit ce que
+            ça veut dire, et on garde le bouton pour chercher encore. */
+        if(!rs.length) return `<h3 class="cpt-h3">Autres réseaux à portée</h3>
+          <p class="notice">${w.reseau ? "Aucun autre réseau en vue." : "Aucun réseau trouvé pour l'instant."}
             <button class="btn ghost" onclick="chercheWifi()">Chercher encore</button></p>`;
-        return `<h3 class="cpt-h3">Réseaux à portée</h3>
+        return `<h3 class="cpt-h3">Autres réseaux à portée</h3>
         ${rs.map(r => `<div class="srow wifi-l">
           <div style="flex:1;min-width:0">
             <div class="t">${esc(r.ssid)}
               ${r.protege ? `<span class="cadenas" title="${esc(r.securite)}">🔒</span>`
                           : `<span class="cadenas ouvert" title="Réseau ouvert — tout le monde peut lire ce qui y passe">⚠</span>`}
             </div>
-            <div class="d">${r.actif ? "Connecté" : (r.protege ? esc(r.securite) : "Ouvert, sans mot de passe")} — signal ${r.signal} %</div>
+            <div class="d">${r.protege ? esc(r.securite) : "Ouvert, sans mot de passe"} — signal ${r.signal} %</div>
           </div>
           ${barres(r.signal)}
-          ${r.actif
-            ? `<span class="etat ok">connecté</span>
-               <button class="btn ghost" onclick="coupeWifi()">Déconnecter</button>`
-            : `<button class="btn ghost" onclick="choisitWifi('${jsq(r.ssid)}')">Se connecter</button>`}
+          ${/*  Plus de branche « r.actif » ici : le filtre au-dessus l'a rendue
+                inatteignable. On la retire au lieu de la laisser en place —
+                du code mort qui a l'air vivant est exactement ce qui avait
+                produit le doublon de setDock(), et un contrôle de CI le
+                surveille depuis. */""}
+          <button class="btn ghost" onclick="choisitWifi('${jsq(r.ssid)}')">Se connecter</button>
         </div>
-        ${wifiChoisi === r.ssid && !r.actif ? `<div class="srow" style="display:block">
+        ${wifiChoisi === r.ssid ? `<div class="srow" style="display:block">
           ${r.protege
             ? `<div class="t" style="margin-bottom:8px">Mot de passe de « ${esc(r.ssid)} »</div>
                <div class="row" style="align-items:center">

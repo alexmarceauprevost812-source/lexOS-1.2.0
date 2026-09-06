@@ -146,9 +146,18 @@ T.pose({ wifi: {radio:"enabled", reseau:"BELL507", signal:100, internet:"full",
                 reseaux:[{ssid:"BELL507", signal:100, protege:true,
                           securite:"WPA2", actif:true}]} });
 page = T.contenu("wifi");
-if (/BELL507/.test(page) && /Réseaux à portée/.test(page))
+//  UNE SEULE BORNE À PORTÉE, ET C'EST CELLE OÙ L'ON EST. La liste des AUTRES
+//  est donc vide — et on ne montre pas un titre suivi de rien : on écrit ce
+//  que ça veut dire, et on garde le bouton pour chercher encore.
+if (/BELL507/.test(page) && /Autres réseaux à portée/.test(page))
   ok("ce que l'ISO avait en plus (la vraie liste des réseaux) n'a pas été perdu");
 else non("la liste des réseaux a disparu en ajoutant les outils");
+if (/Aucun autre réseau en vue/.test(page))
+  ok("…et une liste vide dit pourquoi, au lieu de rester blanche");
+else non("liste vide sans explication — on croirait le balayage cassé");
+if (/chercheWifi\(\)/.test(page))
+  ok("…avec le bouton « Chercher encore »");
+else non("plus moyen de relancer un balayage depuis une liste vide");
 
 /* ========================================================================== */
 titre("3. La feuille de style porte bien le masque");
@@ -200,14 +209,25 @@ if (rafFile.length > 0) {
 }
 
 /* ========================================================================== */
-titre("5. « il dit pas déconnecter » — la ligne du réseau actif a son bouton");
+titre("5. Le réseau connecté ne s'écrit QU'UNE FOIS, et son bouton est en haut");
 /* ========================================================================== */
-//  ALEX, photo à l'appui : « quand je suis connecté sur le wi-fi, il dit pas
-//  de déconnecter une fois connecté — là je suis connecté à BELL507 mais il
-//  dit pas déconnecter ». La ligne du réseau actif ne portait qu'une pastille
-//  « connecté » : rien à cliquer. Couper le Wi-Fi demandait le terminal,
-//  alors que le Bluetooth, DANS LA MÊME FENÊTRE, a son bouton « Déconnecter »
-//  depuis toujours (btCoupe). Deux poids, deux mesures dans une seule page.
+//  DEUX DEMANDES D'ALEX, À UN MOIS D'INTERVALLE, SUR LA MÊME LIGNE.
+//
+//  D'ABORD : « quand je suis connecté sur le wi-fi, il dit pas de déconnecter
+//  une fois connecté — là je suis connecté à BELL507 mais il dit pas
+//  déconnecter ». Le bouton a été ajouté sur la ligne du réseau actif, dans
+//  la liste du bas.
+//
+//  PUIS : « j'aimerais que ce ne soit pas visible en bas, qu'on le voie juste
+//  une fois en haut, une fois connecté ». BELL507 s'écrivait alors à DEUX
+//  endroits de la même page — la rangée « Réseau connecté » en haut, et la
+//  première ligne de « Réseaux à portée » en bas, avec son badge et son
+//  bouton.
+//
+//  LES DEUX DEMANDES TIENNENT ENSEMBLE : le réseau actif quitte la liste, et
+//  le bouton REMONTE avec lui. Ce banc exige les deux à la fois — sortir le
+//  réseau sans déménager le bouton retirerait le seul moyen de se déconnecter
+//  depuis la page, et remettrait le bogue d'avant.
 T.pose({ wifi: {radio:"enabled", reseau:"BELL507", signal:100, internet:"full",
                 auto:false,
                 reseaux:[{ssid:"BELL507", signal:100, protege:true,
@@ -216,35 +236,60 @@ T.pose({ wifi: {radio:"enabled", reseau:"BELL507", signal:100, internet:"full",
                           securite:"WPA2", actif:false}]} });
 page = T.contenu("wifi");
 
-if (/coupeWifi\(\)/.test(page))
-  ok("le réseau connecté porte un bouton qui appelle coupeWifi()");
-else non("aucun bouton « Déconnecter » sur le réseau actif — le bogue d'Alex");
+//  ═══ LE CŒUR DE LA DEMANDE : UNE SEULE FOIS ═══
+//  On COMPTE les occurrences du SSID au lieu de chercher sa présence : le
+//  doublon d'Alex serait passé au vert sur un simple test de présence, et
+//  c'est précisément ce doublon qu'on répare.
+const fois = (page.match(/BELL507/g) || []).length;
+if (fois === 1)
+  ok("« BELL507 » n'apparaît qu'une seule fois sur la page");
+else non(`« BELL507 » apparaît ${fois} fois — Alex le veut une seule`);
 
+//  Et il ne reste PAS dans la liste du bas.
+const lignes = page.split(/<div class="srow wifi-l">/).slice(1);
+if (!lignes.some(l => /BELL507/.test(l)))
+  ok("le réseau connecté a quitté la liste des autres réseaux");
+else non("le réseau connecté est encore listé en bas");
+if (lignes.some(l => /dlink-4538/.test(l)))
+  ok("…et les autres réseaux y sont toujours");
+else non("le filtre a emporté les autres réseaux avec lui");
+
+//  ═══ LE BOUTON A SUIVI, IL N'A PAS DISPARU ═══
+if (/coupeWifi\(\)/.test(page))
+  ok("un bouton appelle toujours coupeWifi()");
+else non("plus aucun moyen de se déconnecter depuis la page — le bogue d'avant revient");
 if (/Déconnecter/.test(page))
   ok("…et il est écrit « Déconnecter », en toutes lettres");
 else non("le mot « Déconnecter » n'apparaît nulle part dans la page");
 
-//  LA PASTILLE RESTE : le bouton s'AJOUTE à l'état, il ne le remplace pas.
-//  Sans elle, on ne saurait plus lequel des réseaux est le bon.
-if (/connecté<\/span>/.test(page))
-  ok("la pastille « connecté » n'a pas été remplacée par le bouton");
-else non("la pastille d'état a disparu — on ne voit plus quel réseau est actif");
-
-//  ET SURTOUT : le bouton ne doit exister QUE sur la ligne connectée. Un
-//  « Déconnecter » sur un réseau auquel on n'est pas connecté n'aurait aucun
-//  sens, et couperait le vrai réseau par surprise.
-const lignes = page.split(/<div class="srow wifi-l">/).slice(1);
+//  IL EST EN HAUT, PAS DANS LA LISTE. C'est la moitié de la demande qu'un
+//  contrôle de présence seul laisserait passer.
 const avecCoupe = lignes.filter(l => /coupeWifi\(\)/.test(l)).length;
-if (avecCoupe === 1)
-  ok("exactement UNE ligne porte le bouton (celle du réseau connecté)");
-else non(`${avecCoupe} ligne(s) portent « Déconnecter » — attendu exactement 1`);
+if (avecCoupe === 0)
+  ok("aucune ligne de la liste ne porte « Déconnecter » — il est remonté en haut");
+else non(`${avecCoupe} ligne(s) de la liste portent encore « Déconnecter »`);
 
-//  Le réseau NON connecté garde son « Se connecter », inchangé.
-const inactive = lignes.find(l => /dlink-4538/.test(l)) || "";
-if (/choisitWifi\(/.test(inactive) && !/coupeWifi\(\)/.test(inactive))
-  ok("un réseau à portée garde « Se connecter », sans bouton de déconnexion");
-else non("la ligne d'un réseau non connecté a été abîmée");
+//  ET IL N'Y EN A QU'UN. Deux boutons « Déconnecter » sur la même page, c'est
+//  le doublon sous une autre forme.
+const nbCoupe = (page.match(/coupeWifi\(\)/g) || []).length;
+if (nbCoupe === 1)
+  ok("il n'y a qu'un seul bouton « Déconnecter » sur toute la page");
+else non(`${nbCoupe} boutons « Déconnecter » — attendu exactement 1`);
 
+//  ═══ LE TITRE DIT CE QUE LA LISTE CONTIENT ═══
+//  « Réseaux à portée » au-dessus d'une liste qui EXCLUT le réseau où l'on
+//  est se lirait comme une liste incomplète.
+if (/Autres réseaux à portée/.test(page))
+  ok("le titre annonce « les autres », puisque c'est ce qu'on montre");
+else non("le titre promet tous les réseaux à portée alors qu'il en manque un");
+
+/* ========================================================================== */
+//  ALEX, photo à l'appui : « quand je suis connecté sur le wi-fi, il dit pas
+//  de déconnecter une fois connecté — là je suis connecté à BELL507 mais il
+//  dit pas déconnecter ». La ligne du réseau actif ne portait qu'une pastille
+//  « connecté » : rien à cliquer. Couper le Wi-Fi demandait le terminal,
+//  alors que le Bluetooth, DANS LA MÊME FENÊTRE, a son bouton « Déconnecter »
+//  depuis toujours (btCoupe). Deux poids, deux mesures dans une seule page.
 //  Aucun réseau connecté : personne ne doit proposer de déconnecter.
 T.pose({ wifi: {radio:"enabled", reseau:"", signal:0, internet:"none",
                 auto:false,
