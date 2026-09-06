@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  lexos-intro — la vidéo qui joue à l'ouverture de session
+# =============================================================================
+#  CE QU'ALEX A DEMANDÉ : « ajouter une fois connecté et ça être validé, avant
+#  arriver au bureau ». Sa vidéo, après le mot de passe, avant le bureau.
+#
+#  ═══ POURQUOI CE N'EST PAS UN SCRIPT DE LightDM ═══
+#  Le plus littéral serait un « session-setup-script » de LightDM : il tourne
+#  entre le mot de passe et le bureau, et il BLOQUE. C'est exactement le
+#  problème — il tourne en root, et il AJOUTE dix secondes à chaque
+#  connexion. Ici, la vidéo est lancée par l'autostart de la session : elle
+#  couvre l'écran PENDANT que le bureau se charge derrière. Alex voit la même
+#  chose, mais les dix secondes sont PARTAGÉES avec le chargement au lieu de
+#  s'y ajouter.
+#
+#  ═══ CE PROGRAMME NE DOIT JAMAIS EMPÊCHER D'OUVRIR SA SESSION ═══
+#  C'est sa seule règle absolue. mpv absent, fichier absent, X pas prêt, mpv
+#  figé : dans TOUS les cas il sort proprement, sans rien afficher, et la
+#  session continue. Un écran de veille qui se bloque, on redémarre ; une
+#  session qu'on ne peut pas ouvrir, on ne peut plus rien faire du tout.
+#
+#  ═══ L'ORDRE DE L'AUTOSTART NE SE COMMANDE PAS SOUS XFCE ═══
+#  Lu dans le code de xfce4-session (xfsm-global.c, xfsm_launch_desktop_files_
+#  on_run_hook) : les fichiers sont énumérés par xfce_resource_match(), qui
+#  lit le dossier avec g_dir_read_name() et NE TRIE RIEN — et « X-GNOME-
+#  Autostart-Phase » n'y est même pas lu. Renommer le fichier « 00-… » ne
+#  garantit donc rien du tout. C'est mpv qui garantit le recouvrement, avec
+#  « --ontop » : la vidéo passe au-dessus de ce qui se dessine derrière,
+#  quel que soit l'ordre de démarrage.
+# =============================================================================
+set -uo pipefail
+
+PROG="lexos-intro"
+
+#  Les seams du banc : on déplace, on ne donne aucun droit.
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lexos"
+MARQUE="${LEXOS_INTRO_DIR:-/usr/share/lexos/branding}"
+CMDLINE="${LEXOS_CMDLINE:-/proc/cmdline}"
+PERF_ETAT="${LEXOS_PERF_ETAT:-/etc/lexos/performance}"
+DELAI_MAX="${LEXOS_INTRO_DELAI:-15}"
+
+#  ON DIT CE QU'ON NE FAIT PAS, MAIS DANS LE JOURNAL — PAS À L'ÉCRAN.
+#  Une fenêtre d'erreur à l'ouverture de session serait pire que l'absence
+#  de vidéo : c'est la première chose qu'on verrait de sa machine.
+dire() {
+	printf '%s : %s\n' "$PROG" "$*" >&2
+	command -v logger >/dev/null 2>&1 && logger -t "$PROG" -- "$*" 2>/dev/null
+	return 0
+}
+
+# --- 1. Jamais en session de démonstration ----------------------------------
+#  Même repère que le garde-fou de la démo et que lexos-grub-defaut :
+#  « boot=live » dans la ligne de commande du noyau. Quelqu'un qui essaie
+#  LexOS depuis une clé veut voir le bureau, pas attendre une vidéo.
+if grep -qa 'boot=live' "$CMDLINE" 2>/dev/null; then
+	dire "session live : pas de vidéo d'ouverture"
+	exit 0
+fi
+
+# --- 2. Jamais sous le profil « vif » ---------------------------------------
+#  « vif » est le profil de ceux qui veulent que la machine réponde tout de
+#  suite. Dix secondes de vidéo y seraient une contradiction.
+if [ -r "$PERF_ETAT" ] && [ "$(tr -d '[:space:]' < "$PERF_ETAT" 2>/dev/null)" = "vif" ]; then
+	dire "profil vif : pas de vidéo d'ouverture"
+	exit 0
+fi
+
+# --- 3. Le réglage des Paramètres -------------------------------------------
+#  courte (défaut) · complete · aucune. Une valeur inconnue vaut « courte » :
+#  un fichier abîmé ne doit pas décider à la place de l'utilisateur.
+REGLAGE="courte"
+if [ -r "$CONF_DIR/intro-video" ]; then
+	LU="$(tr -d '[:space:]' < "$CONF_DIR/intro-video" 2>/dev/null)"
+	case "$LU" in
+		courte|complete|aucune) REGLAGE="$LU" ;;
+		*) dire "réglage « $LU » inconnu — on garde « courte »" ;;
+	esac
+fi
+if [ "$REGLAGE" = "aucune" ]; then
+	dire "réglage « aucune » : pas de vidéo d'ouverture"
+	exit 0
+fi
+
+# --- 4. Le son : COUPÉ par défaut, et c'est un choix ------------------------
+#  Un son à chaque ouverture de session est une décision de vie, pas un
+#  détail : le jour où on ouvre son portable dans une salle d'attente, on
+#  s'en souvient. L'option existe, elle est dans les Paramètres, et elle est
+#  éteinte au départ.
+SON="off"
+if [ -r "$CONF_DIR/intro-son" ]; then
+	[ "$(tr -d '[:space:]' < "$CONF_DIR/intro-son" 2>/dev/null)" = "on" ] && SON="on"
+fi
+
+# --- 5. De quoi jouer, et où --------------------------------------------------
+if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+	dire "pas d'écran : pas de vidéo d'ouverture"
+	exit 0
+fi
+if ! command -v mpv >/dev/null 2>&1; then
+	#  mpv vit dans 20-desktop.list, une liste OPTIONNELLE que le hook 0250
+	#  pose en tolérant l'échec : il peut manquer, et ce n'est pas une panne.
+	dire "mpv absent : pas de vidéo d'ouverture (paquet mpv, liste 20-desktop)"
+	exit 0
+fi
+
+case "$REGLAGE" in
+	courte)   FICHIER="$MARQUE/apres-connexion-courte.mp4" ;;
+	complete) FICHIER="$MARQUE/apres-connexion.mp4" ;;
+esac
+if [ ! -r "$FICHIER" ]; then
+	dire "fichier absent : $FICHIER"
+	exit 0
+fi
+
+# --- 6. Les touches qui coupent ----------------------------------------------
+#  UNE TOUCHE OU UN CLIC ARRÊTE, TOUT DE SUITE. On écrit la table dans un
+#  fichier temporaire plutôt que de compter sur celle de l'utilisateur :
+#  « --no-config » ignore ~/.config/mpv, donc rien de ce qu'il a réglé pour
+#  ses films ne s'applique ici — ni ses raccourcis, ni son volume.
+TABLE="$(mktemp -t lexos-intro-input.XXXXXX 2>/dev/null)" || TABLE=""
+if [ -n "$TABLE" ]; then
+	cat > "$TABLE" <<'TOUCHES'
+ANY_UNICODE quit
+ESC quit
+ENTER quit
+SPACE quit
+BS quit
+TAB quit
+UP quit
+DOWN quit
+LEFT quit
+RIGHT quit
+MBTN_LEFT quit
+MBTN_RIGHT quit
+MBTN_MID quit
+TOUCHES
+fi
+nettoyer() { [ -n "$TABLE" ] && rm -f "$TABLE"; return 0; }
+trap nettoyer EXIT
+trap 'nettoyer; exit 130' INT
+trap 'nettoyer; exit 143' TERM
+
+OPTS=(
+	--no-config
+	#  ═══ « --fullscreen » NE SUFFIT PAS, ET ÇA SE MESURE ═══
+	#  Le plein écran passe par le GESTIONNAIRE DE FENÊTRES (requête EWMH).
+	#  Or ce programme est lancé par l'autostart, au moment même où la
+	#  session démarre : xfwm4 n'est pas forcément déjà là. Mesuré sous un
+	#  serveur X SANS gestionnaire de fenêtres : avec « --fullscreen » seul,
+	#  mpv ouvre une fenêtre de 1080×720 posée au milieu — la vidéo en
+	#  timbre-poste au lieu de couvrir l'écran.
+	#  « --geometry=100%x100%+0+0 » ne demande rien à personne : c'est mpv
+	#  qui taille sa fenêtre à l'écran entier et la pose en (0,0). Avec un
+	#  gestionnaire, --fullscreen fait le reste ; sans lui, la fenêtre
+	#  couvre quand même tout.
+	#  MESURÉ AUSSI : « --autofit=100%x100% » ne convient PAS. Il ajuste la
+	#  fenêtre aux PROPORTIONS de la vidéo (1620×1080 pour du 3:2), ce qui
+	#  laisse 300 px de fond nu sur le côté — la vidéo n'est plus centrée et
+	#  l'écran n'est plus couvert. Avec « 100%x100% », la fenêtre fait tout
+	#  l'écran et c'est MPV qui peint lui-même les deux bandes noires.
+	--fullscreen
+	--geometry=100%x100%+0+0
+	--no-border
+	--ontop
+	--no-osc
+	--osd-level=0
+	--no-input-default-bindings
+	--really-quiet
+	--keep-open=no
+	--cursor-autohide=always
+	#  Les proportions sont GARDÉES : la vidéo est du 3:2 sur un écran 16:9.
+	#  Étirer déformerait le démon, rogner couperait la bannière — on centre
+	#  et on laisse deux bandes noires sur les côtés.
+	--keepaspect=yes
+	--image-display-duration=0
+)
+[ -n "$TABLE" ] && OPTS+=(--input-conf="$TABLE")
+if [ "$SON" = "on" ]; then
+	OPTS+=(--volume=70)
+else
+	OPTS+=(--no-audio)
+fi
+
+# --- 7. La minuterie dure ------------------------------------------------------
+#  QUOI QU'IL ARRIVE, ON REND LA MAIN. « timeout -k 2 » envoie TERM à
+#  l'échéance, puis KILL deux secondes plus tard si mpv ne s'est pas arrêté :
+#  un mpv figé ne peut pas garder l'écran. La sortie est ignorée — ce
+#  programme ne rend jamais autre chose que 0, il n'a rien à reprocher à
+#  personne.
+timeout -k 2 "$DELAI_MAX" mpv "${OPTS[@]}" -- "$FICHIER" >/dev/null 2>&1
+exit 0
