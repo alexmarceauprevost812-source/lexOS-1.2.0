@@ -112,6 +112,16 @@ done
 	&& ok "la veille ne porte pas « --fast » (rien à enregistrer)" \
 	|| non "la veille a changé d'options"
 
+#  ═══ LA FENÊTRE EST CELLE DE XFCE ═══
+#  ALEX, consigne « fenêtre d'arrêt » : sans argument, le bouton rouge ouvre
+#  le dialogue de XFCE. Lu dans xfce4-session-logout/main.c (4.20, trixie) :
+#  sans option d'action, il appelle Logout(show_dialog=TRUE) — c'est SA
+#  fenêtre, pas la nôtre. Et sans « --fast » : la case « enregistrer la
+#  session » est à lui.
+[ "$(simule)" = "xfce4-session-logout" ] \
+	&& ok "sans argument -> xfce4-session-logout seul : la fenêtre de XFCE, sans --fast" \
+	|| non "sans argument il a donné « $(simule) » au lieu d'ouvrir la fenêtre de XFCE"
+
 # ═════════════════════════════════════════════════════════════════════════════
 titre "2. Les replis, éprouvés pour de vrai (pas en simulation)"
 #  Sans xfce4-session-logout : systemctl doit prendre le relais.
@@ -184,6 +194,52 @@ if [ "$(rc)" != "0" ] && erreurs | grep -q "rien pour verrouiller"; then
 	ok "sans aucun outil de verrouillage, il le dit au lieu de rendre 0 en silence"
 else
 	non "verrouiller sans outil : rc=$(rc), « $(erreurs) »"
+fi
+
+#  ═══ LA FENÊTRE, EN VRAI : XFCE D'ABORD, LA NÔTRE EN REPLI ═══
+#  Avec xfce4-session-logout sur le PATH, c'est lui — et rien d'autre — qui
+#  est appelé, sans aucune option. yad est là aussi, pour prouver qu'il
+#  n'est PAS préféré.
+faux xfce4-session-logout yad zenity systemctl
+reel
+if [ "$(appels | sed 's/[[:space:]]*$//')" = "xfce4-session-logout" ]; then
+	ok "avec xfce4-session-logout présent, la fenêtre est la sienne (yad présent mais ignoré)"
+else
+	non "avec xfce4-session-logout présent, il a lancé : « $(appels) »"
+fi
+#  Sans lui : notre fenêtre yad — les CINQ gestes de XFCE, et pas
+#  « Verrouiller l'écran », que XFCE n'y met pas non plus.
+faux yad zenity systemctl
+reel
+FEN="$(appels)"
+case "$FEN" in
+	"yad --list "*) ok "sans xfce4-session-logout, la fenêtre yad s'ouvre (en liste)" ;;
+	*) non "sans xfce4-session-logout, il a lancé : « $FEN »" ;;
+esac
+MANQUE_FEN=""
+for L in "Changer d'utilisateur" "Déconnexion" "Éteindre" "Redémarrer" "Mise en veille"; do
+	grep -qF -- "$L" <<< "$FEN" || MANQUE_FEN="$MANQUE_FEN « $L »"
+done
+[ -z "$MANQUE_FEN" ] \
+	&& ok "…avec les cinq gestes de la fenêtre de XFCE" \
+	|| non "…il manque à la fenêtre yad :$MANQUE_FEN"
+if grep -qF "Verrouiller" <<< "$FEN"; then
+	non "la fenêtre yad propose encore « Verrouiller l'écran » — la fenêtre de XFCE ne l'a pas"
+else
+	ok "…et sans « Verrouiller l'écran » : les deux fenêtres disent la même chose"
+fi
+#  Ni xfce4-session-logout ni yad : zenity, même liste.
+faux zenity systemctl
+reel
+FEN="$(appels)"
+case "$FEN" in
+	"zenity --list "*) ok "sans yad non plus, zenity prend le relais (en liste)" ;;
+	*) non "sans yad, il a lancé : « $FEN »" ;;
+esac
+if grep -qF "Éteindre" <<< "$FEN" && ! grep -qF "Verrouiller" <<< "$FEN"; then
+	ok "…zenity : « Éteindre » y est, « Verrouiller l'écran » n'y est pas"
+else
+	non "…zenity : « $FEN »"
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -299,6 +355,9 @@ verifie_geste() { # verifie_geste <libellé> <fonction> <nom de l'image>
 }
 verifie_geste "Redémarrer" redemarrer redemarrer
 verifie_geste "Mise en veille" veille veille
+verifie_geste "Éteindre" eteindre arret
+verifie_geste "Déconnexion" deconnexion deconnexion
+verifie_geste "Changer d'utilisateur" changer_utilisateur utilisateur
 
 #  LA PETITE FENÊTRE SUR LE CÔTÉ, c'est la demande elle-même : une liste
 #  verticale (la largeur ne dépend plus du nombre de gestes) et une position
@@ -313,15 +372,21 @@ grep -q 'POSITION=(--center)' "$OUTIL" \
 	&& ok "…et sans xrandr, elle retombe au centre plutôt que sur une position inventée" \
 	|| non "sans xrandr, la position serait devinée"
 
-#  VERROUILLER — TROISIÈME PASSE. Alex l'avait jugé inutile devant un damier
-#  gris (l'icône CASSÉE du greffon d'actions, pas le verrouillage lui-même),
-#  puis il l'a redemandé — cette fois dans la fenêtre du bouton rouge, avec
-#  arrêter/redémarrer/veille/changer d'utilisateur. Il doit donc y être, par
-#  la vraie commande système (xflock4), pas par l'ancien greffon.
-verifie_geste "Verrouiller l'écran" verrouiller verrouiller
+#  VERROUILLER — QUATRIÈME PASSE. Jugé inutile devant un damier gris (l'icône
+#  CASSÉE du greffon, pas le verrouillage), redemandé dans la fenêtre, puis
+#  SORTI de la fenêtre avec la consigne « fenêtre d'arrêt » : la fenêtre est
+#  celle de XFCE, qui n'a pas de bouton de verrouillage, et notre repli
+#  montre les mêmes gestes qu'elle. Le geste reste en ligne de commande,
+#  par xflock4. On vérifie donc les DEUX : absent des listes, présent au CLI.
+LISTES="$(sed -n '/yad --list/,/^fi$/p; /zenity --list/,/^fi$/p' "$OUTIL" | grep -Ev '^[[:space:]]*#')"
+if grep -qF "Verrouiller" <<< "$LISTES"; then
+	non "« Verrouiller l'écran » est encore dans une liste (yad ou zenity) — la fenêtre de XFCE ne l'a pas"
+else
+	ok "« Verrouiller l'écran » n'est plus dans aucune liste de la fenêtre (lignes de code, commentaires exclus)"
+fi
 grep -q 'dispo xflock4' "$OUTIL" \
-	&& ok "verrouiller() passe par xflock4 — pas par l'ancien greffon cassé" \
-	|| non "verrouiller() ne s'appuie pas sur xflock4"
+	&& ok "verrouiller() reste un geste en ligne de commande, par xflock4" \
+	|| non "verrouiller() ne s'appuie plus sur xflock4"
 
 # ═════════════════════════════════════════════════════════════════════════════
 titre "6. Un logo par geste — et ils EXISTENT vraiment"
@@ -457,28 +522,35 @@ if [ -x "$GEN" ] || [ -r "$GEN" ]; then
 	fi
 fi
 
-#  ═══ ET LES SIX SONT BIEN CITÉS PAR LA FENÊTRE ═══
+#  ═══ ET LES CINQ DE LA FENÊTRE SONT BIEN CITÉS PAR ELLE ═══
 #  Une image dessinée que personne n'affiche, c'est le travail d'hier :
-#  cinq icônes livrées dans l'ISO et jamais regardées.
-for I in $IMAGES; do
+#  cinq icônes livrées dans l'ISO et jamais regardées. icon-verrouiller.svg
+#  est l'exception assumée : la fenêtre ne propose plus ce geste (quatrième
+#  passe, voir la section 5), mais lexos-theme-gen la réencre encore pour le
+#  jour et elle reste disponible ; elle ne doit simplement plus être citée.
+IMAGES_FENETRE="utilisateur deconnexion arret redemarrer veille"
+for I in $IMAGES_FENETRE; do
 	grep -q "img $I " "$OUTIL" \
 		&& ok "la fenêtre yad emploie « icon-$I.svg »" \
 		|| non "« icon-$I.svg » est dessinée mais la fenêtre ne l'emploie pas"
 done
+grep -q "img verrouiller " "$OUTIL" \
+	&& non "la fenêtre résout encore icon-verrouiller.svg pour un geste qu'elle ne montre plus" \
+	|| ok "icon-verrouiller.svg n'est plus résolue par la fenêtre (le geste vit au CLI)"
 
 #  Le repli zenity aussi : sans lui, une machine sans yad retomberait sur six
 #  lignes nues et la demande ne serait honorée qu'à moitié.
 #  Les six chemins sont résolus UNE FOIS dans des variables, et les deux
 #  listes emploient les mêmes : deux listes écrites séparément finissent par
 #  diverger sans que personne ne s'en aperçoive.
-ZEN="$(sed -n '/zenity --list/,/Verrouiller/p' "$OUTIL")"
+ZEN="$(sed -n '/zenity --list/,/Éteindre/p' "$OUTIL")"
 MANQUE_ZEN=""
-for I in $IMAGES; do
+for I in $IMAGES_FENETRE; do
 	V="IMG_$(printf '%s' "$I" | tr '[:lower:]' '[:upper:]')"
 	printf '%s' "$ZEN" | grep -q "\$$V" || MANQUE_ZEN="$MANQUE_ZEN $I"
 done
 if [ -z "$MANQUE_ZEN" ]; then
-	ok "le repli zenity montre les mêmes six logos (mêmes variables, pas une copie)"
+	ok "le repli zenity montre les mêmes cinq logos (mêmes variables, pas une copie)"
 else
 	non "le repli zenity oublie :$MANQUE_ZEN"
 fi

@@ -35,17 +35,20 @@
 #  Ils rejoignent donc CETTE fenêtre à leur tour — plus de « lequel des deux
 #  redémarrages » à se demander, puisqu'il n'y en a plus qu'un.
 #
-#  VERROUILLER — RETIRÉ, PUIS RAMENÉ ICI. Il vivait dans la même rangée que
+#  VERROUILLER — RETIRÉ, RAMENÉ, PUIS SORTI DE LA FENÊTRE. Il vivait dans la même rangée que
 #  veille et redémarrer (greffon « actions » de xfce4-panel) ; une photo de
 #  l'écran de verrouillage montrait un damier gris, sans fond, rien
 #  d'exploitable — « cet outil ne sert vraiment à rien » — et il a disparu
 #  du panneau plutôt que de changer d'adresse. Le damier gris était l'icône
 #  CASSÉE du greffon (image introuvable), pas le verrouillage lui-même :
 #  xflock4 / light-locker fonctionnent très bien une fois appelés
-#  directement, sans passer par ce greffon. Alex l'a redemandé dans CETTE
-#  fenêtre — « verrouiller écran » dans la liste avec arrêter, redémarrer,
-#  mise en veille, changer d'utilisateur — donc il rejoint le groupe, mais
-#  par la vraie commande système, jamais par le greffon cassé.
+#  directement, sans passer par ce greffon. Alex l'a ensuite redemandé dans
+#  CETTE fenêtre — puis, QUATRIÈME PASSE, il l'en a retiré : la fenêtre est
+#  désormais celle de XFCE (voir « La fenêtre », plus bas), qui n'a pas de
+#  bouton de verrouillage, et le repli LexOS montre les mêmes gestes qu'elle
+#  — pas un de plus, pour que les deux fenêtres disent la même chose. Le
+#  verrouillage reste un GESTE : « lexos session verrouiller », par xflock4,
+#  pour le clavier et la console.
 #
 #  ═══ CE QUI EST ÉPROUVABLE, ET COMMENT ═══
 #  Un programme qui éteint la machine ne se teste pas en le lançant. Toutes
@@ -214,6 +217,34 @@ TTY
 	exit 0
 fi
 
+# =============================================================================
+#  LA FENÊTRE DE XFCE D'ABORD — LA NÔTRE EN REPLI
+# =============================================================================
+#  ALEX, consigne « fenêtre d'arrêt » : quand xfce4-session-logout est là,
+#  c'est SA fenêtre qu'on ouvre. LU DANS LE PROGRAMME, PAS SUPPOSÉ
+#  (xfce4-session 4.20, xfce4-session-logout/main.c, la version de trixie) :
+#  sans option d'action, il appelle Logout(show_dialog=TRUE, allow_save=TRUE)
+#  sur org.xfce.SessionManager — c'est le dialogue de XFCE lui-même, avec
+#  Déconnexion, Redémarrer, Éteindre, Veille, Hibernation et Changer
+#  d'utilisateur selon ce que la machine sait faire. Il est dessiné par le
+#  thème GTK de LexOS, donc dans nos couleurs. Ses options --halt, --reboot,
+#  --suspend, --logout, --switch-user et --fast sont celles que les gestes
+#  ci-dessus emploient déjà en ligne de commande.
+#
+#  POURQUOI PAS LA NÔTRE PAR DÉFAUT : elle refaisait, en yad, ce que XFCE
+#  fait déjà — et une fenêtre de moins à entretenir, c'est une divergence
+#  de moins à photographier. La nôtre reste, en dessous, pour une session
+#  sans gestionnaire XFCE (bureau minimal, dépannage) : elle montre les
+#  MÊMES gestes que celle de XFCE, sans « Verrouiller l'écran », que XFCE
+#  n'y met pas non plus. Le verrouillage reste « lexos session verrouiller ».
+#
+#  Pas de « --fast » ici : c'est la fenêtre de XFCE qui porte la case
+#  « enregistrer la session », c'est à elle de décider.
+if dispo xfce4-session-logout; then
+	lancer xfce4-session-logout
+	exit $?
+fi
+
 ICON="$BRAND/icon-arret.svg"
 [[ -r "$ICON" ]] || ICON="system-shutdown"
 
@@ -311,7 +342,9 @@ IMG_DECONNEXION="$(img deconnexion system-log-out)"
 IMG_ARRET="$(img arret system-shutdown)"
 IMG_REDEMARRER="$(img redemarrer system-reboot)"
 IMG_VEILLE="$(img veille system-suspend)"
-IMG_VERROUILLER="$(img verrouiller system-lock-screen)"
+#  Pas d'IMG_VERROUILLER : la fenêtre ne propose plus ce geste (voir plus
+#  haut) ; icon-verrouiller.svg reste dans branding pour la ligne de commande
+#  et lexos-theme-gen, et le banc vérifie qu'aucune des deux listes ne le cite.
 
 #  La colonne d'images élargit la fenêtre d'une quarantaine de points : sans
 #  ce rattrapage, les libellés les plus longs (« Changer d'utilisateur »)
@@ -328,7 +361,7 @@ fi
 if command -v yad >/dev/null 2>&1; then
 	CHOIX="$(yad --list --title="Session — LexOS" \
 		--window-icon=lexos-arret \
-		--width="$LARGEUR_F" --height=330 --borders=12 --on-top \
+		--width="$LARGEUR_F" --height=300 --borders=12 --on-top \
 		"${POSITION[@]}" \
 		--text="$TEXTE" \
 		--no-headers \
@@ -339,7 +372,6 @@ if command -v yad >/dev/null 2>&1; then
 		"$IMG_ARRET"       "Éteindre" \
 		"$IMG_REDEMARRER"  "Redémarrer" \
 		"$IMG_VEILLE"      "Mise en veille" \
-		"$IMG_VERROUILLER" "Verrouiller l'écran" \
 		2>/dev/null)"
 	#  yad termine les lignes de « --print-column » par le séparateur « | » :
 	#  sans ce nettoyage, aucune correspondance ne tomberait juste et la
@@ -352,22 +384,21 @@ if command -v yad >/dev/null 2>&1; then
 		"Éteindre")              eteindre ;;
 		"Redémarrer")            redemarrer ;;
 		"Mise en veille")        veille ;;
-		"Verrouiller l'écran")   verrouiller ;;
 		*) : ;;   # Annuler, ou la fenêtre fermée : on ne fait RIEN
 	esac
 	exit 0
 fi
 
 if command -v zenity >/dev/null 2>&1; then
-	#  zenity ne sait pas poser six boutons : on passe par une liste, qui
+	#  zenity ne sait pas poser cinq boutons : on passe par une liste, qui
 	#  dit la même chose et se lit aussi bien. Rien n'est retiré au passage.
 	#  LES MÊMES LOGOS ICI, MAIS SEULEMENT S'ILS SONT TOUS LÀ. zenity ne
 	#  connaît que des CHEMINS dans une colonne d'images : un nom de thème y
-	#  laisserait une case vide. Plutôt que six lignes dont deux illustrées,
+	#  laisserait une case vide. Plutôt que cinq lignes dont deux illustrées,
 	#  on garde alors la liste nue — la même information, sans le bancal.
 	ZEN_IMAGES=1
 	for I in "$IMG_UTILISATEUR" "$IMG_DECONNEXION" "$IMG_ARRET" \
-	         "$IMG_REDEMARRER" "$IMG_VEILLE" "$IMG_VERROUILLER"; do
+	         "$IMG_REDEMARRER" "$IMG_VEILLE"; do
 		#  img() rend un NOM de thème quand le fichier manque : zenity, lui,
 		#  ne sait lire qu'un chemin. Un seul nom dans le lot et on renonce.
 		[[ "$I" == /* && -r "$I" ]] || ZEN_IMAGES=0
@@ -381,13 +412,12 @@ if command -v zenity >/dev/null 2>&1; then
 			"$IMG_DECONNEXION" "Déconnexion" \
 			"$IMG_VEILLE"      "Mise en veille" \
 			"$IMG_REDEMARRER"  "Redémarrer" \
-			"$IMG_ARRET"       "Éteindre" \
-			"$IMG_VERROUILLER" "Verrouiller l'écran" 2>/dev/null)"
+			"$IMG_ARRET"       "Éteindre" 2>/dev/null)"
 	else
 		CHOIX="$(zenity --list --title="Session — LexOS" \
 			--text="Tu es connecté en tant que ${QUI}." \
 			--column="Que faire ?" \
-			"Changer d'utilisateur" "Déconnexion" "Mise en veille" "Redémarrer" "Éteindre" "Verrouiller l'écran" 2>/dev/null)"
+			"Changer d'utilisateur" "Déconnexion" "Mise en veille" "Redémarrer" "Éteindre" 2>/dev/null)"
 	fi
 	case "$CHOIX" in
 		"Changer d'utilisateur") changer_utilisateur ;;
@@ -395,7 +425,6 @@ if command -v zenity >/dev/null 2>&1; then
 		"Mise en veille")        veille ;;
 		"Redémarrer")            redemarrer ;;
 		"Éteindre")              eteindre ;;
-		"Verrouiller l'écran")   verrouiller ;;
 		*) : ;;
 	esac
 	exit 0
