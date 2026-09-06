@@ -520,13 +520,54 @@ jobs:
           #    · musique/index.html — une mini-application à part, palette propre.
           #  Un contrôle qui hurle sur des cas justes finit désactivé. Celui-ci
           #  ne regarde que là où la duplication a réellement coûté des heures.
+          #  ═══ ON DÉCOMMENTE D'ABORD, ET CE CONTRÔLE L'A APPRIS À SES DÉPENS ═══
+          #  Il a refusé la construction de l'ISO 114 en se déclenchant sur un
+          #  COMMENTAIRE — celui qui explique pourquoi la couleur d'appui d'un
+          #  bouton est --ac et non --ac-hi, et qui cite la mesure pour le
+          #  justifier : « #FF7A33 -> #E8590C ». La feuille, elle, n'avait
+          #  aucune couleur en dur.
+          #
+          #  LA MAUVAISE RÉPONSE AURAIT ÉTÉ DE RETIRER LES CHIFFRES DU
+          #  COMMENTAIRE. Dans ce dépôt, une décision de couleur se justifie
+          #  par sa mesure ; un commentaire qui n'ose plus citer une couleur ne
+          #  vaut plus rien, et le contrôle aurait alors gouverné la prose au
+          #  lieu de gouverner le code. C'est le contrôle qui devait apprendre
+          #  à lire du CSS.
+          #
+          #  C'est la même correction que dans tests/test_lexos_sections.sh,
+          #  qui portait le MÊME défaut : les deux gardes existaient, une seule
+          #  a été corrigée du premier coup — parce que c'est celle qu'on lance
+          #  en local. D'où ce rappel : quand un garde-fou de cette famille est
+          #  corrigé, il faut chercher ses jumeaux.
+          decommente() {   # retire les /* … */, y compris sur plusieurs lignes
+            awk '
+              { ligne = $0; sortie = ""
+                while (length(ligne) > 0) {
+                  if (dedans) { i = index(ligne, "*/")
+                                if (i == 0) { ligne = "" }
+                                else { dedans = 0; ligne = substr(ligne, i + 2) } }
+                  else        { i = index(ligne, "/*")
+                                if (i == 0) { sortie = sortie ligne; ligne = "" }
+                                else { sortie = sortie substr(ligne, 1, i - 1)
+                                       dedans = 1; ligne = substr(ligne, i + 2) } } }
+                print sortie }' "$1"
+          }
+
           for f in config/includes.chroot/usr/share/lexos/*/web/style.css; do
             [ -r "$f" ] || continue
+            CODE="$(decommente "$f")"
+            #  Garde contre le vert sur du vide : si le décommentage rendait un
+            #  fichier quasi nul, l'absence ci-dessous ne prouverait plus rien.
+            if [ "$(printf '%s\n' "$CODE" | grep -c .)" -lt 20 ]; then
+              echo "::error file=$f::le décommentage n'a presque rien laissé — contrôle invalide"
+              bad=1
+              continue
+            fi
             #  Les DEUX écritures de l'accent. Le halo du survol s'écrivait
             #  « rgba(232,89,12,.30) » — le même orange, en décimal : un
             #  contrôle qui ne cherche que le code hexadécimal serait passé à
             #  côté de la seule duplication qui restait vraiment partout.
-            if grep -qniE '#(E8590C|FF7A33)|\(\s*232\s*,\s*89\s*,\s*12\s*[,)]' "$f"; then
+            if grep -qniE '#(E8590C|FF7A33)|\(\s*232\s*,\s*89\s*,\s*12\s*[,)]' <<< "$CODE"; then
               echo "::error file=$f::accent écrit en dur — employer var(--ac) ; la seule définition est dans $UI"
               bad=1
             fi
