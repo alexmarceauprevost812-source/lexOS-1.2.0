@@ -29,11 +29,12 @@ THEME_SYS="$RACINE/config/includes.chroot/usr/share/grub/themes/lexos"
 THEME_ISO="$RACINE/config/includes.binary/boot/grub/themes/lexos"
 HOOK="$RACINE/config/hooks/normal/0100-lexos-identity.hook.chroot"
 
-VERT=$'\033[32m'; ROUGE=$'\033[31m'; GRAS=$'\033[1m'; FIN=$'\033[0m'
+VERT=$'\033[32m'; ROUGE=$'\033[31m'; JAUNE=$'\033[33m'; GRAS=$'\033[1m'; FIN=$'\033[0m'
 REUSSIS=0; ECHOUES=0
 ok()   { printf '  %s✓%s %s\n' "$VERT" "$FIN" "$1"; REUSSIS=$((REUSSIS+1)); }
 non()  { printf '  %s✗%s %s\n' "$ROUGE" "$FIN" "$1"; ECHOUES=$((ECHOUES+1)); }
 titre(){ printf '\n%s%s%s\n' "$GRAS" "$1" "$FIN"; }
+saut() { printf '  %s—%s  %s\n' "$JAUNE" "$FIN" "$1"; }
 
 BANC="$(mktemp -d)"
 trap 'rm -rf "$BANC"' EXIT
@@ -127,6 +128,52 @@ if grep -q 'GRUB_GFXPAYLOAD_LINUX=keep' "$HOOK"; then
 	ok "GRUB_GFXPAYLOAD_LINUX=keep est toujours là — pas de passage par le mode texte"
 else
 	non "GRUB_GFXPAYLOAD_LINUX=keep a disparu : l'écran clignoterait entre deux résolutions"
+fi
+
+# -----------------------------------------------------------------------------
+titre "3 bis. « Loading Linux… » : aucun réglage inventé — chaque variable posée est LUE"
+#  ═══ LE LEVIER N'EXISTE PAS, ET LE BANC EMPÊCHE D'EN INVENTER UN ═══
+#  Le message « Loading Linux… » vient de /etc/grub.d/10_linux, où quiet_boot
+#  est une affectation en dur — aucune variable de /etc/default ne la pilote.
+#  La tentation, c'est de poser « GRUB_QUIET_BOOT=1 » ou « quiet_boot=1 »
+#  dans lexos.cfg « au cas où » : ça ne ferait rien, et le fichier mentirait.
+#  On ne lit que les LIGNES DE CODE du heredoc (pas les commentaires, qui
+#  citent ces noms pour expliquer pourquoi ils n'y sont pas), et on exige
+#  que chaque nom posé soit lu par grub-mkconfig ou un script de /etc/grub.d
+#  de la machine — la seule preuve qu'un réglage sert à quelque chose.
+HEREDOC_CODE="$(sed -n '/^cat > \/etc\/default\/grub.d\/lexos.cfg <<EOF$/,/^EOF$/p' "$HOOK" | grep -Ev '^[[:space:]]*(#|$)')"
+if [[ -z "$HEREDOC_CODE" ]]; then
+	non "le heredoc de lexos.cfg est introuvable dans le hook 0100 — rien à vérifier"
+elif grep -qiE '^[[:space:]]*(GRUB_QUIET[A-Z_]*|quiet_boot|quick_boot)=' <<< "$HEREDOC_CODE"; then
+	non "lexos.cfg pose une variable « quiet » que 10_linux ne lit pas : un réglage qui ne fait rien"
+else
+	ok "aucune variable « quiet » inventée dans les lignes de code de lexos.cfg"
+fi
+if ! command -v grub-mkconfig >/dev/null 2>&1 || [[ ! -d /etc/grub.d ]]; then
+	saut "grub-mkconfig ou /etc/grub.d absent — les variables ne sont pas confrontées aux lecteurs"
+else
+	LECTEURS="$(cat "$(command -v grub-mkconfig)" /etc/grub.d/[0-9]* 2>/dev/null | grep -oE 'GRUB_[A-Z0-9_]+' | sort -u)"
+	INCONNUES=""
+	while IFS= read -r V; do
+		[[ -n "$V" ]] || continue
+		grep -qxF "$V" <<< "$LECTEURS" || INCONNUES="$INCONNUES $V"
+	done < <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' <<< "$HEREDOC_CODE" | tr -d = | sort -u)
+	if [[ -z "$INCONNUES" ]]; then
+		ok "chaque GRUB_* posée par lexos.cfg est lue par grub-mkconfig ou un script de /etc/grub.d ($(grep -c . <<< "$HEREDOC_CODE") lignes de code)"
+	else
+		non "posées par lexos.cfg mais lues par PERSONNE sur cette machine :$INCONNUES"
+	fi
+	#  Témoin : le levier n'existe vraiment pas. Si un jour 10_linux lit une
+	#  variable pour quiet_boot, ce contrôle rougit et le commentaire de
+	#  lexos.cfg devient faux — c'est le signal pour le réécrire.
+	if [[ -r /etc/grub.d/10_linux ]]; then
+		if grep -qE '^quiet_boot="?[01]"?$' /etc/grub.d/10_linux \
+		   && ! grep -qE 'quiet_boot=.*GRUB_' /etc/grub.d/10_linux; then
+			ok "témoin : dans 10_linux de cette machine, quiet_boot est une affectation en dur (aucune GRUB_* ne la pilote)"
+		else
+			non "témoin : 10_linux de cette machine pilote quiet_boot autrement — le commentaire de lexos.cfg est à revoir"
+		fi
+	fi
 fi
 
 # -----------------------------------------------------------------------------

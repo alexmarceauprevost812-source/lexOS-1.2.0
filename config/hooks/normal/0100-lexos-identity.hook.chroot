@@ -142,6 +142,28 @@ GRUB_THEME="/usr/share/grub/themes/lexos/theme.txt"
 #  que le repli n'ait jamais de bleu à montrer. tests/test_lexos_grub.sh
 #  joue le vrai 05_debian_theme avec et sans desktop-base.
 GRUB_BACKGROUND=""
+#  ═══ « Loading Linux… » RESTE À L'ÉCRAN, ET CE N'EST PAS UN OUBLI ═══
+#  Sur la même photo, le texte « Loading Linux 6.x… » s'écrivait par-dessus
+#  le rectangle bleu. Ce texte vient de /etc/grub.d/10_linux, qui l'écrit
+#  dans grub.cfg selon une variable de shell nommée quiet_boot. LU DANS LE
+#  SCRIPT, PAS SUPPOSÉ : quiet_boot est une AFFECTATION EN DUR en tête de
+#  10_linux (grub 2.12 : « quiet_boot="1" », ligne 24 de la copie
+#  d'Ubuntu ; la copie de trixie n'était pas lisible depuis la machine de
+#  construction — les miroirs Debian y sont coupés — et Alex la vérifie
+#  avec : grep -n quiet_boot /etc/grub.d/10_linux). Les seules variables
+#  que 10_linux lit dans /etc/default sont GRUB_CMDLINE_LINUX*,
+#  GRUB_DEFAULT, GRUB_DEVICE*, GRUB_DISABLE_*, GRUB_DISTRIBUTOR,
+#  GRUB_EARLY_INITRD_LINUX_*, GRUB_FORCE_PARTUUID, GRUB_GFXPAYLOAD_LINUX,
+#  GRUB_RECOVERY_TITLE et GRUB_TOP_LEVEL : AUCUNE ne pilote quiet_boot.
+#  Il n'existe donc PAS de réglage à poser ici pour faire taire le
+#  message — et patcher 10_linux est exclu : c'est un fichier de
+#  configuration du paquet grub-common, la prochaine mise à jour le
+#  réécrirait. On ne pose rien. Avec la zone terminal peinte en noir, le
+#  message s'écrit en blanc sur noir pendant une seconde, comme sur
+#  n'importe quel Debian : ce n'est plus un écran « planté ».
+#  tests/test_lexos_grub.sh vérifie qu'aucune variable inventée n'apparaît
+#  dans ce fichier — chaque GRUB_* posée ici est lue par grub-mkconfig ou
+#  par un script de /etc/grub.d de la machine.
 #  Le thème est calé sur une grille 1920 x 1080. « auto » laisse le firmware
 #  choisir, et sur un téléviseur il choisit parfois un mode que la dalle
 #  n'aime pas ; on propose donc 1080p d'abord, avec des replis, et « auto »
