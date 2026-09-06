@@ -812,6 +812,116 @@ else
 fi
 
 # =============================================================================
+titre "7. De GRUB à Plymouth : la chaîne est entière, maillon par maillon"
+# =============================================================================
+#  ALEX, CONSIGNE « RECTANGLE BLEU », PARTIE 3 : vérifier que Plymouth prend
+#  bien le relais de GRUB. Un thème parfait ne sert à rien si un maillon de
+#  la chaîne manque, et chaque maillon est une CONDITION LUE DANS UN FICHIER
+#  — pas une impression. Dans l'ordre où la machine les rencontre :
+#    1. la ligne noyau porte « splash » (live : auto/config ; installé :
+#       lexos.cfg) — sans lui, plymouthd ne se lance même pas ;
+#    2. plymouth et plymouth-themes sont demandés (00-core.list), par une
+#       liste que le hook 0250 pose pour TOUTES les saveurs ;
+#    3. 0250 passe AVANT 0300 : le squelette « spinner » existe quand le
+#       thème est construit ;
+#    4. 0300 désigne le thème et CRIE s'il est refusé ;
+#    5. l'initramfs est refait après nous (lb chroot_hacks) — dit dans 0300 ;
+#    6. à l'extinction, plymouth-poweroff/reboot.service sont voulus par
+#       poweroff/reboot.target et conditionnés par « splash » — lu dans les
+#       unités du paquet, sur la machine qui l'a.
+HOOK_0100="$RACINE/config/hooks/normal/0100-lexos-identity.hook.chroot"
+HOOK_0250="$RACINE/config/hooks/normal/0250-lexos-optional.hook.chroot"
+CORE_LIST="$RACINE/config/includes.chroot/usr/share/lexos/optional-packages/00-core.list"
+STRICT_LIST="$RACINE/config/package-lists/lexos-core.list.chroot"
+AUTO_CONFIG="$RACINE/auto/config"
+
+#  1. « splash » sur la ligne noyau — lignes de CODE seulement, jamais les
+#     commentaires (le piège du contrôle qui lit la prose).
+CFG_CODE="$(sed -n '/^cat > \/etc\/default\/grub.d\/lexos.cfg <<EOF$/,/^EOF$/p' "$HOOK_0100" | grep -Ev '^[[:space:]]*(#|$)')"
+if grep -qE '^GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\bsplash\b[^"]*"$' <<< "$CFG_CODE"; then
+	ok "système installé : lexos.cfg met « splash » sur la ligne noyau (GRUB_CMDLINE_LINUX_DEFAULT)"
+else
+	non "système installé : « splash » manque dans GRUB_CMDLINE_LINUX_DEFAULT de lexos.cfg — plymouthd ne se lancerait pas"
+fi
+AUTO_CODE="$(grep -Ev '^[[:space:]]*(#|$)' "$AUTO_CONFIG" 2>/dev/null)"
+if grep -qE '^BOOTAPPEND="[^"]*\bsplash\b[^"]*"$' <<< "$AUTO_CODE" \
+   && grep -qE -- '--bootappend-live "\$\{BOOTAPPEND\}"' <<< "$AUTO_CODE"; then
+	ok "session live : auto/config met « splash » dans BOOTAPPEND, passé à --bootappend-live"
+else
+	non "session live : « splash » n'atteint pas --bootappend-live dans auto/config"
+fi
+if grep -qE '^BOOTAPPEND_FAILSAFE="[^"]*\bnosplash\b[^"]*"$' <<< "$AUTO_CODE"; then
+	ok "…et le mode sans échec dit « nosplash », à dessein : la console reste visible"
+else
+	non "le mode sans échec ne coupe pas Plymouth : en dépannage on ne verrait pas les messages"
+fi
+
+#  2. Les paquets sont demandés, et par une liste posée pour toutes les saveurs.
+for P in plymouth plymouth-themes; do
+	if grep -qxF "$P" < <(grep -Ev '^[[:space:]]*(#|$)' "$CORE_LIST"); then
+		ok "« $P » est demandé par 00-core.list (ligne de code, pas un commentaire)"
+	else
+		non "« $P » n'est pas dans 00-core.list : sans lui, pas de thème du tout"
+	fi
+done
+if grep -qE '^LISTS="[^"]*\b00-core\.list\b' "$HOOK_0250"; then
+	ok "00-core.list est dans la liste de BASE du hook 0250 — posée même en saveur « minimal »"
+else
+	non "00-core.list n'est plus dans LISTS= du hook 0250 : une saveur pourrait partir sans Plymouth"
+fi
+#  CE QUE CETTE CHAÎNE A DE FRAGILE, DIT EN CLAIR. Le hook 0250 TOLÈRE un
+#  paquet qui ne s'installe pas : il le note dans /etc/lexos/optional-report
+#  et continue. Plymouth n'est pas au socle strict. Ce n'est pas un défaut
+#  à corriger ici — c'est une décision qu'Alex prend en connaissance de cause.
+if grep -qxF plymouth < <(grep -Ev '^[[:space:]]*(#|$)' "$STRICT_LIST"); then
+	ok "plymouth est au socle STRICT (lexos-core.list.chroot) : un miroir qui hoquète ne peut pas l'emporter"
+else
+	saut "plymouth N'EST PAS au socle strict : posé par 00-core.list, dont le hook 0250 tolère l'échec (le hook 0300 crie alors, la construction continue)"
+fi
+
+#  3. L'ordre des hooks : les paquets avant le thème.
+H1="$(basename "$HOOK_0250")"; H2="$(basename "$HOOK")"
+if [ "$(printf '%s\n%s\n' "$H1" "$H2" | sort | head -1)" = "$H1" ] && [ "$H1" != "$H2" ]; then
+	ok "0250 (paquets) passe avant 0300 (thème) : le squelette « spinner » existe quand on le copie"
+else
+	non "le hook des paquets ne passe plus avant celui du thème : « spinner » manquerait"
+fi
+
+#  4. Le thème est DÉSIGNÉ, et un refus est dit — pas avalé par « || true ».
+FRAG="$(sed -n '/^# >>> banc: plymouth$/,/^# <<< banc: plymouth$/p' "$HOOK" | grep -Ev '^[[:space:]]*#')"
+if grep -qE '^[[:space:]]*elif plymouth-set-default-theme lexos' <<< "$FRAG" \
+   && ! grep -qE 'plymouth-set-default-theme lexos.*\|\|[[:space:]]*true' <<< "$FRAG"; then
+	ok "0300 désigne « lexos » par plymouth-set-default-theme et traite le refus comme un cas à part"
+else
+	non "0300 ne désigne pas le thème, ou avale son refus : un thème écrit mais jamais choisi"
+fi
+
+#  5. L'initramfs : 0300 ne l'appelle pas, et dit POURQUOI (lb chroot_hacks).
+if ! grep -qE '^[[:space:]]*update-initramfs' <<< "$FRAG" \
+   && grep -q 'lb_chroot_hacks' "$HOOK"; then
+	ok "0300 n'appelle pas update-initramfs et nomme celui qui le fait (lb chroot_hacks)"
+else
+	non "0300 appelle update-initramfs, ou ne dit plus qui refait l'initramfs après lui"
+fi
+
+#  6. L'extinction : lu dans les unités systemd du paquet plymouth.
+UNITS=/usr/lib/systemd/system
+if [ ! -r "$UNITS/plymouth-poweroff.service" ]; then
+	saut "plymouth n'est pas installé ici : les unités d'extinction ne sont pas lues (elles le sont en CI)"
+else
+	for U in poweroff reboot; do
+		S="$UNITS/plymouth-$U.service"
+		if [ -e "$UNITS/$U.target.wants/plymouth-$U.service" ] \
+		   && grep -qxF 'ConditionKernelCommandLine=splash' "$S" \
+		   && grep -qE '^ExecStart=.*plymouthd --mode=(shutdown|reboot)' "$S"; then
+			ok "plymouth-$U.service : voulu par $U.target, conditionné par « splash », lance plymouthd en mode $( [ "$U" = poweroff ] && echo shutdown || echo reboot )"
+		else
+			non "plymouth-$U.service : pas voulu par $U.target, ou sans condition « splash », ou n'est plus plymouthd"
+		fi
+	done
+fi
+
+# =============================================================================
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$reussis" "$echoues"
 [ "$echoues" -eq 0 ] || exit 1
 printf '  \033[32mLa mascotte se tient, le logo s'\''écrit, la pluie tombe, la barre est verte.\033[0m\n'
