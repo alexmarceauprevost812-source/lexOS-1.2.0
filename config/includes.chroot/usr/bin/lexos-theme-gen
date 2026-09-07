@@ -149,6 +149,15 @@ texte_lisible() {   # <#rrggbb> → #000000 ou #FFFFFF, celui qui contraste le m
 }
 
 BTN_FG="$(texte_lisible "$ACCENT")"
+#  ═══ UNE COULEUR DE TEXTE PAR TEINTE, ET C'EST UN CORRECTIF ═══
+#  BTN_FG est calcule sur l'accent PLEIN. Les boutons, eux, changent de FOND
+#  selon l'etat : ACCENT_HI au survol (plus clair), ACCENT_LO a l'appui (plus
+#  sombre). Une seule couleur de texte pour les trois teintes est fausse par
+#  construction — mesure sur les huit accents : le bleu #1A5FB4 veut du BLANC
+#  et son survol #3584E4 veut du NOIR ; l'orange #E8590C veut du NOIR et son
+#  appui #A84007 veut du BLANC. Chaque teinte porte donc la sienne.
+BTN_FG_HI="$(texte_lisible "$ACCENT_HI")"
+BTN_FG_LO="$(texte_lisible "$ACCENT_LO")"
 
 #  ═══ LE GRIS DE LA GRILLE D'APPLICATIONS ═══
 #  Voir la règle « iconview:selected » plus bas : la tuile sélectionnée de la
@@ -622,14 +631,28 @@ popover button, infobar button, .dialog-action-area button,
     padding: 6px 16px;
     transition: background-color 140ms ease-out, border-color 140ms ease-out;
 }
+/*  ═══ LE FOND ET LA COULEUR DU TEXTE, ENSEMBLE OU PAS DU TOUT ═══
+    CE QUE CA FAISAIT : cette regle posait le fond SEUL. Le texte restait
+    celui du theme de socle — Yaru-dark ecrit « button:hover { color:
+    #F7F7F7 } » — pose sur un fond qui, lui, venait de s'ECLAIRCIR. Mesure
+    a la sonde GTK, accent orange : #F7F7F7 sur #FF7A33, soit 2,42:1. Au
+    repos le meme bouton est a 5,87:1 : le texte devenait donc ILLISIBLE
+    exactement au moment ou la souris le designe.
+    Meme faute que le menu Whisker, et meme correction : la paire. */
 window button:hover, dialog button:hover, headerbar button:hover,
 toolbar button:hover, popover button:hover {
     background-color: ${ACCENT_HI};
+    color: ${BTN_FG_HI};
     border-color: ${ACCENT};
 }
+/*  MEME CHOSE A L'APPUI, ET LA TEINTE SOMBRE N'A PAS LA MEME REPONSE :
+    sur le vert neon, ACCENT_LO (#1FA30A) reclame du NOIR alors que l'accent
+    plein reclame aussi du noir mais que le theme de socle posait du blanc —
+    2,8:1. BTN_FG_LO est calcule sur ACCENT_LO, pas sur l'accent. */
 window button:active, window button:checked,
 dialog button:active, dialog button:checked {
     background-color: ${ACCENT_LO};
+    color: ${BTN_FG_LO};
     border-color: ${ACCENT_LO};
 }
 window button:disabled, dialog button:disabled {

@@ -747,5 +747,91 @@ PY2
 done
 
 # ═════════════════════════════════════════════════════════════════════════════
+titre "Le bouton reste lisible DANS TOUS SES ÉTATS, sur tous les accents"
+# ═════════════════════════════════════════════════════════════════════════════
+#  ═══ CE QUE CE CONTRÔLE EMPÊCHE DE REVENIR ═══
+#  « window button:hover » posait un fond SANS couleur de texte. Le texte
+#  restait donc celui du thème de socle — Yaru-dark écrit
+#  « button:hover { color: #F7F7F7 } » — pendant que le fond, lui, passait à
+#  ACCENT_HI, une teinte PLUS CLAIRE que l'accent. Mesuré à la sonde GTK,
+#  accent orange : #F7F7F7 sur #FF7A33, soit 2,42:1, alors que le MÊME bouton
+#  au repos est à 5,87:1. Le libellé devenait illisible exactement au moment
+#  où la souris le désigne. Sur l'accent vert, 2,23:1.
+#
+#  C'est la même faute que le menu Whisker, trouvée par la passe qui suivait
+#  ce correctif-là : un fond posé sans sa couleur de texte.
+#
+#  ON NE LIT PAS LE CSS, ON CALCULE LE CONTRASTE. Le générateur est lancé
+#  pour de vrai, sur plusieurs accents, et on relit les couleurs qu'il écrit.
+GEN_B="$RACINE/config/includes.chroot/usr/bin/lexos-theme-gen"
+if [ ! -x "$GEN_B" ]; then
+	printf '  \033[2m—\033[0m %s\n' "lexos-theme-gen introuvable : contraste des boutons non mesuré"
+else
+	for ACC in orange bleu vert violet rouge gris; do
+		FOYER="$BANC/foyer-$ACC"; mkdir -p "$FOYER"
+		HOME="$FOYER" bash "$GEN_B" "$ACC" --target "$FOYER" >/dev/null 2>&1
+		CSSG="$FOYER/.themes/LexOS-Noir/gtk-3.0/gtk.css"
+		if [ ! -r "$CSSG" ]; then
+			non "accent $ACC : le générateur n'a produit aucun thème"
+			continue
+		fi
+		#  On extrait, pour le survol et pour l'appui, le fond et la couleur
+		#  écrits par le générateur, puis on calcule le rapport WCAG.
+		RES="$(python3 - "$CSSG" <<'PYC' 2>/dev/null
+import re, sys
+css = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+def lin(v):
+    v /= 255.0
+    return v/12.92 if v <= 0.03928 else ((v+0.055)/1.055)**2.4
+def L(c):
+    r, g, b = c
+    return .2126*lin(r) + .7152*lin(g) + .0722*lin(b)
+def ratio(a, b):
+    la, lb = L(a), L(b)
+    return (max(la, lb)+.05) / (min(la, lb)+.05)
+def hexa(x):
+    x = x.lstrip('#')
+    return tuple(int(x[i:i+2], 16) for i in (0, 2, 4))
+def bloc(motif):
+    m = re.search(motif + r'[^{}]*\{([^{}]*)\}', css)
+    return m.group(1) if m else None
+for nom, motif in (("survol", r'window button:hover'),
+                   ("appui",  r'window button:active')):
+    b = bloc(motif)
+    if b is None:
+        print(nom, "ABSENT"); continue
+    f = re.search(r'background-color:\s*(#[0-9A-Fa-f]{6})', b)
+    t = re.search(r'(?:^|[;\s])color:\s*(#[0-9A-Fa-f]{6})', b)
+    if not f or not t:
+        print(nom, "PAIRE-INCOMPLETE", "fond" if f else "-", "texte" if t else "-")
+        continue
+    print(nom, "%.2f" % ratio(hexa(t.group(1)), hexa(f.group(1))), t.group(1), f.group(1))
+PYC
+)"
+		ETAT_KO=""
+		while read -r NOM VAL C1 C2; do
+			[ -n "$NOM" ] || continue
+			case "$VAL" in
+				ABSENT)
+					non "accent $ACC, $NOM : la règle a disparu du générateur"; ETAT_KO=1 ;;
+				PAIRE-INCOMPLETE)
+					non "accent $ACC, $NOM : fond sans couleur de texte — la faute d'origine"; ETAT_KO=1 ;;
+				*)
+					#  4,5:1 est le seuil WCAG AA pour du texte courant. Le
+					#  libellé d'un bouton en est.
+					if awk "BEGIN{exit !($VAL >= 4.5)}"; then
+						:
+					else
+						non "accent $ACC, $NOM : $C1 sur $C2 = ${VAL}:1, sous le seuil de 4,5:1"
+						ETAT_KO=1
+					fi ;;
+			esac
+		done <<< "$RES"
+		[ -n "$ETAT_KO" ] || ok "accent $ACC : survol et appui restent lisibles (≥ 4,5:1)"
+	done
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
 printf '\n%s réussi(s), %s échoué(s)\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]
