@@ -176,7 +176,7 @@ window.csd.popup {
     La fenêtre du whiskermenu est une GtkWindow ordinaire NON DÉCORÉE : elle
     ne porte ni le nœud « menu », ni « popover », ni la classe « .popup », donc
     la règle des menus déroulants juste au-dessus ne l'atteint pas, et elle
-    retombait sur le fond d'Arc-Dark, le thème de socle. Exactement le même
+    retombait sur le fond du thème de socle. Exactement le même
     piège que le volet de xfce4-power-manager-plugin documenté plus haut.
 
     MESURÉ, PAS DEVINÉ. Session X réelle, xfce4-whiskermenu-plugin 2.8.3
@@ -225,6 +225,105 @@ window.csd.popup {
 #whiskermenu-window list row,
 #whiskermenu-window iconview {
 	background-color: transparent;
+}
+
+/* --- LE SURVOL : LE FOND ET LE TEXTE, ENSEMBLE OU PAS DU TOUT --------------
+   ALEX : « quand je passe ma souris sur les menus, on ne voit plus
+   l'écriture. Juste sur celui survolé. Pas besoin de cliquer, juste passer
+   la souris. » L'icône restait, le texte disparaissait.
+
+   ═══ POURQUOI LE SURVOL DÉCLENCHE « :selected » ET NON « :hover » ═══
+   Relevé dans le binaire livré, xfce4-whiskermenu-plugin 2.8.3 :
+   le greffon appelle gtk_tree_view_set_hover_selection. Passer la souris
+   SÉLECTIONNE la rangée — c'est exactement le « pas besoin de cliquer »
+   d'Alex. La règle qui manquait n'était donc pas au survol, elle était à la
+   sélection. Les deux états sont écrits quand même : « :hover » ne coûte
+   rien et couvre le jour où ce réglage du greffon changera.
+
+   ═══ CE QUI SE PASSAIT, MESURÉ AVEC LE VRAI MOTEUR GTK ═══
+   Sonde GTK3 : GtkWindow nommée « whiskermenu-window » > GtkScrolledWindow >
+   GtkTreeView, le thème LexOS-Noir chargé pour de vrai, et c'est GTK qu'on
+   interroge — pas le CSS qu'on relit. Chemin CSS rendu par GTK :
+
+       window(whiskermenu-window).background scrolledwindow treeview.view
+
+   et les couleurs qu'il résolvait AVANT ce correctif :
+
+       au repos ......... texte #FFFFFF   fond transparent (alpha 0)
+       sélectionné ...... texte #000000   fond transparent (alpha 0)
+
+   Du NOIR sur le #121214 de la fenêtre : 1,06:1. Invisible.
+
+   La règle du dessus force le fond des sous-nœuds à transparent — avec un
+   sélecteur d'ID, elle bat donc le fond « sélectionné » du thème. Mais elle
+   ne dit RIEN de la couleur du texte, que le thème continue de poser :
+   lexos-theme-gen écrit « treeview.view:selected { background: accent;
+   color: BTN_FG } », et BTN_FG vaut #000000 pour l'orange par défaut — une
+   couleur choisie pour aller sur l'orange, pas sur le fond qu'on venait
+   d'effacer. On avait pris la moitié de la paire.
+
+   ═══ POURQUOI UN GRIS TRANSLUCIDE ET PAS L'ACCENT ═══
+   Écrire l'accent ici referait la même faute d'un cran : ce squelette est
+   STATIQUE — lexos-theme-gen n'y remplace que les trois teintes d'accent,
+   jamais la couleur de texte lisible qui va avec. Or texte_lisible() rend
+   du BLANC sur deux des huit accents (#1A5FB4 bleu, #C4211E rouge) et du
+   NOIR sur les six autres : aucune couleur de texte écrite en dur ici ne
+   serait juste pour tous. Un gris translucide ne dépend d'aucun accent, et
+   la fenêtre est sombre dans les deux modes (son fond est écrit en dur
+   ci-dessus) — le blanc y est lisible partout.
+
+   ET LE « border-radius » N'EST PAS DÉCORATIF : la rangée du haut et celle
+   du bas touchent le coin arrondi de la fenêtre. Un aplat rectangulaire y
+   redessinerait l'angle droit qu'on vient d'arrondir — le piège documenté
+   juste au-dessus. Un fond arrondi et translucide ne peut pas le faire.
+
+   SÉLECTEURS ISOLÉS, UN PAR LIGNE, ET L'ÉTAT DE REPOS AVANT LE SURVOL :
+   les conventions de cette feuille. Un sélecteur qu'une version future de
+   GTK ne comprendrait plus ne fait alors tomber que lui-même. */
+#whiskermenu-window treeview.view:hover {
+	background-color: rgba(255, 255, 255, 0.10);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window iconview:hover {
+	background-color: rgba(255, 255, 255, 0.10);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window treeview.view:selected {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window treeview.view:selected:focus {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window treeview.view:selected:hover {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window treeview.view:selected:backdrop {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window iconview:selected {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window iconview:selected:focus {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
+}
+#whiskermenu-window iconview:selected:backdrop {
+	background-color: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	border-radius: 6px;
 }
 
 /* --- Les quatre points des espaces de travail -------------------------------

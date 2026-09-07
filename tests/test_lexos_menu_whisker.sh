@@ -314,5 +314,153 @@ else
 	fi
 fi
 
+# =============================================================================
+titre "7. Le survol du menu Whisker : le fond ET le texte, jamais l'un sans l'autre"
+# =============================================================================
+#  ═══ CE QUE CE CONTRÔLE EMPÊCHE DE REVENIR ═══
+#  ALEX : « quand je passe ma souris sur les menus, on ne voit plus
+#  l'écriture. Juste sur celui survolé. » L'icône restait, le texte non.
+#
+#  La feuille forçait le fond des sous-nœuds du menu à transparent — avec un
+#  sélecteur d'ID, donc en battant le fond « sélectionné » du thème — mais ne
+#  disait RIEN de la couleur du texte. Le thème continuait de poser la
+#  sienne : celle qui va sur SON fond de surlignage, celui qu'on venait
+#  d'effacer. Du noir sur le #121214 de la fenêtre.
+#
+#  La règle est donc : dans ce bloc, toute règle d'état pose les DEUX.
+#  Ce contrôle lit les propriétés, pas la prose — les commentaires sont
+#  retirés avant d'inspecter quoi que ce soit.
+
+#  On retire les commentaires /* … */ : sans ça, une règle citée en exemple
+#  dans un commentaire suffirait à faire passer le contrôle.
+CSS_NU="$BANC/panneau-sans-commentaires.css"
+sed -e ':a' -e 'N' -e '$!ba' -e 's|/\*[^*]*\*\+\([^/*][^*]*\*\+\)*/||g' "$CSS" > "$CSS_NU"
+
+#  Chaque état exigé, et pour chacun : le bloc existe, et il porte les deux
+#  propriétés. On extrait le bloc du sélecteur puis on regarde dedans.
+bloc_de() { # bloc_de <selecteur exact>
+	awk -v sel="$1" '
+		index($0, sel"{") == 1 || index($0, sel" {") == 1 { dedans=1; next }
+		dedans && /^\}/ { exit }
+		dedans { print }
+	' <(tr -d '\r' < "$CSS_NU" | sed 's/^[[:space:]]*//')
+}
+
+ETATS_KO=""
+for SEL in \
+	"#whiskermenu-window treeview.view:hover" \
+	"#whiskermenu-window treeview.view:selected" \
+	"#whiskermenu-window iconview:hover" \
+	"#whiskermenu-window iconview:selected"
+do
+	CORPS="$(bloc_de "$SEL")"
+	if [[ -z "$CORPS" ]]; then
+		non "état manquant : « $SEL » — le texte redeviendrait celui du thème de base"
+		ETATS_KO=1
+		continue
+	fi
+	A_FOND=0; A_TEXTE=0
+	grep -q 'background-color:' <<< "$CORPS" && A_FOND=1
+	grep -q '^[[:space:]]*color:'  <<< "$CORPS" && A_TEXTE=1
+	if [[ "$A_FOND" = 1 && "$A_TEXTE" = 1 ]]; then
+		ok "« $SEL » pose le fond ET la couleur du texte"
+	else
+		non "« $SEL » pose $( [[ "$A_FOND" = 1 ]] && echo 'le fond' || echo 'la couleur' ) SEUL — c'est exactement la faute d'origine"
+		ETATS_KO=1
+	fi
+done
+[[ -z "$ETATS_KO" ]] || true
+
+#  ═══ ET LE FOND TRANSPARENT DE L'ÉTAT DE REPOS RESTE ═══
+#  Le correctif AJOUTE des états, il n'en retire aucun : un fond plein sur
+#  les sous-nœuds recouvrirait le border-radius de la fenêtre et le menu
+#  redeviendrait carré. Ce contrôle empêche qu'on « simplifie » ça un jour.
+if grep -qE '^#whiskermenu-window treeview\.view,' "$CSS_NU" \
+   && bloc_de "#whiskermenu-window iconview" | grep -q 'background-color: transparent'; then
+	ok "l'état de repos garde son fond transparent (le menu reste arrondi)"
+else
+	non "le fond transparent de l'état de repos a disparu : le menu redeviendrait carré"
+fi
+
+# =============================================================================
+titre "8. LA MESURE : ce que le VRAI moteur GTK résout pour une rangée survolée"
+# =============================================================================
+#  ═══ UN grep NE PROUVE PAS QU'UNE RÈGLE ATTEINT SON NŒUD ═══
+#  Une règle posée sur un nœud imaginaire ne fait rien, et le contrôle 7
+#  passerait quand même — il ne lit que du texte. Ici on rebâtit l'arbre réel
+#  (GtkWindow nommée « whiskermenu-window » > GtkScrolledWindow >
+#  GtkTreeView, les widgets que le greffon construit vraiment : relevé par
+#  « nm -D » sur libwhiskermenu.so 2.8.3, qui appelle gtk_tree_view_new et
+#  gtk_icon_view_new), on charge le thème RÉELLEMENT GÉNÉRÉ par
+#  lexos-theme-gen, et on DEMANDE À GTK la couleur qu'il résout.
+SONDE_SRC="$RACINE/tests/aide/whisker-sonde.c"
+if ! command -v gcc >/dev/null 2>&1 \
+   || ! pkg-config --exists gtk+-3.0 2>/dev/null \
+   || ! command -v Xvfb >/dev/null 2>&1 \
+   || [[ ! -r "$SONDE_SRC" ]]; then
+	saute "gcc, gtk+-3.0 (dev), Xvfb ou la sonde manquent : la couleur résolue n'est pas mesurée"
+else
+	if ! gcc -o "$BANC/sonde" "$SONDE_SRC" $(pkg-config --cflags --libs gtk+-3.0) 2>"$BANC/gcc.log"; then
+		non "la sonde GTK ne compile pas :\n$(head -3 "$BANC/gcc.log")"
+	else
+		#  Le vrai générateur, avec le squelette du dépôt : c'est la feuille
+		#  que la machine d'Alex porte, pas une reconstitution.
+		HOME="$BANC" LEXOS_PANNEAU_CSS="$CSS" \
+			bash "$GEN" orange --target "$BANC" >/dev/null 2>&1
+		THEME="$BANC/.themes/LexOS-Noir/gtk-3.0/gtk.css"
+		if [[ ! -r "$THEME" ]]; then
+			saute "lexos-theme-gen n'a pas produit de thème ici : couleur non mesurée"
+		else
+			: > "$BANC/xnum"
+			Xvfb -displayfd 3 -screen 0 800x600x24 3>"$BANC/xnum" >/dev/null 2>&1 &
+			XPID=$!
+			for _ in $(seq 1 100); do [[ -s "$BANC/xnum" ]] && break; sleep 0.1; done
+			if [[ ! -s "$BANC/xnum" ]]; then
+				non "Xvfb n'a pas démarré : la couleur résolue n'est pas mesurée"
+			else
+				AFF=":$(tr -dc 0-9 < "$BANC/xnum")"
+				SORTIE="$(DISPLAY="$AFF" "$BANC/sonde" "$THEME" 2>/dev/null)"
+				#  Le chemin CSS que GTK rend lui-même : si le nœud change de
+				#  nom un jour, c'est ici qu'on le verra, pas à l'écran d'Alex.
+				if grep -q 'treeview.*\.view' <<< "$SORTIE"; then
+					ok "le nœud mesuré est bien « treeview.view » sous #whiskermenu-window"
+				else
+					non "le chemin CSS rendu par GTK a changé :\n$(head -1 <<< "$SORTIE")"
+				fi
+				#  LA MESURE QUI COMPTE. Avant le correctif : #000000 sur le
+				#  #121214 de la fenêtre, soit 1,12:1 — invisible, la photo
+				#  d'Alex. On exige un texte clair ET un fond qui se voit.
+				LIGNE="$(grep '^selectionne (' <<< "$SORTIE")"
+				TXT="$(grep -oE 'texte #[0-9A-F]{6}' <<< "$LIGNE" | head -1 | cut -d'#' -f2)"
+				ALPHA="$(grep -oE 'fond #[0-9A-F]{6} \(a=[0-9.]+\)' <<< "$LIGNE" | grep -oE 'a=[0-9.]+' | cut -d= -f2)"
+				if [[ -z "$TXT" ]]; then
+					non "la sonde n'a rien mesuré :\n$(head -5 <<< "$SORTIE")"
+				else
+					#  Luminance relative du texte : on refuse le noir, quel
+					#  que soit le chemin par lequel il reviendrait.
+					CLAIR="$(python3 -c "
+h='$TXT'
+r,g,b=int(h[0:2],16),int(h[2:4],16),int(h[4:6],16)
+def lin(v):
+    v/=255.0
+    return v/12.92 if v<=0.03928 else ((v+0.055)/1.055)**2.4
+print('oui' if 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b) > 0.5 else 'non')" 2>/dev/null)"
+					if [[ "$CLAIR" = "oui" ]]; then
+						ok "rangée survolée : GTK résout un texte CLAIR (#$TXT) — il était #000000 avant"
+					else
+						non "rangée survolée : GTK résout #$TXT, un texte sombre sur le fond sombre du menu — le défaut d'Alex est de retour"
+					fi
+					if [[ -n "$ALPHA" ]] && awk "BEGIN{exit !($ALPHA > 0.02)}"; then
+						ok "…et le surlignage se peint vraiment (alpha $ALPHA), la rangée ne reste pas nue"
+					else
+						non "le surlignage reste transparent (alpha ${ALPHA:-?}) : rien ne montre la rangée survolée"
+					fi
+				fi
+			fi
+			kill "$XPID" 2>/dev/null; wait "$XPID" 2>/dev/null
+		fi
+	fi
+fi
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [[ "$ECHOUES" -eq 0 ]]
