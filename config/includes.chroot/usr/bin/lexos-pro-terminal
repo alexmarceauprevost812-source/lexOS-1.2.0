@@ -63,8 +63,18 @@ classique() {
 	#  On nomme donc les vrais terminaux, et on REFUSE tout chemin qui
 	#  revient sur ce programme — la garde vaut pour le prochain pont, pas
 	#  seulement pour celui d'aujourd'hui.
-	local MOI CHEMIN CIBLE T
+	#  ON CHOISIT DANS LA BOUCLE, ON REMPLACE APRÈS. Le « exec » nu au
+	#  milieu d'une boucle fait dire à shellcheck 0.9 — celui du coureur —
+	#  « Remove exec if script should continue after this command » (SC2093).
+	#  Il a raison de s'en méfier : à cet endroit, rien ne distingue à la
+	#  lecture un remplacement voulu d'un « exec » posé par erreur au milieu
+	#  d'un traitement. La forme « … && exec » est celle que le fichier
+	#  employait avant, et celle que shellcheck accepte : le remplacement
+	#  devient visiblement conditionnel, et il est la DERNIÈRE chose que
+	#  cette fonction fait.
+	local MOI CHEMIN CIBLE CHOISI T
 	MOI="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+	CHOISI=""
 	for T in xfce4-terminal gnome-terminal konsole mate-terminal xterm; do
 		CHEMIN="$(command -v "$T" 2>/dev/null)" || continue
 		[[ -n "$CHEMIN" ]] || continue
@@ -72,8 +82,10 @@ classique() {
 		#  Ni nous-mêmes, ni notre pont : les deux ramèneraient ici.
 		[[ "$CIBLE" == "$MOI" ]] && continue
 		[[ "$CIBLE" == *lexos-pro-terminal* ]] && continue
-		exec "$CHEMIN"
+		CHOISI="$CHEMIN"
+		break
 	done
+	[[ -n "$CHOISI" ]] && exec "$CHOISI"
 	die "Aucun terminal classique disponible (xfce4-terminal, gnome-terminal, konsole, mate-terminal ou xterm)."
 }
 
