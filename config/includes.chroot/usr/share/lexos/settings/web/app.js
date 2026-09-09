@@ -144,8 +144,61 @@ async function api(action, arg){
     return j;
   }catch(e){ toast("✗ Le pont local ne répond pas"); return {ok:false}; }
 }
-async function chargeEtat(){
-  try{ etat = Object.assign(etat, await (await fetch("/api/etat")).json()); }
+/*  ═══ NE RELIS QUE CE QUI A PU CHANGER ═══
+    Chaque section des Paramètres lit UNE clé de l'état, qui porte son nom.
+    Les exceptions sont ici, et elles seules : une section qui en regarde
+    plusieurs, ou dont la clé ne s'appelle pas comme elle.
+    Ce qui n'est pas à l'écran n'a pas besoin d'être à jour — il le sera
+    quand Alex ouvrira l'écran. */
+const CLES_SECTION = {
+  wifi:        ["wifi", "avion", "reseau"],
+  reseau:      ["reseau", "wifi", "avion"],
+  bluetooth:   ["bluetooth"],
+  ecrans:      ["ecrans", "ecrans_probleme", "echelle", "image"],
+  energie:     ["energie", "batterie", "lumiere"],
+  usb:         ["usb"],
+  diagnostic:  [],
+  apparence:   [],
+  bureau:      ["fond", "intro", "dock", "crt", "apercu"],
+  multitaches: ["bureaux", "apercu", "crt"],
+  applications:["defaut"],
+  notifications:["notif"],
+  recherche:   ["recherche"],
+  terminal:    ["terminal"],
+  comptes:     ["comptes"],
+  partage:     ["partage"],
+  bienetre:    ["bienetre"],
+  session:     [],
+  souris:      ["souris"],
+  couleurs:    ["couleurs"],
+  imprimantes: ["imprimantes"],
+  amovibles:   ["amovibles", "usb"],
+  formatage:   [],
+  tablette:    ["tablette"],
+  confidentialite: ["securite"],
+  maj:         ["maj"],
+  accessibilite: ["access"],
+  utilisateurs:["utilisateurs"],
+  region:      ["langue", "heure"],
+  clavier:     ["clavier"],
+  datetime:    ["heure"],
+  defaut:      ["defaut"],
+  distant:     ["distant"],
+  tiers:       ["tiers", "libre"],
+  apropos:     ["version", "noyau", "hote", "perf"],
+  mac:         ["mac"],
+  son:         ["son"],
+};
+function clesDeSection(cle){
+  const c = CLES_SECTION[cle];
+  return c === undefined ? [cle] : c;
+}
+/*  Sans argument : tout, comme avant — c'est ce que fait l'ouverture de la
+    fenêtre, et ce que demande le bouton « tout relire ». Avec une liste :
+    la machine ne relit que ces collecteurs-là. */
+async function chargeEtat(cles){
+  const q = (cles && cles.length) ? "?cles=" + encodeURIComponent(cles.join(",")) : "";
+  try{ etat = Object.assign(etat, await (await fetch("/api/etat" + q)).json()); }
   catch(e){}
 }
 
@@ -460,8 +513,19 @@ async function ouvreBoost(){
     deviner. Un interrupteur qui bascule à l'écran alors que la commande a
     échoué est un mensonge — et c'est comme ça qu'on croit avoir éteint le
     Wi-Fi sans l'avoir éteint. */
-async function rafraichir(msg){
-  await chargeEtat();
+/*  TOUT RELIRE, sur demande explicite : à l'ouverture de la fenêtre, et
+    quand quelque chose a pu changer hors de la section affichée. C'est le
+    coût d'avant — 1,54 s sur le décor mesuré — assumé là où il se justifie. */
+async function rafraichirTout(msg){ await rafraichir(msg, []); }
+async function rafraichir(msg, cles){
+  /*  TROIS FORMES, ET UNE SEULE RÈGLE À RETENIR :
+        rafraichir(msg)              -> la section AFFICHÉE, et elle seule ;
+        rafraichir(msg, ["a","b"])   -> ces clés-là ;
+        rafraichirTout(msg)          -> tout, comme avant.
+      La liste VIDE veut dire « tout » parce que c'est ce que comprend
+      /api/etat sans paramètre — une seule convention des deux côtés du pont
+      plutôt qu'une traduction au milieu. */
+  await chargeEtat(cles === undefined ? clesDeSection(sectionActive) : cles);
   //  ═══ ET L'APPARENCE AVEC. ALEX : « dans les Paramètres les boutons
   //  fonctionnent tous, mais c'est la couleur orange qui ne change pas dans
   //  les Paramètres — pour le dock surtout. » ═══
@@ -863,7 +927,12 @@ function suitMaj(quoi){
   let tours = 0;
   majSondage = setInterval(async () => {
     tours++;
-    await chargeEtat();
+    //  Toutes les 1,5 s pendant un « apt upgrade » — jusqu'à dix minutes.
+    //  Relire TOUT l'état à chaque tour (le Bluetooth, les imprimantes, les
+    //  écrans…) était le pire endroit du fichier : la mise à jour est
+    //  justement le moment où la machine est déjà occupée. On ne relit que
+    //  ce qu'on regarde.
+    await chargeEtat(["maj"]);
     rendSection();
     const p = (etat.maj && etat.maj.progres && etat.maj.progres[quoi]) || null;
     //  400 tours à 1,5 s ≈ 10 minutes : largement de quoi laisser un « apt
