@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  =============================================================================
+   LexOS — formater un support amovible
+  =============================================================================
+   POURQUOI CE FICHIER EXISTE. Sans action déclarée, pkexec retombe sur son
+   comportement par défaut : il demande le mot de passe de ROOT, avec un
+   texte générique du genre « Authentication is required to run ... as the
+   super user ». Sur une machine où root n'a pas de mot de passe — le cas
+   normal d'une installation LexOS — cette demande ne peut aboutir : on tape
+   son mot de passe d'utilisateur, il est refusé, et rien ne se passe.
+   C'est une autre façon d'obtenir le symptôme d'Alex.
+
+   Avec cette action, pkexec demande le mot de passe d'un ADMINISTRATEUR
+   (auth_admin), c'est-à-dire le sien, et il affiche le texte ci-dessous —
+   celui qu'Alex lira dans la fenêtre.
+
+   « auth_admin_keep » POUR LA SESSION ACTIVE, ET C'EST DÉLIBÉRÉ. lexos-format
+   se relance lui-même en passe privilégiée, et la page enchaîne les étapes ;
+   redemander le mot de passe à chacune donnerait l'impression que rien
+   n'avance. « keep » retient l'autorisation quelques minutes pour CETTE
+   session seulement. Une session inactive ou distante, elle, redemande à
+   chaque fois : c'est le sens de allow_inactive/allow_any.
+
+   L'autorisation reste la plus étroite possible : elle ne vaut QUE pour
+   /usr/bin/lexos-format, qui refuse lui-même tout disque système et tout
+   disque portant des dossiers de l'utilisateur.
+-->
+<policyconfig>
+  <vendor>LexOS</vendor>
+  <vendor_url>https://github.com/alexmarceauprevost812-source/lexOS-2.0</vendor_url>
+
+  <action id="org.lexos.format.executer">
+    <description>Formater un support amovible</description>
+    <description xml:lang="en">Format a removable device</description>
+    <message>LexOS va effacer complètement le support choisi et le remettre à neuf. Tout ce qu'il contient sera perdu.</message>
+    <message xml:lang="en">LexOS is about to erase the selected device completely. Everything on it will be lost.</message>
+    <icon_name>media-removable</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/lexos-format</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

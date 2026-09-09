@@ -48,10 +48,23 @@
 // ===========================================================================
 
 polkit.addRule(function (action, subject) {
-    if (action.id !== "org.freedesktop.policykit.exec") {
-        return;
-    }
-    if (action.lookup("program") !== "/usr/bin/lexos-format") {
+    //  ═══ DEUX IDENTIFIANTS, ET C'EST NÉCESSAIRE — MESURÉ ═══
+    //  Depuis qu'org.lexos.format.policy existe, pkexec ne demande PLUS
+    //  « org.freedesktop.policykit.exec » pour ce programme : il cherche
+    //  l'action dont l'annotation exec.path vaut /usr/bin/lexos-format, et
+    //  la trouve. Vérifié sur un vrai polkitd, à la ligne près :
+    //
+    //    avec l'action :  ==== AUTHENTICATING FOR org.lexos.format.executer ====
+    //    sans l'action :  ==== AUTHENTICATING FOR org.freedesktop.policykit.exec ====
+    //
+    //  Une règle qui ne nommerait que le second serait donc MORTE : elle ne
+    //  se déclencherait plus jamais, sans que rien ne le dise. On garde les
+    //  deux — le second reste le chemin employé si le fichier d'action venait
+    //  à manquer (paquet retiré, /usr/share non monté).
+    var propre = (action.id === "org.lexos.format.executer");
+    var generique = (action.id === "org.freedesktop.policykit.exec"
+                     && action.lookup("program") === "/usr/bin/lexos-format");
+    if (!propre && !generique) {
         return;
     }
     if (subject.active && subject.local) {
