@@ -590,6 +590,36 @@ EOF
 
 XFWM_SOMBRE=""
 XFWM_CLAIR=""
+#  ═══ CE QUE CE THÈME FAIT À LA COULEUR DU TITRE : RIEN ═══
+#  CONSTAT demandé par Alex — sa capture montre la fenêtre du terminal avec
+#  une barre de titre GRIS CLAIR et le texte en NOIR, alors que « Partager »
+#  et « Paramètres LexOS » ont une barre sombre. Relevé, sans rien corriger :
+#
+#    · xfce4-terminal 1.1.3 n'a AUCUN réglage de décoration côté client —
+#      relevé dans le binaire livré, il n'y a pas de « misc-use-headerbar ».
+#      Sa barre de titre est donc dessinée par xfwm4, comme les autres. Il
+#      n'échappe pas au gestionnaire de fenêtres.
+#
+#    · Le thème posé sur l'ISO est « LexOS-Arc-Dark », dérivé ici même —
+#      confirmé par le journal de construction de l'ISO 117, qui écrit
+#      « fenêtres : Arc-Dark » puis « Arc-Dark : 35 images de la rangée du
+#      titre agrandies ».
+#
+#    · La dérivation ne touche QUE button_offset et button_spacing (voir
+#      derive() plus haut). Elle ne réécrit PAS active_text_color. Le titre
+#      garde donc celui d'Arc-Dark : #afb8c5, un gris bleuté clair, sur une
+#      barre sombre. Yaru-dark aurait donné #e4e4e4.
+#
+#  AUCUNE de ces deux valeurs n'est du noir, et aucune n'est de l'orange.
+#  Ni le gris clair à texte noir de sa capture, ni le titre orange qu'il
+#  décrit ailleurs, ne peuvent venir du thème que cette ISO installe. Ce
+#  qu'il a vu vient donc d'ailleurs — une fenêtre ouverte hors de sa session
+#  (root n'a pas ses réglages xfconf), une session d'avant l'application du
+#  thème, ou un thème changé à la main. Ça ne se tranche pas depuis le dépôt.
+#
+#  ON NE CORRIGE RIEN ICI. Repeindre le titre en orange serait un choix
+#  visuel sur TOUTES les fenêtres du système, pas la réparation d'un défaut :
+#  la consigne demandait un constat.
 derive Arc-Dark && XFWM_SOMBRE="LexOS-Arc-Dark"
 derive Arc      && XFWM_CLAIR="LexOS-Arc"
 
