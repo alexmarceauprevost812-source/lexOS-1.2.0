@@ -827,6 +827,11 @@ set -- "${ARGS[@]+"${ARGS[@]}"}"
 CMD="${1:-status}"
 [[ $# -gt 0 ]] && shift
 
+#  ═══ LE CODE DE SORTIE EST DIT PAR CHAQUE BRANCHE, JAMAIS DEVINÉ ═══
+#  Voir le commentaire en fin de fichier : ni le hasard d'un « esac », ni un
+#  « exit 0 » aveugle. Chaque branche qui peut échouer le déclare ici.
+CODE=0
+
 case "$CMD" in
 	help)    cmd_help ;;
 	list)    cmd_list ;;
@@ -836,7 +841,7 @@ case "$CMD" in
 		SUGG="$(detect_profile)"
 		say "Matériel détecté → profil ${B}${SUGG}${R}"
 		on_battery && say "Machine sur batterie : l'autonomie baissera au-delà de « medium »."
-		set_profile "$SUGG"
+		set_profile "$SUGG" || CODE=$?
 		;;
 	apply)
 		PROFILE="$(current_profile)"
@@ -853,10 +858,10 @@ case "$CMD" in
 		#      1
 		#  Deux « if » disent la même chose sans rien laisser fuir.
 		if [[ "$SCOPE" != "user" ]] && [[ $EUID -eq 0 ]]; then
-			apply_system
+			apply_system || CODE=$?
 		fi
 		if [[ "$SCOPE" != "system" ]]; then
-			apply_user
+			apply_user || CODE=$?
 		fi
 		;;
 	apply-system)
@@ -868,20 +873,35 @@ case "$CMD" in
 		PROFILE="$(normalize "${1:-}")" || die "Profil inconnu : ${1:-}"
 		load_profile "$PROFILE" || die "Profil invalide"
 		SCOPE="system"
-		apply_system
+		apply_system || CODE=$?
 		;;
 	*)
 		if NORM="$(normalize "$CMD")"; then
-			set_profile "$NORM"
+			set_profile "$NORM" || CODE=$?
 		else
 			die "Commande ou profil inconnu : ${CMD}  (essaie : ${PROG} help)"
 		fi
 		;;
 esac
 
-#  ═══ ET LE CODE DE SORTIE EST FIXÉ ICI, PAS LAISSÉ AU HASARD ═══
+#  ═══ ET LE CODE DE SORTIE EST DIT, PAS LAISSÉ AU HASARD — NI ÉCRASÉ ═══
 #  Le code de sortie d'un script est celui de sa dernière commande, et un
 #  « esac » rend celui du dernier test évalué — c'est-à-dire n'importe quoi.
 #  C'est ce hasard-là qui faisait passer lexos-perf.service pour « failed ».
-#  Les vraies erreurs, elles, sortent par die(), qui rend 1 explicitement.
-exit 0
+#
+#  MAIS « exit 0 » ÉTAIT UN REMÈDE PIRE QUE LE MAL, et le commentaire qui le
+#  justifiait était FAUX : il disait que « les vraies erreurs sortent par
+#  die() ». set_profile n'appelle pas die() — quand le plan système est
+#  refusé (mot de passe, pas d'agent), il applique quand même le plan session
+#  et rend 1 EXPRÈS, pour que la page des Paramètres sache que la moitié
+#  système n'est pas passée. « exit 0 » écrasait précisément ce 1 : la page
+#  annonçait « Profil appliqué » sur un profil à moitié appliqué.
+#
+#  ET ÇA NE SE VOYAIT PAS EN LOCAL : le banc n'éprouve ce chemin que si
+#  EUID != 0 (en root, il n'y a rien à élever). Sur une machine de
+#  développement en root, vert ; sur le coureur de la CI, rouge — depuis
+#  l'ISO 119, et c'est ce correctif-ci qui l'avait introduit.
+#
+#  Chaque branche du « case » déclare donc son vrai code dans CODE ; rien
+#  n'est deviné, rien n'est écrasé.
+exit "$CODE"
