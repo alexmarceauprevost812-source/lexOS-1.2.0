@@ -136,8 +136,20 @@ voulu() {
 		[[ "$v" == "on" || "$v" == "off" ]] && { printf '%s' "$v"; return 0; }
 	fi
 	if [[ -r "$CONF_BUILD" ]]; then
+		#  LA DÉCLARATION D'ABORD, L'AFFECTATION ENSUITE — ET CE N'EST PAS
+		#  UNE QUESTION DE STYLE. Une directive « shellcheck disable » porte
+		#  sur LA COMMANDE SUIVANTE. Sur « local d; d="$(. …)" » il y a DEUX
+		#  commandes séparées par un point-virgule : la directive tombait sur
+		#  « local d », et le « . » de la seconde restait signalé.
+		#  Mesuré avec le shellcheck du coureur (0.9.0) :
+		#      SC1090 (warning): ShellCheck can't follow non-constant source
+		#  Le chemin est devenu une variable (LEXOS_BUILD_CONF, pour que les
+		#  bancs puissent éprouver la décision) : shellcheck ne peut donc plus
+		#  suivre le fichier, et il a raison de le dire. On le lui dit une
+		#  fois, à l'endroit qui compte.
+		local d
 		# shellcheck disable=SC1090,SC1091
-		local d; d="$(. "$CONF_BUILD" 2>/dev/null; printf '%s' "${LEXOS_CRT_EFFECTS:-on}")"
+		d="$(. "$CONF_BUILD" 2>/dev/null; printf '%s' "${LEXOS_CRT_EFFECTS:-on}")"
 		[[ "$d" == "off" ]] && { printf 'off'; return 0; }
 	fi
 	printf 'on'
