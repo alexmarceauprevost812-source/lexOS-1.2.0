@@ -292,6 +292,86 @@ const _params = new URLSearchParams(location.search);
 const _port  = _params.get("port");
 const _jeton = _params.get("jeton");
 
+/*  ═══ UN SEUL FLUX POUR TOUS LES VOLETS — ET POURQUOI ═══
+    Chaque volet ouvrait SON flux « /api/flux?fen=… », une connexion HTTP
+    tenue ouverte tant que le volet vit. Or un navigateur n'accorde que SIX
+    connexions simultanées par origine en HTTP/1.1. MESURÉ dans un vrai
+    Chromium contre le vrai pont, en ouvrant les flux un à un :
+
+        1 à 5 flux ouverts → /api/saisie répond en 3 à 6 ms
+        6 flux et au-delà  → /api/saisie ne répond plus (abandonné à 5 s)
+
+    Au sixième volet — trois onglets divisés en deux, c'est vite arrivé — le
+    terminal se figeait ENTIÈREMENT : plus une frappe, plus un
+    redimensionnement, et rien à l'écran pour le dire.
+
+    Le pont accepte donc « fens=a,b,c » : un seul flux suit tous les volets et
+    étiquette chaque bloc avec le volet auquel il appartient. Ouvrir un volet
+    est devenu une requête COURTE (« /api/ouvrir »), qui ne tient rien.
+    Résultat : UNE connexion tenue, quel que soit le nombre de volets. */
+const FLUX = {
+  volets: new Map(),
+  _ctl: null,
+  _relance: null,
+
+  /*  Ouvrir ou fermer un volet ne ROUVRE PAS le flux : le pont suit
+      « toutes les sessions » (fens=*) et découvre les nouvelles tout seul.
+      Rouvrir obligerait à abandonner la requête en cours — une requête
+      échouée dans la page, que le banc du navigateur signale à juste titre. */
+  ajouter(v){ this.volets.set(String(v.id), v); this.demarrer(); },
+  retirer(id){ this.volets.delete(String(id)); },
+
+  demarrer(){
+    if(this._ctl) return;               /* déjà ouvert, il suit tout */
+    if(this._relance) clearTimeout(this._relance);
+    this._relance = setTimeout(() => { this._relance = null; this.boucle(); }, 0);
+  },
+
+  async boucle(){
+    if(!this.volets.size || !_port || !_jeton) return;
+    const ctl = new AbortController();
+    this._ctl = ctl;
+    const q = new URLSearchParams({fens: "*"});
+    let r;
+    try{
+      r = await fetch("/api/flux?" + q.toString(),
+                      {headers:{"X-Lexos-Jeton":_jeton}, signal: ctl.signal});
+    }catch(e){ return; }
+    if(!r || !r.ok || !r.body || this._ctl !== ctl) return;
+    const lecteur = r.body.getReader();
+    const dec = new TextDecoder();
+    let reste = "";
+    for(;;){
+      let bloc;
+      try{ bloc = await lecteur.read(); }catch(e){ break; }
+      if(bloc.done) break;
+      if(this._ctl !== ctl) return;          /* un flux plus récent a pris la main */
+      reste += dec.decode(bloc.value, {stream:true});
+      const parts = reste.split("\n\n");
+      reste = parts.pop();
+      for(const ev of parts){
+        if(ev.startsWith("event: fin")){
+          const m = ev.match(/\ndata: (.*)$/);
+          const v = m && this.volets.get(m[1].trim());
+          if(v){ this.volets.delete(m[1].trim()); v.finSession(); }
+          continue;
+        }
+        for(const ligne of ev.split("\n")){
+          if(!ligne.startsWith("data: ")) continue;   /* « : … » = maintien */
+          const reste2 = ligne.slice(6);
+          const sep = reste2.indexOf(" ");
+          if(sep < 0) continue;
+          const v = this.volets.get(reste2.slice(0, sep));
+          if(v && v.term) v.term.write(base64Octets(reste2.slice(sep + 1)));
+        }
+      }
+    }
+    /*  Le tuyau s'est refermé (pont relancé, hoquet). Si des volets
+        attendent encore, on rouvre. */
+    if(this._ctl === ctl){ this._ctl = null; if(this.volets.size) this.demarrer(); }
+  },
+};
+
 //  xterm.js s'installe sur « window.Terminal ». Or CE fichier appelle déjà
 //  « Terminal » son gestionnaire d'onglets et de divisions, et son « const »
 //  masque le global dans toute cette portée. On capture donc la classe sous
@@ -529,55 +609,48 @@ class Fenetre {
      d'octets lu par blocs, et un bloc peut couper un caractère accentué en
      deux. Le base64 les transporte intacts ; c'est le décodeur UTF-8 à état
      de xterm.js qui recolle les morceaux. */
+  /* --- L'ouverture d'un volet -------------------------------------------
+     DEUX GESTES, ET C'EST LE CORRECTIF. Avant, « /api/flux?fen=… » faisait
+     les deux à la fois : il créait le shell ET tenait le tuyau de sortie
+     ouvert pour toujours. Une connexion par volet, donc — et un navigateur
+     n'en accorde que six par origine. Au sixième volet, tout se figeait
+     (mesuré : /api/saisie sans réponse au-delà de 5 s).
+
+     Maintenant : « /api/ouvrir » est une requête COURTE qui crée le shell et
+     rend la main ; l'écoute passe par le flux PARTAGÉ (voir FLUX, plus
+     haut), qui suit tous les volets sur UNE seule connexion.
+
+     Les données arrivent en base64 : ce qui sort d'un pty est un flot
+     d'octets lu par blocs, et un bloc peut couper un caractère accentué en
+     deux. Le base64 les transporte intacts ; c'est le décodeur UTF-8 à état
+     de xterm.js qui recolle les morceaux. */
   async ouvrirFlux(){
     if(!_port || !_jeton){
       this.term.write("\r\n\x1b[33m! cette page a été ouverte sans le pont local\x1b[0m\r\n" +
                       "\x1b[90m  lance \x1b[0mlexos-pro-terminal\x1b[90m pour obtenir un vrai terminal.\x1b[0m\r\n");
       return;
     }
-    //  On ajuste AVANT d'ouvrir le flux : le shell doit naître à la bonne
-    //  taille, sinon sa première invite et sa bannière sont dessinées à 80
-    //  colonnes puis reflowées de travers.
+    //  On ajuste AVANT d'ouvrir : le shell doit naître à la bonne taille,
+    //  sinon sa première invite et sa bannière sont dessinées à 80 colonnes
+    //  puis reflowées de travers.
     try{ if(this.ajust) this.ajust.fit(); }catch(e){}
-    const q = new URLSearchParams({
-      fen: String(this.id), cwd: this.cwd === "~" ? "" : this.cwd,
-      colonnes: String(this.term.cols), lignes: String(this.term.rows)
-    });
     let r;
     try{
-      r = await fetch("/api/flux?" + q.toString(), {headers:{"X-Lexos-Jeton":_jeton}});
+      r = await poste("/api/ouvrir", {
+        fen: String(this.id), cwd: this.cwd === "~" ? "" : this.cwd,
+        colonnes: String(this.term.cols), lignes: String(this.term.rows)
+      });
     }catch(e){ r = null; }
-    if(!r || !r.ok || !r.body){
+    if(!r || r.ok === false){
       this.term.write("\r\n\x1b[31m— le pont local ne répond pas ; relance lexos-pro-terminal\x1b[0m\r\n");
       return;
     }
     this.pret = true;
-    //  Le flux répond : la session existe. Ce qui a été tapé en attendant
-    //  part MAINTENANT, dans l'ordre, avant toute nouvelle frappe.
+    //  La session existe : ce qui a été tapé en attendant part MAINTENANT,
+    //  dans l'ordre, avant toute nouvelle frappe.
     this.verser();
     Terminal.majEtat();
-    const lecteur = r.body.getReader();
-    const dec = new TextDecoder();
-    let reste = "";
-    for(;;){
-      let bloc;
-      try{ bloc = await lecteur.read(); }catch(e){ break; }
-      if(bloc.done) break;
-      reste += dec.decode(bloc.value, {stream:true});
-      //  Un événement SSE se termine par une ligne vide. Ce qui suit le
-      //  dernier séparateur est un message incomplet : on le garde pour le
-      //  tour suivant.
-      const parts = reste.split("\n\n");
-      reste = parts.pop();
-      for(const ev of parts){
-        if(ev.startsWith("event: fin")){ this.finSession(); return; }
-        for(const ligne of ev.split("\n")){
-          if(!ligne.startsWith("data: ")) continue;      /* « : … » = maintien */
-          this.term.write(base64Octets(ligne.slice(6)));
-        }
-      }
-    }
-    if(!this.fermee) this.finSession();
+    FLUX.ajouter(this);
   }
 
   finSession(){
@@ -631,6 +704,10 @@ class Fenetre {
     if(this.fermee) return;
     this.fermee = true;
     if(this._ro){ try{ this._ro.disconnect(); }catch(e){} }
+    //  Quitter le flux partagé AVANT de fermer : sinon le pont continuerait
+    //  de suivre un volet qui n'existe plus, et le flux serait rouvert pour
+    //  rien à chaque bloc reçu.
+    FLUX.retirer(this.id);
     poste("/api/fermer", {fen:String(this.id)});
     if(this.term){ try{ this.term.dispose(); }catch(e){} }
   }

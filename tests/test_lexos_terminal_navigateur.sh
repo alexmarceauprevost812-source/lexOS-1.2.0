@@ -322,6 +322,47 @@ dit(ennuis.length === 0,
       'ce qu\'on tape AVANT que le shell soit prêt n\'est pas perdu (' + bons + '/' + N + ')');
 }
 
+//  ═══ HUIT VOLETS, ET LE TERMINAL RÉPOND TOUJOURS ═══
+//  Un navigateur n'accorde que SIX connexions simultanées par origine en
+//  HTTP/1.1. Tant que chaque volet tenait SON flux ouvert, le sixième
+//  épuisait le quota et TOUT se figeait — plus une frappe, plus un
+//  redimensionnement, et rien à l'écran pour le dire. MESURÉ avant le
+//  correctif, dans ce même Chromium : 1 à 5 volets → /api/saisie en 3 à
+//  6 ms ; 6 volets et au-delà → aucune réponse en 5 secondes.
+//  Le pont suit maintenant tous les volets sur UN flux (fens=*), et ouvrir
+//  un volet est une requête courte. Ce contrôle le vérifie là où ça se
+//  joue : dans un vrai navigateur, avec ses vraies limites.
+{
+  const r = await page.evaluate(async ({jeton, n}) => {
+    const lents = [];
+    for (let i = 900; i < 900 + n; i++) {
+      await fetch('/api/ouvrir', {method:'POST',
+        headers:{'Content-Type':'application/json','X-Lexos-Jeton':jeton},
+        body: JSON.stringify({fen:String(i), colonnes:80, lignes:24})});
+      const t0 = performance.now();
+      try {
+        const ctl = new AbortController();
+        const m = setTimeout(() => ctl.abort(), 4000);
+        await fetch('/api/saisie', {method:'POST', signal: ctl.signal,
+          headers:{'Content-Type':'application/json','X-Lexos-Jeton':jeton},
+          body: JSON.stringify({fen:String(i), texte:''})});
+        clearTimeout(m);
+      } catch (e) { lents.push(i - 899); }
+      const ms = performance.now() - t0;
+      if (ms > 2000 && !lents.includes(i - 899)) lents.push(i - 899);
+    }
+    for (let i = 900; i < 900 + n; i++)
+      fetch('/api/fermer', {method:'POST',
+        headers:{'Content-Type':'application/json','X-Lexos-Jeton':jeton},
+        body: JSON.stringify({fen:String(i)})});
+    return lents;
+  }, {jeton, n: 8});
+  dit(r.length === 0,
+      r.length === 0
+        ? 'huit volets ouverts : le terminal répond toujours (le 6e ne fige plus rien)'
+        : 'le terminal se fige à partir du volet ' + r[0] + ' — le quota de connexions du navigateur est épuisé');
+}
+
 await nav.close(); proc.kill();
 JS
 

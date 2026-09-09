@@ -116,6 +116,22 @@ SHELL_DEFAUT = "/bin/bash"
 #  rattrapage : le flux SSE peut s'attacher quelques millisecondes après le
 #  démarrage du shell, et la bannière + la première invite ne doivent pas se
 #  perdre. Borné, sinon un `htop` laissé ouvert une nuit remplirait la RAM.
+#  ═══ LE RÉVEIL PARTAGÉ — POURQUOI IL EXISTE ═══
+#  Chaque session a SA condition, et « depuis() » l'attend. Cela suffit tant
+#  qu'un flux ne suit qu'UNE session. Le flux multiplexé, lui, en suit
+#  plusieurs : sans signal commun, il devrait interroger chacune à tour de
+#  rôle avec un petit délai — six volets à 50 ms, c'est jusqu'à 300 ms de
+#  retard sur la frappe, et un terminal qui traîne se remarque tout de suite.
+#  Ce réveil-ci est notifié EN MÊME TEMPS que la condition d'une session : le
+#  flux multiplexé dort dessus et se lève dès que N'IMPORTE LAQUELLE parle.
+REVEIL = threading.Condition()
+
+
+def _reveiller():
+    with REVEIL:
+        REVEIL.notify_all()
+
+
 TAMPON_MAX = int(os.environ.get("LEXOS_TERMINAL_PRO_TAMPON", str(256 * 1024)))
 
 #  Un volet = une session. Bornée pour qu'une page en boucle ne puisse pas
@@ -223,9 +239,11 @@ class Session:
                     del self.tampon[:trop]
                     self.perdus += trop
                 self.cond.notify_all()
+            _reveiller()
         with self.cond:
             self.fini = True
             self.cond.notify_all()
+        _reveiller()
         try:
             self.code = os.waitpid(self.pid, 0)[1]
         except OSError:
@@ -338,6 +356,7 @@ class Session:
         with self.cond:
             self.fini = True
             self.cond.notify_all()
+        _reveiller()
 
 
 #  Le registre des sessions vivantes, une par volet. La clé est l'identifiant
@@ -465,8 +484,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             v = params.get(nom, [defaut])
             return v[0] if v else defaut
 
+        #  ═══ UN SEUL FLUX POUR TOUS LES VOLETS ═══
+        #  « fens=a,b,c » : le flux suit plusieurs volets et ÉTIQUETTE chaque
+        #  bloc. « fen=a » reste accepté, sans étiquette — c'est la forme
+        #  qu'emploient les bancs du pont, et un pont qui casse ses propres
+        #  bancs en corrigeant autre chose n'a rien corrigé.
+        #  « fens=* » : SUIVRE TOUTES LES SESSIONS, ET CELLES QUI NAÎTRONT.
+        #  C'est la forme qu'emploie la page. Une liste figée obligerait à
+        #  ROUVRIR le flux à chaque volet ouvert ou fermé — donc à abandonner
+        #  une requête en cours, ce que le banc du navigateur signale à juste
+        #  titre comme une requête échouée. Avec l'étoile, le flux est ouvert
+        #  UNE fois pour la vie de la fenêtre.
+        brut = prem("fens").strip()
+        toutes = (brut == "*")
+        liste = [] if toutes else [f.strip() for f in brut.split(",") if f.strip()]
         fen = prem("fen").strip()
-        if not fen:
+        if not liste and not toutes and fen:
+            liste = [fen]
+        etiquete = bool(brut)
+        if not liste and not toutes:
             return self._json(400, {"ok": False, "erreur": "fen manquant"})
         try:
             colonnes = int(prem("colonnes", "80") or 80)
@@ -478,12 +514,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         #  là, après un hoquet du tuyau — perdrait pour de bon le
         #  « -e "lexos capture video" » du lanceur : la fenêtre s'ouvrirait
         #  sur une invite nue, sans que rien n'explique pourquoi.
-        depart = None if session_de(fen) is not None else _prendre_demarrage()
+        suivies = {}
         try:
-            s = session_de(fen, creer=True,
-                           cwd=(depart and depart["cwd"]) or prem("cwd") or None,
-                           colonnes=colonnes, lignes=lignes,
-                           cmd=(depart and depart["cmd"]) or None)
+            for f in list(liste):
+                #  ON NE CONSOMME LE DÉMARRAGE QUE POUR UNE SESSION QUI NAÎT.
+                depart = None if session_de(f) is not None else _prendre_demarrage()
+                suivies[f] = session_de(
+                    f, creer=True,
+                    cwd=(depart and depart["cwd"]) or prem("cwd") or None,
+                    colonnes=colonnes, lignes=lignes,
+                    cmd=(depart and depart["cmd"]) or None)
         except Exception as e:  # noqa: BLE001 — la fenêtre doit survivre
             return self._json(500, {"ok": False, "erreur": str(e)})
 
@@ -491,24 +531,64 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        pos = 0
+        pos = {f: 0 for f in liste}
+        finies = set()
         try:
             while True:
+                #  En mode « toutes », la liste se relit à chaque tour : un
+                #  volet ouvert entre-temps est suivi sans rouvrir le flux.
+                if toutes:
+                    with _VERROU_SESSIONS:
+                        liste = list(SESSIONS.keys())
+                        for f in liste:
+                            if f not in suivies:
+                                suivies[f] = SESSIONS[f]
+                                pos[f] = 0
+                #  On VIDE d'abord tout ce qui attend, sans dormir (délai 0) :
+                #  la sortie d'un volet ne doit pas attendre le tour d'un
+                #  autre. C'est seulement quand tout est vide qu'on dort — sur
+                #  le RÉVEIL PARTAGÉ, qui se lève dès que n'importe laquelle
+                #  des sessions parle.
+                quelque_chose = False
+                for f in liste:
+                    if f in finies:
+                        continue
+                    bloc, pos[f], fini = suivies[f].depuis(pos[f], 0)
+                    if bloc:
+                        quelque_chose = True
+                        if etiquete:
+                            self.wfile.write(b"data: " + f.encode("utf-8") +
+                                             b" " + base64.b64encode(bloc) +
+                                             b"\n\n")
+                        else:
+                            self.wfile.write(b"data: " +
+                                             base64.b64encode(bloc) + b"\n\n")
+                    elif fini:
+                        finies.add(f)
+                        quelque_chose = True
+                        if etiquete:
+                            self.wfile.write(b"event: fin\ndata: " +
+                                             f.encode("utf-8") + b"\n\n")
+                        else:
+                            self.wfile.write(b"event: fin\ndata: {}\n\n")
+                            self.wfile.flush()
+                            return
+                if quelque_chose:
+                    self.wfile.flush()
+                    continue
+                #  En mode « toutes », on ne raccroche jamais : la fenêtre
+                #  peut rouvrir un volet après avoir fermé le dernier.
+                if etiquete and not toutes and len(finies) == len(liste):
+                    self.wfile.flush()
+                    return
                 #  Le réveil au bout d'une seconde n'est pas de l'attente
                 #  active : sans lui, un volet fermé par la page ne serait
                 #  JAMAIS remarqué — on ne s'en aperçoit qu'en écrivant sur
                 #  la prise. Le « : » est un commentaire SSE, ignoré par le
                 #  lecteur, et c'est lui qui déclenche l'erreur d'écriture.
-                bloc, pos, fini = s.depuis(pos, 1.0)
-                if bloc:
-                    self.wfile.write(b"data: " +
-                                     base64.b64encode(bloc) + b"\n\n")
-                elif fini:
-                    self.wfile.write(b"event: fin\ndata: {}\n\n")
-                    self.wfile.flush()
-                    return
-                else:
-                    self.wfile.write(b": .\n\n")
+                with REVEIL:
+                    REVEIL.wait(1.0)
+                self.wfile.write(b": .\n\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             #  La page a fermé le volet ou s'est rechargée. Le shell, lui,
@@ -518,7 +598,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
     def do_POST(self):
-        if self.path in ("/api/saisie", "/api/taille", "/api/fermer"):
+        if self.path in ("/api/saisie", "/api/taille", "/api/fermer",
+                         "/api/ouvrir"):
             return self._route_pty(self.path)
         return self._json(404, {"ok": False, "erreur": "inconnu"})
 
@@ -535,6 +616,34 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if chemin == "/api/fermer":
             return self._json(200, {"ok": True, "ferme": fermer_session(fen)})
+
+        #  ═══ /api/ouvrir — CRÉER LA SESSION SANS TENIR DE CONNEXION ═══
+        #  C'était /api/flux qui créait le shell, en même temps qu'il ouvrait
+        #  le tuyau de sortie. Pratique, et c'est ce qui a coûté cher : un
+        #  navigateur n'accorde que SIX connexions simultanées par origine en
+        #  HTTP/1.1, et chaque volet en gardait une, à vie. MESURÉ dans un
+        #  vrai Chromium contre ce pont :
+        #      1 à 5 flux ouverts → /api/saisie répond en 3 à 6 ms
+        #      6 flux et au-delà  → /api/saisie ne répond plus (> 5 s)
+        #  Au sixième volet, taper ne faisait plus rien. On sépare donc les
+        #  deux gestes : ouvrir est une requête courte, écouter est UN seul
+        #  flux pour tous les volets (voir « fens » dans _flux).
+        if chemin == "/api/ouvrir":
+            try:
+                colonnes = int(requete.get("colonnes", 80) or 80)
+                lignes = int(requete.get("lignes", 24) or 24)
+            except (TypeError, ValueError):
+                colonnes, lignes = 80, 24
+            depart = None if session_de(fen) is not None else _prendre_demarrage()
+            try:
+                session_de(fen, creer=True,
+                           cwd=((depart and depart["cwd"])
+                                or str(requete.get("cwd") or "") or None),
+                           colonnes=colonnes, lignes=lignes,
+                           cmd=(depart and depart["cmd"]) or None)
+            except Exception as e:  # noqa: BLE001 — la fenêtre doit survivre
+                return self._json(500, {"ok": False, "erreur": str(e)})
+            return self._json(200, {"ok": True})
 
         s = session_de(fen)
         if s is None:
