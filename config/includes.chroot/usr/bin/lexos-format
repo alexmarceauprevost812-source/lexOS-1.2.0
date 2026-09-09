@@ -188,12 +188,38 @@ INFO="$(lsblk -no NAME,SIZE,LABEL,MOUNTPOINT "/dev/$DISK" 2>/dev/null)"
 # =============================================================================
 if [[ -z "$FSTYPE" ]]; then
 	if [[ "$GUI" -eq 1 ]] && command -v zenity >/dev/null 2>&1; then
+		#  ═══ 800x440, ET LE CHIFFRE EST MESURÉ ═══
+		#  ALEX : « la page de formatage, on pourrait-tu la mettre un peu
+		#  plus gros pour bien voir tout le menu ? » Il voyait les
+		#  descriptions coupées. Le vrai défaut était pire : à 560x260, la
+		#  liste n'avait la place que de DEUX rangées — « ext4 » était
+		#  proposé par le code et INVISIBLE à l'écran. Une fonction offerte
+		#  et inatteignable, pas un défaut de confort.
+		#
+		#  POURQUOI 560x260 A FINI PAR NE PLUS SUFFIRE. LexOS livre douze
+		#  écritures à la main, et Alex en change quand il veut. Une taille
+		#  en pixels tient avec l'une et déborde avec l'autre. Relevé au
+		#  Pango de GTK, sur les douze plus les trois polices d'interface :
+		#      la plus large ....... « Ronde » (Short Stack 11) : la colonne
+		#                            Description demande 506 px à elle seule
+		#      la plus haute ....... « Tableau noir » (Gloria Hallelujah 10)
+		#                            33 px par rangée, contre 24 par défaut
+		#  À 800x440, la liste reçoit 790x354 au pire et n'en demande que
+		#  720x127 : 70 px de marge en largeur, et la place de trois rangées
+		#  de plus en hauteur. Vérifié pour LES QUINZE polices, et rendu
+		#  pour de vrai avec zenity — les trois lignes sont là, entières.
+		#  MESURÉ, PAS DEVINÉ. Le banc test_lexos_format_boites.sh refait
+		#  la mesure à chaque construction.
+		#
+		#  Les descriptions sont raccourcies au passage : gagner de la
+		#  largeur par le texte tient sur un portable de 1366 px, en
+		#  demander à l'écran, non.
 		FSTYPE="$(zenity --list --title="Formater /dev/${DISK}" --radiolist \
 			--column="" --column="Système de fichiers" --column="Description" \
-			TRUE  vfat  "FAT32 — compatible partout, y compris téléphones (fichiers < 4 Go)" \
-			FALSE exfat "exFAT — comme FAT32, mais sans limite de taille de fichier" \
-			FALSE ext4  "ext4 — Linux seulement, pas de limite" \
-			--width=560 --height=260 2>/dev/null)"
+			TRUE  vfat  "FAT32 — partout, même les téléphones (4 Go max par fichier)" \
+			FALSE exfat "exFAT — partout aussi, sans limite de taille" \
+			FALSE ext4  "ext4 — Linux seulement, sans limite" \
+			--width=800 --height=440 2>/dev/null)"
 		[[ -n "$FSTYPE" ]] || exit 0
 	else
 		printf '\n%sSystème de fichiers%s ${D}(vfat = FAT32, exfat, ext4)%s — défaut : vfat\n> ' "$B$O" "$R" "$R"
