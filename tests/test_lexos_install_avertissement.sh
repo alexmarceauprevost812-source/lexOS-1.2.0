@@ -27,10 +27,20 @@ RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INST="$RACINE/config/includes.chroot/usr/bin/lexos-install"
 
 VERT=$'\033[32m'; ROUGE=$'\033[31m'; JAUNE=$'\033[33m'; GRAS=$'\033[1m'; FIN=$'\033[0m'
-REUSSIS=0; ECHOUES=0; ECHECS=()
+#  ═══ TROIS ÉTATS, PAS DEUX : RÉUSSI · ÉCHOUÉ · NON MESURÉ ═══
+#  ALEX : « un banc qui passe au vert parce qu'il n'a rien pu vérifier est
+#  pire qu'un banc rouge : c'est le même mensonge que le return "droite" du
+#  dock, qui transformait je ne sais pas en une affirmation. »
+#  « saut » existait déjà, mais il ne COMPTAIT rien : le total ne disait que
+#  « 21 réussis, 2 échoués », et un contrôle sauté disparaissait entre les
+#  deux. On le compte, on le rappelle à la fin avec sa raison, et il ne
+#  rejoint JAMAIS la colonne des réussis.
+#  Le code de sortie, lui, ne dépend que des ÉCHECS : « non mesuré » n'est
+#  pas une faute, c'est un aveu — mais il doit se lire.
+REUSSIS=0; ECHOUES=0; NON_MESURES=0; ECHECS=(); SAUTS=()
 ok()   { printf '  %s✓%s %s\n' "$VERT" "$FIN" "$1"; REUSSIS=$((REUSSIS+1)); }
 non()  { printf '  %s✗%s %s\n' "$ROUGE" "$FIN" "$1"; ECHOUES=$((ECHOUES+1)); ECHECS+=("$1"); }
-saut() { printf '  %s—%s  %s\n' "$JAUNE" "$FIN" "$1"; }
+saut() { printf '  %s—%s  %s\n' "$JAUNE" "$FIN" "$1"; NON_MESURES=$((NON_MESURES+1)); SAUTS+=("$1"); }
 titre(){ printf '\n%s%s%s\n' "$GRAS" "$1" "$FIN"; }
 
 BAC="$(mktemp -d)"
@@ -343,5 +353,11 @@ if (( ECHOUES > 0 )); then
 	printf '\n%sCe qui ne va pas :%s\n' "$GRAS" "$FIN"
 	for e in "${ECHECS[@]}"; do printf '  %s·%s %s\n' "$ROUGE" "$FIN" "$e"; done
 fi
-printf '\n%s%d réussis, %d échoués%s\n\n' "$GRAS" "$REUSSIS" "$ECHOUES" "$FIN"
+if (( NON_MESURES > 0 )); then
+	printf "\n%sCe qui n'a PAS été mesuré (donc ni réussi ni échoué) :%s\n" "$GRAS" "$FIN"
+	for e in "${SAUTS[@]}"; do printf '  %s·%s %s\n' "$JAUNE" "$FIN" "$e"; done
+fi
+NM="non mesuré"; (( NON_MESURES > 1 )) && NM="non mesurés"
+printf '\n%s%d réussis, %d échoués, %d %s%s\n\n' \
+	"$GRAS" "$REUSSIS" "$ECHOUES" "$NON_MESURES" "$NM" "$FIN"
 [[ "$ECHOUES" -eq 0 ]]
