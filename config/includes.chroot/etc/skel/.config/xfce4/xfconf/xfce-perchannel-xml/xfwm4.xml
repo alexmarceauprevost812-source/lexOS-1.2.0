@@ -55,7 +55,18 @@
     <property name="show_frame_shadow"         type="bool"   value="true"/>
     <property name="show_popup_shadow"         type="bool"   value="true"/>
     <property name="show_dock_shadow"          type="bool"   value="true"/>
-    <property name="zoom_desktop"              type="bool"   value="true"/>
+    <!--  ═══ LE ZOOM DU BUREAU EST ÉTEINT, ET C'EST UNE MESURE ═══
+          Diagnostic du 2026-09-09 sur le T460 : « zoom_desktop=true et
+          zoom_pointer=true » relevés dans xfconf, alors qu'aucun réglage
+          d'accessibilité ne les demande. Le zoom de xfwm4 suit le pointeur :
+          il fait travailler le compositeur à chaque mouvement de souris,
+          pour une fonction que LexOS n'expose nulle part dans ses
+          Paramètres — la loupe, elle, passe par « lexos access loupe ».
+          Les DEUX sont écrits explicitement plutôt que laissés au défaut :
+          c'est ce qui permet de voir, en relisant ce fichier, que la
+          question a été tranchée. -->
+    <property name="zoom_desktop"              type="bool"   value="false"/>
+    <property name="zoom_pointer"              type="bool"   value="false"/>
     <property name="box_move"                  type="bool"   value="false"/>
     <property name="box_resize"                type="bool"   value="false"/>
     <!--  ÉCRIT EXPLICITEMENT, PAS LAISSÉ AU DÉFAUT : Alt + glisser déplace
