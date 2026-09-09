@@ -44,9 +44,26 @@ SEUIL_DISQUE_ALERTE = 90  # pourcentage
 
 
 def _outils_lexos_installes() -> list:
+    """Les outils que quelqu'un peut vouloir atteindre — pas les rouages.
+
+    ═══ « *.wrapper » N'EST PAS UN OUTIL, C'EST UN PONT ═══
+    Un fichier « .wrapper » est la convention Debian pour l'aiguillage
+    d'update-alternatives : « x-terminal-emulator » pointe dessus, et son seul
+    travail est de traduire des arguments avant de passer la main. Personne
+    ne le tape jamais par son nom, il n'a pas de page de réglages, et aucun
+    lanceur ne le désigne — par construction.
+
+    Le compter parmi les outils faisait dire au médecin, à l'écran de
+    quelqu'un qui cherche une panne : « lexos-pro-terminal.wrapper :
+    joignable par AUCUN chemin ». C'est faux et ça envoie chercher un
+    problème là où il n'y en a pas — exactement ce qu'un outil de diagnostic
+    ne doit jamais faire. Le contrôle 16 (verifier-parametres.sh) écarte les
+    ponts pour la même raison ; les deux inventaires disent maintenant la
+    même chose."""
     if not DOSSIER_BIN.is_dir():
         return []
-    return sorted(p.name for p in DOSSIER_BIN.glob("lexos-*") if p.is_file())
+    return sorted(p.name for p in DOSSIER_BIN.glob("lexos-*")
+                  if p.is_file() and p.suffix != ".wrapper")
 
 
 def _texte_dispatcheur():

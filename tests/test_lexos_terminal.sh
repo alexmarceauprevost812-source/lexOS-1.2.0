@@ -324,7 +324,21 @@ blanc = vert = 0
 for y in range(0, min(30, h)):
     for x in range(w):
         r, g, b = im.getpixel((x, y))
-        if (r, g, b) == (255, 255, 255): blanc += 1
+        #  ═══ LA MÊME TOLÉRANCE DES DEUX CÔTÉS ═══
+        #  Le vert avait droit à ±8 « avec l'anticrénelage », et le blanc
+        #  devait être #FFFFFF EXACTEMENT. Cette asymétrie n'avait aucune
+        #  raison d'être : c'est le même écran, le même anticrénelage, les
+        #  mêmes bords adoucis. Sur une machine dont le rendu de police
+        #  diffère un peu — le coureur de la CI n'a ni les mêmes réglages de
+        #  hinting ni le même sous-pixel — le texte clair sort en #FEFEFE ou
+        #  en gris très clair : ZÉRO pixel exactement blanc, alors que le
+        #  vert, lui, continue de compter grâce à sa tolérance.
+        #
+        #  D'où « 0 px blancs et 896 px verts » sur le coureur : les 896
+        #  comptent l'invite ET la frappe, et aucun blanc n'est reconnu. Le
+        #  contrôle accusait la frappe de ne pas être arrivée alors qu'elle
+        #  était là, à un point de gris près.
+        if r > 246 and g > 246 and b > 246: blanc += 1
         elif abs(r) < 8 and abs(g - 215) < 8 and abs(b) < 8: vert += 1
 print(blanc, vert)
 PYPX
