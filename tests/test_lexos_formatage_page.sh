@@ -218,9 +218,34 @@ dit(r.get("ok") is False and "liste" in (r.get("erreur") or ""),
 r = settings.act_formatage("lancer:/dev/sdb:ntfs")
 dit(r.get("ok") is False and "ntfs" in (r.get("erreur") or ""),
     "un système de fichiers inconnu est refusé, avec un motif")
+#  ═══ LES DEUX REFUS SONT ÉPROUVÉS, ET AUCUN NE DÉPEND DE LA MACHINE ═══
+#  _run_admin() refuse pour DEUX raisons distinctes, dans cet ordre : pkexec
+#  absent, puis agent d'authentification absent. Chacune a son message, et
+#  l'utilisateur n'a pas la même chose à faire dans les deux cas.
+#
+#  CE BANC NE CONTRÔLAIT QUE LA SECONDE, ET SUPPOSAIT LA PREMIÈRE. Il
+#  fabriquait un faux « pgrep » pour être sûr qu'aucun agent ne tourne, mais
+#  laissait pkexec au hasard de la machine. Sur une machine de développement
+#  pkexec est là : on atteignait le message de l'agent, vert. Sur le coureur
+#  de la CI, pkexec n'est PAS installé : le refus tombait une étape plus tôt,
+#  le message parlait de pkexec, et le contrôle était rouge — pour un défaut
+#  qui n'existe pas. Il l'était depuis que ce banc existe.
+#
+#  On fixe donc la réponse de shutil.which au lieu de l'espérer. Les deux
+#  messages sont vérifiés, et le banc dit la même chose partout.
+vrai_which = settings.shutil.which
+
+settings.shutil.which = lambda n: "/usr/bin/pkexec" if n == "pkexec" else vrai_which(n)
 r = settings.act_formatage("lancer:/dev/sdb:vfat")
 dit(r.get("ok") is False and "agent polkit" in (r.get("erreur") or ""),
-    "sans agent polkit : un MOTIF, pas un silence")
+    "pkexec là mais aucun agent : un MOTIF, pas un silence")
+
+settings.shutil.which = lambda n: None if n == "pkexec" else vrai_which(n)
+r = settings.act_formatage("lancer:/dev/sdb:vfat")
+dit(r.get("ok") is False and "pkexec" in (r.get("erreur") or ""),
+    "pkexec absent : le motif nomme pkexec, pas l'agent — ce n'est pas le même geste")
+
+settings.shutil.which = vrai_which
 dit("nimporte" not in str(settings.act_formatage("nimportequoi")),
     "une valeur inattendue est refusée sans être renvoyée telle quelle")
 print("FIN|")
