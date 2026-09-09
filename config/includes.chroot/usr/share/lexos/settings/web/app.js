@@ -1783,7 +1783,31 @@ function contenu(cle){
         <div class="t">2 · Quel format ?</div>
         <div class="d" style="margin-bottom:8px">Les trois sont là, avec ce qu'ils
         changent pour toi.</div>
-        ${fmt.systemes.map(y => `
+        ${fmt.systemes.map(y => {
+          /*  ═══ UN CHOIX DONT L'OUTIL MANQUE EST GRISÉ, ET IL DIT POURQUOI ═══
+              La page lançait « pkexec lexos-format » : le contrôle « mkfs.exfat
+              est-il installé ? » se faisait donc DANS la passe privilégiée,
+              c'est-à-dire APRÈS la fenêtre du mot de passe. On tapait son mot
+              de passe pour s'entendre répondre « mkfs.exfat introuvable ».
+              lexos-format annonce maintenant, pour chaque format, l'outil qui
+              l'exécute et le paquet qui le porte. On ne propose plus ce qu'on
+              ne peut pas faire — et on ne demande pas un mot de passe pour
+              une opération dont on connaît déjà l'issue. */
+          const dispo = y.possible !== false;
+          if(!dispo) return `
+          <div class="srow" style="opacity:.55;cursor:not-allowed"
+               title="Outil de formatage absent">
+            <div style="flex:1">
+              <div class="t">${esc(y.titre)}</div>
+              <div class="d">${esc(y.texte)}</div>
+              <div class="d" style="color:var(--non)">Indisponible ici :
+                <code>${esc(y.outil || "l'outil de formatage")}</code> est absent
+                ${y.paquet ? `(paquet <code>${esc(y.paquet)}</code>, à poser avec
+                  <code>lexos install ${esc(y.paquet)}</code>)` : ""}.</div>
+            </div>
+            <span class="etat abs">indisponible</span>
+          </div>`;
+          return `
           <div class="srow${fmt.fs === y.cle ? " sel" : ""}"
                style="cursor:pointer;${fmt.fs === y.cle ? "outline:2px solid var(--ac);outline-offset:-2px" : ""}"
                onclick="fmtSysteme('${jsq(y.cle)}')">
@@ -1792,7 +1816,8 @@ function contenu(cle){
               <div class="d">${esc(y.texte)}</div>
             </div>
             <span class="etat ${fmt.fs === y.cle ? "ok" : "abs"}">${fmt.fs === y.cle ? "choisi" : "choisir"}</span>
-          </div>`).join("")}
+          </div>`;
+        }).join("")}
       </div>` : ""}
 
       ${s && fmt.fs ? `

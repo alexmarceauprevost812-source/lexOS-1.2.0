@@ -17,7 +17,14 @@ amd64-microcode
 lshw
 hwinfo
 btrfs-progs
-exfatprogs
+# exfatprogs RETIRÉ D'ICI : il est passé en liste STRICTE
+# (config/package-lists/lexos-core.list.chroot, section « Disques &
+# systèmes de fichiers »). Un système de fichiers proposé dans une
+# boîte de dialogue doit exister sur la machine ; le hook 0250 tolère
+# une absence EN SILENCE, ce qui donnait « mkfs.exfat introuvable »
+# après le mot de passe. Le contrôle « un paquet n'est pas à la fois
+# obligatoire et au mieux » de la CI interdit de le laisser aux deux
+# endroits.
 gvfs-backends
 libmtp-common
 mtp-tools

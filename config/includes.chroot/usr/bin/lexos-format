@@ -240,10 +240,37 @@ liste_json() {
 			"$(json_texte "$taille")" "$(json_texte "$modele")" \
 			"$(json_texte "$etiq")" "$(json_texte "$montages")"
 	done < <(disques_eligibles)
+	#  ═══ CHAQUE SYSTÈME DIT SI SON OUTIL EST LÀ, ET LEQUEL MANQUE ═══
+	#  ALEX pouvait choisir exFAT, taper son mot de passe, et s'entendre dire
+	#  « mkfs.exfat introuvable » À LA FIN — après wipefs et parted, donc
+	#  après que le support ait DÉJÀ été effacé. exfatprogs est maintenant
+	#  obligatoire, mais une liste de paquets ne prouve rien sur la machine
+	#  qui tourne : un « apt remove » suffit à la démentir. On MESURE donc, et
+	#  la page grise ce qu'elle ne peut pas faire — avant de demander quoi que
+	#  ce soit. On ne demande pas un mot de passe pour une opération dont on
+	#  sait déjà qu'elle échouera.
 	printf '],"systemes":['
-	printf '{"cle":"vfat","titre":"FAT32","texte":"partout, même les téléphones (4 Go max par fichier)"},'
-	printf '{"cle":"exfat","titre":"exFAT","texte":"partout aussi, sans limite de taille"},'
-	printf '{"cle":"ext4","titre":"ext4","texte":"Linux seulement, sans limite"}'
+	local premier_fs=1 cle titre texte outil paquet
+	while IFS='|' read -r cle titre texte outil paquet; do
+		[[ -n "$cle" ]] || continue
+		[[ "$premier_fs" -eq 1 ]] || printf ','
+		premier_fs=0
+		if command -v "$outil" >/dev/null 2>&1; then
+			printf '{"cle":"%s","titre":"%s","texte":"%s","outil":"%s","paquet":"%s","possible":true}' \
+				"$(json_texte "$cle")" "$(json_texte "$titre")" \
+				"$(json_texte "$texte")" "$(json_texte "$outil")" \
+				"$(json_texte "$paquet")"
+		else
+			printf '{"cle":"%s","titre":"%s","texte":"%s","outil":"%s","paquet":"%s","possible":false}' \
+				"$(json_texte "$cle")" "$(json_texte "$titre")" \
+				"$(json_texte "$texte")" "$(json_texte "$outil")" \
+				"$(json_texte "$paquet")"
+		fi
+	done <<-'FIN'
+		vfat|FAT32|partout, même les téléphones (4 Go max par fichier)|mkfs.vfat|dosfstools
+		exfat|exFAT|partout aussi, sans limite de taille|mkfs.exfat|exfatprogs
+		ext4|ext4|Linux seulement, sans limite|mkfs.ext4|e2fsprogs
+	FIN
 	printf ']}\n'
 }
 

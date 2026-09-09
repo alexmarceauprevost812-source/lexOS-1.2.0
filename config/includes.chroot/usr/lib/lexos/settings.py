@@ -1128,10 +1128,28 @@ def act_formatage(arg):
         donnees, motif = _formatage_liste()
         if donnees is None:
             return {"ok": False, "erreur": motif}
-        connus = {s.get("cle") for s in donnees.get("systemes", [])}
+        connus = {s.get("cle"): s for s in donnees.get("systemes", [])}
         if fs not in connus:
             return {"ok": False,
                     "erreur": f"Système de fichiers inconnu : {fs}"}
+        #  ═══ ON NE DEMANDE PAS UN MOT DE PASSE POUR CE QU'ON SAIT IMPOSSIBLE ═══
+        #  _run_admin lance « pkexec lexos-format … » : TOUT le script part
+        #  en passe privilégiée. Son contrôle « mkfs.exfat est-il là ? » se
+        #  fait donc APRÈS la fenêtre du mot de passe. Alex tapait le sien,
+        #  et la réponse était « mkfs.exfat introuvable » — un refus qui
+        #  arrive après coup se lit comme une panne.
+        #  lexos-format dit maintenant, dans « --json », quel outil manque et
+        #  quel paquet le porte. On s'arrête ici, avant toute élévation.
+        choisi = connus[fs] or {}
+        if choisi.get("possible") is False:
+            return {"ok": False,
+                    "erreur": "%s n'est pas disponible sur cette machine : "
+                              "« %s » est absent (paquet %s). Choisis un autre "
+                              "format, ou installe-le : lexos install %s"
+                              % (choisi.get("titre") or fs,
+                                 choisi.get("outil") or "l'outil de formatage",
+                                 choisi.get("paquet") or "correspondant",
+                                 choisi.get("paquet") or "")}
         #  2. La cible est l'un des supports que lexos-format ACCEPTERAIT.
         #     On ne prend pas la page au mot.
         chemins = {s.get("chemin") for s in donnees.get("supports", [])}

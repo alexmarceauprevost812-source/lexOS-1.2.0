@@ -122,6 +122,20 @@ gdisk
 dosfstools
 ntfs-3g
 e2fsprogs
+#  ═══ exfatprogs : LE TROISIÈME CHOIX DE LA PAGE « FORMATER » ═══
+#  La page des Paramètres propose trois systèmes de fichiers — FAT32, exFAT,
+#  ext4 — et lexos-format les exécute avec mkfs.vfat, mkfs.exfat et mkfs.ext4.
+#  Les deux premiers venaient de dosfstools et e2fsprogs, ci-dessus, tous deux
+#  OBLIGATOIRES. mkfs.exfat, lui, venait d'exfatprogs, qui vivait dans
+#  optional-packages/00-core.list — une liste que le hook 0250 installe « au
+#  mieux » et dont il tolère l'absence EN SILENCE.
+#
+#  Conséquence : Alex pouvait choisir exFAT, taper son mot de passe, et
+#  s'entendre dire « mkfs.exfat introuvable » à la toute fin, après avoir cru
+#  que c'était parti — le support ayant DÉJÀ été effacé et repartitionné par
+#  les étapes précédentes. Un choix offert dans une boîte de dialogue doit
+#  exister sur la machine : c'est ce qui le fait passer ici.
+exfatprogs
 udisks2
 gvfs
 cryptsetup
