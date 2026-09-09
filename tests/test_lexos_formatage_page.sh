@@ -354,7 +354,12 @@ titre "7. UNE FOIS LE MOT DE PASSE ENTRÉ, TOUT DOIT MARCHER"
 #  forcément « exec pkexec » : un grep naïf se serait déclenché dessus, et le
 #  banc aurait accusé le correctif de ne pas être là. On retire donc les
 #  lignes de commentaire avant de chercher.
-if grep -vE '^[[:space:]]*#' "$FORMAT" | grep -q 'exec pkexec'; then
+#  ET PAS DE TUYAU VERS « grep -q » : avec « pipefail », l'erreur du
+#  producteur ne remonte pas — le tuyau garde le code de grep, et la course
+#  se perd. Le dépôt l'interdit, et sa CI me l'a rappelé sur cette ligne
+#  même. On passe donc par une variable et une chaîne ici-même.
+CODE_FORMAT="$(sed 's/^[[:space:]]*#.*$//' "$FORMAT")"
+if grep -q 'exec pkexec' <<< "$CODE_FORMAT"; then
 	non "l'élévation se fait encore par « exec » : le parent disparaît, et avec lui le seul écran disponible"
 else
 	ok "l'élévation ne remplace plus le processus — le parent garde son écran pour dire ce qui s'est passé"

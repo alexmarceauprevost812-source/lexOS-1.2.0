@@ -1256,8 +1256,27 @@ jobs:
           #  « --height » présente dans le code ne prouve rien : le banc OUVRE
           #  le dialogue à 1920×1080 et à 1366×768 et lit sa géométrie. Un
           #  contrôle textuel serait resté vert sur la fenêtre de 2146 px.
-          sudo apt-get install -y --no-install-recommends \
-            xvfb yad zenity xdotool >/dev/null
+          #  ═══ UN ÉCHEC MUET NE SE CORRIGE PAS ═══
+          #  Cette étape est tombée deux constructions de suite en restant
+          #  VERTE sur toutes les machines où on peut la relancer — root et
+          #  compte ordinaire, cinq passes chacune. Or son journal se trouve
+          #  au tout début d'une tâche de cent étapes : l'API ne rend que la
+          #  fin, et la cause n'était donc lisible nulle part.
+          #  Deux choses changent ici, et aucune ne touche au banc :
+          #    · la pose des paquets ne part plus dans /dev/null. Si un miroir
+          #      hoquète, on lit « les paquets n'ont pas pu être posés » au
+          #      lieu de croire que le banc a échoué ;
+          #    · les versions installées sont imprimées. yad et zenity
+          #      décident de la géométrie que ce banc MESURE : une version qui
+          #      change est la première chose à regarder.
+          if ! sudo apt-get install -y --no-install-recommends \
+                 xvfb yad zenity xdotool; then
+            echo "::error::les paquets de ce banc (xvfb yad zenity xdotool) n'ont pas pu être posés — ce n'est pas le banc qui a échoué"
+            exit 1
+          fi
+          echo "yad    : $(yad --version 2>&1 | head -1)"
+          echo "zenity : $(zenity --version 2>&1 | head -1)"
+          echo "Xvfb   : $(Xvfb -help 2>&1 | head -1)"
           bash tests/test_lexos_install_avertissement.sh
 
       - name: Profils de performance — tous chargeables
