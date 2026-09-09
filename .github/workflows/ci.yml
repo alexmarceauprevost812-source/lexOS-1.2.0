@@ -2654,10 +2654,33 @@ jobs:
           #  chaque ouverture — sur un portable sans réseau, le terminal
           #  principal du système attendait une réponse qui ne vient jamais.
           #
-          #  Si Chromium ou node-xterm manquent sur le coureur, ce banc le
-          #  DIT et se saute : un vert obtenu sans avoir rien éprouvé serait
-          #  pire que pas de banc du tout.
-          bash tests/test_lexos_terminal_navigateur.sh
+          #  ═══ ET IL NE S'EST JAMAIS EXÉCUTÉ ICI — MESURÉ ═══
+          #  Le commentaire d'origine disait « si Chromium ou node-xterm
+          #  manquent, ce banc le DIT et se saute ». Il le disait, en effet.
+          #  Sauf que cette étape N'INSTALLAIT RIEN : ni node-xterm, ni
+          #  playwright, ni Chromium. Le banc sautait donc à CHAQUE
+          #  construction — et rendait 0, c'est-à-dire VERT. La preuve est
+          #  dans le journal du coureur : cette étape dure ZÉRO SECONDE,
+          #  construction après construction.
+          #
+          #  Le seul banc qui éprouve L'AFFICHAGE du terminal principal du
+          #  système n'a donc jamais tourné, tout en s'annonçant vert. C'est
+          #  le faux vert que ce dépôt traque partout ailleurs, et il portait
+          #  sur la pièce la plus visible de l'ISO.
+          #
+          #  On pose donc les trois outils, et LEXOS_EXIGER_NAVIGATEUR=1 fait
+          #  du saut un ROUGE : ici, l'affichage DOIT être éprouvé.
+          #    · node-xterm — la grille de caractères, PAQUET DEBIAN (jamais
+          #      npm : c'est la règle du dépôt, et c'est ce paquet-là que le
+          #      hook 0455 pose sur l'ISO, donc celui qu'il faut éprouver ;
+          #    · playwright + Chromium — le vrai navigateur.
+          sudo apt-get install -y --no-install-recommends node-xterm >/dev/null \
+            || { echo "::error::node-xterm n'a pas pu être posé — la grille du terminal ne peut pas être éprouvée"; exit 1; }
+          npm i --no-save --no-audit --no-fund playwright >/dev/null 2>&1 \
+            || { echo "::error::playwright n'a pas pu être posé"; exit 1; }
+          npx --yes playwright install chromium >/dev/null 2>&1 \
+            || { echo "::error::Chromium n'a pas pu être posé par playwright"; exit 1; }
+          LEXOS_EXIGER_NAVIGATEUR=1 bash tests/test_lexos_terminal_navigateur.sh
 
       - name: Mises à jour — la page suit le terminal au lieu de rester figée
         if: ${{ !cancelled() }}

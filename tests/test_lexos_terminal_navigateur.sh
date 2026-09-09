@@ -53,11 +53,20 @@ titre "LexOS Pro Terminal dans un vrai navigateur"
 #  un banc qui s'annonce vert sans avoir rien éprouvé est pire que pas de banc.
 NODE="$(command -v node || echo /opt/node22/bin/node)"
 CHROME=""
-for C in /opt/pw-browsers/chromium-*/chrome-linux/chrome /opt/pw-browsers/chromium/chrome-linux/chrome; do
+#  Playwright pose ses navigateurs dans ~/.cache/ms-playwright quand
+#  PLAYWRIGHT_BROWSERS_PATH n'est pas fixé — c'est le cas sur le coureur
+#  GitHub. Ne chercher que dans /opt revenait à ne jamais le trouver là-bas,
+#  donc à sauter ce banc à CHAQUE construction.
+for C in /opt/pw-browsers/chromium-*/chrome-linux/chrome \
+         /opt/pw-browsers/chromium/chrome-linux/chrome \
+         "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}"/chromium-*/chrome-linux/chrome \
+         "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux/chrome \
+         "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell; do
 	[ -x "$C" ] && { CHROME="$C"; break; }
 done
 PW=""
-for D in /opt/node22/lib/node_modules/playwright /usr/lib/node_modules/playwright "$RACINE/node_modules/playwright"; do
+for D in /opt/node22/lib/node_modules/playwright /usr/lib/node_modules/playwright \
+         /usr/local/lib/node_modules/playwright "$RACINE/node_modules/playwright"; do
 	[ -f "$D/index.mjs" ] && { PW="$D/index.mjs"; break; }
 done
 XTERM_JS=""; XTERM_CSS=""; XTERM_FIT=""
@@ -75,6 +84,26 @@ MANQUE=""
 python3 -c "import os,pty; m,e=pty.openpty(); os.close(m); os.close(e)" 2>/dev/null \
                       || MANQUE="$MANQUE /dev/pts"
 if [ -n "$MANQUE" ]; then
+	#  ═══ SAUTER EST PERMIS SUR UNE MACHINE, PAS SUR LE COUREUR ═══
+	#  CE QUE ÇA FAISAIT AVANT : ce banc se sautait et rendait 0 — donc VERT
+	#  — dès qu'il manquait un outil. Sur le coureur GitHub, il manquait
+	#  TOUJOURS quelque chose : l'étape de la CI n'installait ni node-xterm,
+	#  ni playwright, ni Chromium, et elle ne cherchait le navigateur que
+	#  dans /opt, où playwright ne le pose jamais là-bas. Résultat mesurable
+	#  dans le journal : l'étape « Le terminal s'affiche pour de vrai » dure
+	#  ZÉRO SECONDE à chaque construction depuis qu'elle existe.
+	#
+	#  Autrement dit : le SEUL banc qui éprouve l'affichage du terminal
+	#  principal n'a jamais tourné, et il annonçait vert. C'est exactement le
+	#  faux vert que ce dépôt traque partout ailleurs.
+	#
+	#  Sauter garde son sens sur la machine de quelqu'un qui n'a pas
+	#  Chromium. Sur la CI, non : LEXOS_EXIGER_NAVIGATEUR=1 en fait un ROUGE.
+	if [ "${LEXOS_EXIGER_NAVIGATEUR:-0}" = "1" ]; then
+		non "absent :$MANQUE — et LEXOS_EXIGER_NAVIGATEUR=1 : ici, l'affichage DOIT être éprouvé"
+		printf '\n\033[1m═══ TOTAL ═══\033[0m\n  réussis : %d\n  échoués : %d\n' "$REUSSIS" "$ECHOUES"
+		exit 1
+	fi
 	saute "absent :$MANQUE — l'AFFICHAGE du terminal n'a PAS été éprouvé ici"
 	saute "  (le pont, lui, l'est par tests/test_lexos_terminal_pty.sh)"
 	printf '\n\033[1m═══ TOTAL ═══\033[0m\n  réussis : 0\n  sauté   : ce banc demande un vrai navigateur\n'
