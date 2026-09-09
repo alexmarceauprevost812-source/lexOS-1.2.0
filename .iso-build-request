@@ -2556,4 +2556,4 @@ suite: trixie
 # chaque demarrage, les cartes SD dont le nom etait rogne (mmcblk0 -> mmcblk),
 # la barre du haut passee au noir franc, et les panneaux web enfin au meme
 # gris que le bureau.
-build: 119
+build: 120
