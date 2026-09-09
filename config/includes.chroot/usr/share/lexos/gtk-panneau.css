@@ -38,30 +38,30 @@
 	    banc interdit cette écriture-là dans ce fichier, et un commentaire
 	    qui la citerait en entier déclencherait le garde-fou pour rien — ou
 	    pire, apprendrait à l'émousser pour le faire taire. */
-	/*  ═══ LES 8 % : MESURÉS, POUR QU'ALEX TRANCHE SUR UN CHIFFRE ═══
-	    Alex a demandé « toute noire ». Ces 8 % laissent passer le fond
-	    d'écran, et le sien est orangé — d'où la question. Calcul exact du
-	    mélange sur son orange (#E8590C) :
-
-	        92 % (ici) .......... #130701   luminance 0,0029
-	       100 % (proposé) ...... #000000   luminance 0,0000
-
-	    Soit 0,29 % d'écart sur l'échelle de luminance. Ce n'est PAS ce
-	    qu'il voyait : le gris de sa capture était le fond des greffons
-	    (239 px de #292B34), retiré plus bas. On laisse donc les 8 %, qui
-	    servent au compositeur, et la décision de passer à 100 % lui
-	    revient — elle ne se verra presque pas. */
-	background-color: rgba(0, 0, 0, 0.92);
+	/*  ═══ 100 % : ALEX A TRANCHÉ ═══
+	    « J'aimerais que ça reste noir en haut de l'écran, les outils
+	    travaillent en haut de l'écran. »
+	    C'était la question posée avec des chiffres : la barre était à 92 %,
+	    et les 8 % restants laissaient passer le fond d'écran. Sur son orange
+	    (#E8590C) le mélange donnait #130701 au lieu de #000000 — 0,29 %
+	    d'écart de luminance, presque rien, mais « presque » n'est pas
+	    « noir ». Il l'a demandé deux fois ; on ne discute plus le chiffre.
+	    Ce que ça coûte, écrit plutôt que caché : le compositeur ne peut plus
+	    laisser transparaître quoi que ce soit sous la barre. C'est
+	    exactement ce qui est demandé. */
+	/*  Écrit « rgba(…, 1) » plutôt que « rgb(…) » : le 1 se lit, et c'est
+	    lui qui a changé. Le banc du panneau cherche cette forme-là. */
+	background-color: rgba(0, 0, 0, 1);
 	border-radius: 14px;
-	/*  Un liseré très pâle : sur un fond d'écran sombre, sans lui, le bord
-	    de la barre disparaît et l'arrondi ne se lit plus.
-	    MESURÉ, même question qu'au-dessus : ce blanc à 7 % donne #241813
-	    sur la barre, soit 1,15:1 de contraste — un cheveu, exactement ce
-	    qu'il faut pour dessiner un bord sans se voir comme une couleur.
-	    L'enlever rendrait la barre franchement noire ET ferait disparaître
-	    l'arrondi, qu'Alex a demandé. On ne l'enlève pas de sa propre
-	    initiative : c'est un arbitrage entre deux choses qu'il a voulues. */
-	border: 1px solid rgba(255, 255, 255, 0.07);
+	/*  ═══ ET LE LISERÉ PÂLE S'EN VA AVEC ═══
+	    Un blanc à 7 % dessinait le bord de la barre — #241813 sur le fond,
+	    1,15:1 de contraste. Sur une capture rapprochée, c'est justement ce
+	    liseré qui se lit comme un cadre gris autour du noir.
+	    L'ARRONDI, LUI, RESTE : border-radius ne dépend pas d'une bordure,
+	    il découpe le fond. On perd la ligne qui SOULIGNAIT la forme, pas la
+	    forme. Sur le fond d'écran d'Alex — noir — la barre se fond dans le
+	    haut de l'écran, et c'est ce qu'il demande. */
+	border: none;
 	/*  L'écart avec le haut de l'écran, pour que la barre ait l'air posée
 	    plutôt qu'accrochée. Selon la version de GTK et de xfce4-panel, cette
 	    marge est parfois ignorée pour une fenêtre ancrée à un bord : ce
