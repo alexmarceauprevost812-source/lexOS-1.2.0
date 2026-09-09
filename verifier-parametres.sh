@@ -283,7 +283,19 @@ $outil
   else
     err "$outil :$manques"
   fi
-done < <(find "$BIN" -maxdepth 1 -name 'lexos-*' -type f | sort)
+#  ═══ « *.wrapper » N'EST PAS UN OUTIL, C'EST UN PONT ═══
+#  Un fichier « .wrapper » est la convention Debian pour l'aiguillage
+#  d'update-alternatives : x-terminal-emulator pointe dessus, et son seul
+#  travail est de traduire des arguments avant de passer la main. Personne
+#  ne le tape jamais par son nom, il n'a pas de page de réglages, et il ne
+#  doit PAS apparaître dans le menu — l'y mettre offrirait à l'utilisateur
+#  une entrée qui ouvre exactement la même fenêtre que celle d'à côté.
+#
+#  On l'écarte donc par CATÉGORIE, pas par une exception nominative : la
+#  règle vaut pour le prochain pont comme pour celui-ci, et elle ne peut pas
+#  servir à cacher un vrai outil — un programme nommé « machin.wrapper » ne
+#  serait de toute façon pas invocable comme sous-commande de « lexos ».
+done < <(find "$BIN" -maxdepth 1 -name 'lexos-*' -type f ! -name '*.wrapper' | sort)
 
 [ "$CSV" = 1 ] && exit 0
 
@@ -293,9 +305,8 @@ done < <(find "$BIN" -maxdepth 1 -name 'lexos-*' -type f | sort)
 titre "2. Les Paramètres appellent-ils des outils qui n'existent pas ?"
 
 # Faux amis connus — des chaînes qui ressemblent à un outil sans en être un.
-#   lexos-reglages      : nom d'icône (hicolor/…/lexos-reglages.png)
-#   lexos-settings-http : nom du fil du serveur local, dans settings.py
-FAUX_AMIS="lexos-reglages lexos-settings-http"
+#   lexos-reglages : nom d'icône (hicolor/…/lexos-reglages.png)
+FAUX_AMIS="lexos-reglages"
 
 TROUVE=0
 for f in "$SET_PY" "$SET_JS" "$DEMO"; do
@@ -308,7 +319,21 @@ for f in "$SET_PY" "$SET_JS" "$DEMO"; do
     grep -qE "$appel\.[0-9]" "$f" && continue
     err "les Paramètres appellent « $appel » — aucun fichier $BIN/$appel  (vu dans ${f##*/})"
     TROUVE=1
-  done < <(grep -ohE 'lexos-[a-z0-9-]+' "$f" | sort -u)
+    #  ═══ UN NOM DE FIL D'EXÉCUTION N'EST PAS UN APPEL DE PROGRAMME ═══
+    #  settings.py baptise ses fils pour qu'un « ps » ou un vidage de pile
+    #  soit lisible : « lexos-settings-http » pour le serveur local,
+    #  « lexos-etat » pour la réserve qui interroge la machine de front.
+    #  Ce contrôle les prenait pour des outils appelés — et réclamait un
+    #  fichier /usr/bin/lexos-etat qui n'a aucune raison d'exister.
+    #
+    #  C'ÉTAIT DÉJÀ CONNU, ET TRAITÉ AU CAS PAR CAS : « lexos-settings-http »
+    #  vivait dans la liste des faux amis. Nommer un fil de plus rendait donc
+    #  la CI rouge, pour un défaut qui n'en est pas un — le genre de rouge
+    #  qui apprend à ignorer les rouges. On retire la CLASSE entière plutôt
+    #  que d'allonger la liste : ce qui est écrit dans « name= » ou
+    #  « thread_name_prefix= » ne sera jamais exécuté.
+  done < <(sed -E 's/thread_name_prefix[[:space:]]*=[[:space:]]*"[^"]*"//g; s/\bname[[:space:]]*=[[:space:]]*"lexos-[^"]*"//g' "$f" \
+             | grep -ohE 'lexos-[a-z0-9-]+' | sort -u)
 done
 [ "$TROUVE" = 0 ] && ok "aucune section ne pointe vers un outil inexistant"
 
