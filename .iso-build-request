@@ -2533,4 +2533,27 @@ suite: trixie
 # outils, l'icone du terminal XFCE, les icones du bureau recalees, l'animation
 # d'avant l'installateur, le guetteur de telechargements, et le bouton de
 # position du dock qui ne ment plus quand il ne sait pas.
-build: 118
+# build 119 : LA FLUIDITE, ET SA VRAIE CAUSE.
+# Le diagnostic d'Alex sur le T460 a nomme ce que personne ne voyait : Compiz
+# 0.8.18 tournait, le greffon « wall » fabriquait un bureau virtuel de
+# 7680x1080 pour un ecran de 1920, et cette branche n'a AUCUN suivi des zones
+# endommagees — elle repeignait tout, a chaque image. Pire : lexos-wm faisait
+# « wait » sur Compiz, donc le chemin picom, ecrit depuis des semaines,
+# n'etait JAMAIS atteint. Et lexos-perf.service sortait en echec sur un « && »
+# en derniere position, pendant que TLP remettait le gouverneur en powersave.
+# Compiz sort de l'ISO, picom devient le compositeur, le service reussit, et
+# la surcharge TLP tient dans le temps.
+#
+# Les Parametres, eux, relisaient TOUTE la machine a chaque clic : 14,55 s
+# mesurees. Le bouton s'allume maintenant au clic, on ne relit que la section
+# affichee, les collecteurs travaillent de front et celui qui traine rend
+# « inconnu » au lieu de retenir les autres. 1,53 s pour tout, 0,000 s pour
+# changer une couleur.
+#
+# S'ajoutent : la page « Formater un support » dans les Parametres (ext4 etait
+# propose par le code et invisible a l'ecran), le menu du bouton rouge dont
+# « Eteindre » tombait sous le bord, l'assistant Nextcloud qui s'ouvrait a
+# chaque demarrage, les cartes SD dont le nom etait rogne (mmcblk0 -> mmcblk),
+# la barre du haut passee au noir franc, et les panneaux web enfin au meme
+# gris que le bureau.
+build: 119
