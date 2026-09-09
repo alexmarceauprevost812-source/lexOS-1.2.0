@@ -336,5 +336,122 @@ grep -qE '^[[:space:]]*format\)[[:space:]]+exec lexos-format' \
 	&& ok "« lexos format » reste branché dans le dispatcheur — le chemin sans bureau existe toujours" \
 	|| non "« lexos format » a disparu du dispatcheur — plus de chemin sans bureau"
 
+# =============================================================================
+titre "7. UNE FOIS LE MOT DE PASSE ENTRÉ, TOUT DOIT MARCHER"
+# =============================================================================
+#  ALEX : « que toutes les commandes pour un formatage soient bien activées
+#  une fois qu'on a écrit le mot de passe. » Trois façons connues de tenir
+#  cette promesse, et de la trahir.
+
+# --- 7a. L'élévation n'emporte pas l'interface ------------------------------
+#  MESURÉ : « pkexec env » ne rend que HOME LANG LOGNAME PATH PKEXEC_UID
+#  SHELL TERM USER. Ni DISPLAY ni XAUTHORITY. Une passe privilégiée qui
+#  garderait « --gui » appellerait zenity sans écran : la boîte ne s'ouvre
+#  pas, et comme die() passe justement par zenity, l'erreur disparaît avec
+#  elle. C'est le symptôme d'Alex : le mot de passe est accepté, rien ne se
+#  passe.
+#  ON LIT LE CODE, PAS LA PROSE. Le commentaire qui explique ce défaut cite
+#  forcément « exec pkexec » : un grep naïf se serait déclenché dessus, et le
+#  banc aurait accusé le correctif de ne pas être là. On retire donc les
+#  lignes de commentaire avant de chercher.
+if grep -vE '^[[:space:]]*#' "$FORMAT" | grep -q 'exec pkexec'; then
+	non "l'élévation se fait encore par « exec » : le parent disparaît, et avec lui le seul écran disponible"
+else
+	ok "l'élévation ne remplace plus le processus — le parent garde son écran pour dire ce qui s'est passé"
+fi
+grep -q -- '--texte' "$FORMAT" \
+	&& ok "la passe privilégiée reçoit « --texte » : elle n'essaie plus d'afficher ce qu'elle ne peut pas afficher" \
+	|| non "rien n'interdit à la passe privilégiée d'appeler zenity sans écran"
+#  ET LE MESURER POUR DE VRAI : on rejoue l'environnement exact de pkexec —
+#  les huit variables ci-dessus — et on regarde si zenity est appelé.
+if command -v zenity >/dev/null 2>&1 || true; then
+	FAUX="$BANC/faux"; mkdir -p "$FAUX"
+	cat > "$FAUX/zenity" <<'FINZ'
+#!/bin/sh
+[ -n "${DISPLAY:-}" ] || echo "zenity-sans-ecran" >> "$LEXOS_TRACE"
+exit 1
+FINZ
+	chmod +x "$FAUX/zenity"
+	TRACE="$BANC/trace.txt"; : > "$TRACE"
+	env -i HOME="$BANC" LANG=C.UTF-8 LOGNAME=root TERM=linux USER=root \
+		SHELL=/bin/bash PKEXEC_UID=0 PATH="$FAUX:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+		LEXOS_TRACE="$TRACE" \
+		bash "$FORMAT" /dev/lexos-inexistant --fs=vfat --confirme --texte >/dev/null 2>&1
+	[ -s "$TRACE" ] \
+		&& non "sans écran, le script appelle quand même zenity — l'erreur serait invisible" \
+		|| ok "sans écran (les 8 variables de pkexec), zenity n'est JAMAIS appelé — mesuré, pas supposé"
+	#  MUTATION DE CONTRÔLE : avec « --gui », la même exécution DOIT appeler
+	#  zenity. Sans cette moitié, le contrôle ci-dessus resterait vert même
+	#  si le script n'affichait plus jamais rien nulle part.
+	: > "$TRACE"
+	env -i HOME="$BANC" LANG=C.UTF-8 LOGNAME=root TERM=linux USER=root \
+		SHELL=/bin/bash PKEXEC_UID=0 PATH="$FAUX:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+		LEXOS_TRACE="$TRACE" \
+		bash "$FORMAT" /dev/lexos-inexistant --fs=vfat --confirme --gui >/dev/null 2>&1
+	[ -s "$TRACE" ] \
+		&& ok "…et le contrôle a des dents : avec « --gui », zenity EST appelé (donc c'est bien « --texte » qui l'en empêche)" \
+		|| non "avec « --gui » non plus zenity n'est appelé : le contrôle précédent ne prouve rien"
+fi
+
+# --- 7b. Les codes de pkexec ne sont pas des échecs de formatage ------------
+#  126 = mot de passe refusé ou fenêtre annulée ; 127 = pas autorisé. Les
+#  confondre avec un échec du formatage ferait dire « le formatage a échoué »
+#  alors que rien n'a été touché.
+grep -q '126)' "$FORMAT" && grep -q '127)' "$FORMAT" \
+	&& ok "les codes 126 et 127 de pkexec ont leur propre phrase — « rien n'a été modifié »" \
+	|| non "un mot de passe refusé serait annoncé comme un échec du formatage"
+
+# --- 7c. Un format dont l'outil manque est refusé AVANT le mot de passe -----
+#  ALEX pouvait choisir exFAT, taper son mot de passe, et s'entendre dire
+#  « mkfs.exfat introuvable » — de l'autre côté de la fenêtre, donc après coup.
+LU_JSON="$(bash "$FORMAT" --json 2>/dev/null)"
+if python3 -c "
+import json,sys
+d = json.loads(sys.argv[1])
+s = {y['cle']: y for y in d.get('systemes', [])}
+assert set(s) == {'vfat','exfat','ext4'}, s
+for y in s.values():
+    assert 'possible' in y and 'outil' in y and 'paquet' in y, y
+assert s['exfat']['outil'] == 'mkfs.exfat', s['exfat']
+assert s['exfat']['paquet'] == 'exfatprogs', s['exfat']
+" "$LU_JSON" 2>/dev/null; then
+	ok "« lexos-format --json » dit, pour chaque format, l'outil qui l'exécute et le paquet qui le porte"
+else
+	non "« --json » n'annonce pas l'outil et le paquet de chaque format — la page ne peut rien griser"
+fi
+#  La valeur « possible » suit la MACHINE, pas une liste de paquets : on la
+#  vérifie en cachant l'outil.
+CACHE="$BANC/cache"; mkdir -p "$CACHE"
+for OUTIL in mkfs.vfat mkfs.exfat mkfs.ext4; do
+	printf '#!/bin/sh\nexit 0\n' > "$CACHE/$OUTIL"; chmod +x "$CACHE/$OUTIL"
+done
+AVEC="$(PATH="$CACHE:$PATH" bash "$FORMAT" --json 2>/dev/null)"
+if python3 -c "
+import json,sys
+d = json.loads(sys.argv[1])
+s = {y['cle']: y for y in d.get('systemes', [])}
+assert all(y['possible'] is True for y in s.values()), s
+" "$AVEC" 2>/dev/null; then
+	ok "…et « possible » suit la machine : les trois outils posés, les trois formats deviennent possibles"
+else
+	non "« possible » ne suit pas la machine — il ne mesure donc rien"
+fi
+grep -q 'possible.*false\|possible !== false' "$APPJS" \
+	&& ok "la page grise le format dont l'outil manque, au lieu de le proposer" \
+	|| non "la page propose encore un format qu'elle ne peut pas exécuter"
+grep -q 'choisi.get("possible") is False' "$SET_PY/settings.py" \
+	&& ok "…et le serveur refuse ce format AVANT toute élévation, quel que soit le chemin" \
+	|| non "le serveur lancerait pkexec pour un format impossible : le refus arriverait après le mot de passe"
+
+# --- 7d. exfatprogs n'est plus « au mieux » ---------------------------------
+STRICTE="$RACINE/config/package-lists/lexos-core.list.chroot"
+AUMIEUX="$RACINE/config/includes.chroot/usr/share/lexos/optional-packages"
+grep -qx 'exfatprogs' "$STRICTE" \
+	&& ok "exfatprogs est dans la liste STRICTE, comme dosfstools et e2fsprogs" \
+	|| non "exfatprogs n'est pas obligatoire : exFAT peut manquer sur l'ISO"
+grep -rqx 'exfatprogs' "$AUMIEUX"/*.list 2>/dev/null \
+	&& non "exfatprogs est encore dans une liste « au mieux » — il ne peut pas être dans les deux" \
+	|| ok "…et il a bien quitté les listes « au mieux »"
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]
