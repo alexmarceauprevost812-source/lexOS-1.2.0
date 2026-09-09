@@ -270,14 +270,26 @@ import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert("RGB")
 w, h = im.size
-#  LA MÊME DÉFINITION DU CLAIR QUE LE COMPTEUR FINAL, sinon cette sonde
-#  attend un blanc que le compteur, lui, accepterait — et la boucle tourne
-#  dix fois pour rien avant de photographier quand même.
-n = sum(1 for y in range(min(30, h)) for x in range(w)
+#  LA MÊME DÉFINITION DU CLAIR QUE LE COMPTEUR FINAL — et la MÊME ZONE.
+#  Sinon cette sonde attend un blanc que le compteur accepterait, ou pire :
+#  elle s'arrête sur un blanc qui n'est pas du texte. C'est arrivé — la
+#  BARRE DE DÉFILEMENT du terminal est en #FAFAFA, soit 200 pixels « clairs »
+#  au bord droit de la fenêtre, présents AVANT toute frappe. La sonde
+#  sortait donc au premier tour, contente, sans que rien ne soit tapé.
+lim = w
+if len(sys.argv) > 2 and sys.argv[2].isdigit() and int(sys.argv[2]) > 40:
+    lim = min(w, int(sys.argv[2]) - 24)
+n = sum(1 for y in range(min(30, h)) for x in range(lim)
         if all(c > 246 for c in im.getpixel((x, y))))
 sys.exit(0 if n >= 40 else 1)
 PYVU
-		xvfb_lancer 1100x700x24 || true
+		#  ═══ UN ÉCRAN PLUS LARGE QUE LA FENÊTRE — SINON ON MESURE UN BOUT ═══
+		#  Un terminal de 100 colonnes fait ~2015 px de large avec la police
+		#  de repli. Sur un écran de 1100 px, X n'en dessine que 54 colonnes :
+		#  tout ce qui vient après est écrit HORS DE L'ÉCRAN et n'est sur
+		#  aucune photographie. L'écran fait donc maintenant 2400 px.
+		ECRAN_L=2400; ECRAN_H=800
+		xvfb_lancer "${ECRAN_L}x${ECRAN_H}x24" || true
 		DISP="$XVFB_AFF"
 		#  ═══ LA FENÊTRE VISIBLE, PAS LA PREMIÈRE VENUE — MESURÉ ═══
 		#  Ce contrôle a rendu « 0 px blancs et 896 px verts » sur le coureur
@@ -325,6 +337,19 @@ PYVU
 		#  pendre plus d'une minute.
 		( export DISPLAY="$DISP" HOME="$BANC/t" XDG_CONFIG_HOME="$BANC/t/.config" LEXOS_NO_BANNER=1
 		  timeout 60 dbus-run-session -- bash -c '
+			#  ON PART D UN REPERTOIRE FIXE, PAS DU DEPOT (aucune apostrophe
+			#  dans ce bloc, voir plus bas). « \w » ecrit le repertoire
+			#  courant : lance depuis le depot il vaut 20 caracteres ici et
+			#  37 sur le coureur GitHub. Cette difference-la, et rien
+			#  d autre, rendait le controle vert ici et rouge la-bas.
+			#
+			#  Ce repertoire est cree par le banc, sous le HOME du banc :
+			#  bash ecrit donc « ~/controle-de-la-frappe », 23 caracteres,
+			#  LES MEMES SUR TOUTE MACHINE. Assez court pour que la frappe
+			#  reste bien a l ecran, assez long pour que le vert de l invite
+			#  garde de la marge au-dessus de son seuil.
+			mkdir -p "$HOME/controle-de-la-frappe"
+			cd "$HOME/controle-de-la-frappe" || exit 1
 			xfce4-terminal --disable-server --geometry=100x24 \
 				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
 			sleep 4
@@ -334,7 +359,10 @@ PYVU
 			#  2097155, mesure) — donc « tail -1 » designe la vraie, si
 			#  jamais --onlyvisible ne rendait rien.
 			[ -n "$W" ] || W="$(timeout 10 xdotool search --class xfce4-terminal 2>/dev/null | tail -1)"
+			LARG=0
 			if [ -n "$W" ]; then
+				eval "$(timeout 5 xdotool getwindowgeometry --shell "$W" 2>/dev/null)"
+				LARG="${WIDTH:-0}"
 				timeout 10 xdotool windowfocus --sync "$W" 2>/dev/null
 				timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
 				#  Le pointeur DANS la fenetre : quand XSetInputFocus echoue,
@@ -350,6 +378,7 @@ PYVU
 				printf "fenetre=%s\\n" "${W:-aucune}"
 				printf "focus=%s\\n" "$(timeout 5 xdotool getwindowfocus 2>&1 | head -1)"
 				printf "geometrie=%s\\n" "$(timeout 5 xdotool getwindowgeometry "${W:-0}" 2>&1 | tr "\\n" " ")"
+				timeout 5 xdotool getwindowgeometry --shell "${W:-0}" 2>/dev/null
 				printf "souris=%s\\n" "$(timeout 5 xdotool getmouselocation 2>&1 | head -1)"
 				printf "clavier=%s\\n" "$(command -v xmodmap >/dev/null 2>&1 && xmodmap -pke 2>&1 | wc -l || echo xmodmap-absent)"
 			} > "$3"
@@ -365,7 +394,7 @@ PYVU
 			for ESSAI in 1 2 3 4 5 6 7 8 9 10; do
 				sleep 0.4
 				timeout 20 import -window root "$1" 2>/dev/null || continue
-				python3 "$2" "$1" && break
+				python3 "$2" "$1" "$LARG" && break
 				if [ "$ESSAI" = 3 ] && [ -n "$W" ]; then
 					SORTIE="$(timeout 10 xdotool type --window "$W" --delay 40 "echo BONJOUR" 2>&1)"; CODE=$?
 					printf "sendevent: code=%s %s\\n" "$CODE" "$SORTIE" >> "$3"
@@ -377,18 +406,49 @@ PYVU
 			done
 		  ' _ "$BANC/frappe.png" "$BANC/vu.py" "$BANC/focus.txt" ) >/dev/null 2>&1
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
+
+		#  ═══ LA FENÊTRE TIENT-ELLE SUR L'ÉCRAN ? ═══
+		#  Ce contrôle-ci est né d'un aller-retour de trois constructions. La
+		#  fenêtre du terminal faisait 2015 px de large, l'écran 1100 : X ne
+		#  dessinait que 54 des 100 colonnes, et tout ce qui suivait était
+		#  écrit HORS DE L'ÉCRAN. Le compteur de pixels, lui, annonçait
+		#  tranquillement « la frappe n'est pas blanche » — il accusait la
+		#  couleur d'un texte qu'aucune photographie ne pouvait contenir.
+		#
+		#  Une mesure faite sur une image tronquée ne vaut rien, et elle ne
+		#  doit JAMAIS pouvoir se déguiser en verdict sur autre chose. On
+		#  vérifie donc d'abord, et on le dit dans ses propres mots.
+		LARGEUR_FEN="$(sed -n 's/^WIDTH=\([0-9]*\)$/\1/p' "$BANC/focus.txt" 2>/dev/null | head -1)"
+		if [ -z "${LARGEUR_FEN:-}" ]; then
+			non "la largeur de la fenêtre n'a pas pu être lue : impossible de savoir si l'image mesurée est complète"
+		elif [ "$LARGEUR_FEN" -gt "$ECRAN_L" ] 2>/dev/null; then
+			non "la fenêtre du terminal fait ${LARGEUR_FEN} px sur un écran de ${ECRAN_L} : ce qui est mesuré ensuite est une image TRONQUÉE"
+		else
+			ok "la fenêtre du terminal (${LARGEUR_FEN} px) tient sur l'écran de ${ECRAN_L} px — l'image mesurée est complète"
+		fi
 		if [ -s "$BANC/frappe.png" ]; then
 			#  Première ligne du terminal (les 30 premiers pixels de haut).
 			#  Le blanc franc est #FFFFFF exactement ; le vert est celui de
 			#  la palette, #00D700 (avec l'anticrénelage, on tolère ±8).
-			LU="$(python3 - "$BANC/frappe.png" <<'PYPX'
+			LU="$(python3 - "$BANC/frappe.png" "${LARGEUR_FEN:-0}" <<'PYPX'
 import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert("RGB")
 w, h = im.size
+#  ═══ ON MESURE LA ZONE DE TEXTE, PAS LA FENÊTRE ENTIÈRE ═══
+#  La BARRE DE DÉFILEMENT du terminal est peinte en #FAFAFA — trois canaux
+#  au-dessus de 246, donc « blanche » pour ce compteur. Elle vaut 200 pixels,
+#  cinq fois le seuil, et elle est là AVANT qu'on ait tapé quoi que ce soit.
+#  Mesuré : avec la frappe rendue verte (mutation), il restait 200 px blancs
+#  — le contrôle ne pouvait plus rougir. On retire donc les 24 pixels de
+#  droite de la FENÊTRE, où elle se trouve, et le compteur redevient mordant :
+#  616 px blancs normalement, 0 sous mutation.
+lim = w
+if len(sys.argv) > 2 and sys.argv[2].isdigit() and int(sys.argv[2]) > 40:
+    lim = min(w, int(sys.argv[2]) - 24)
 blanc = vert = 0
 for y in range(0, min(30, h)):
-    for x in range(w):
+    for x in range(lim):
         r, g, b = im.getpixel((x, y))
         #  ═══ LE BLANC, AVEC LA MÊME TOLÉRANCE QUE LE VERT — ET PAS PLUS ═══
         #  Le vert a droit à ±8 « avec l'anticrénelage » ; le blanc exigeait
@@ -439,6 +499,8 @@ im = Image.open(sys.argv[1]).convert("RGB")
 w, h = im.size
 c = Counter(im.getpixel((x, y))
             for y in range(min(30, h)) for x in range(w))
+#  (l'histogramme, lui, regarde TOUTE la largeur : quand ça tombe, on veut
+#   voir ce qui est là, barre de défilement comprise.)
 print("couleurs vues dans la bande mesurée (%d px) :" % (w * min(30, h)))
 for coul, n in c.most_common(8):
     print("   #%02X%02X%02X  ×%d" % (coul[0], coul[1], coul[2], n))
