@@ -2653,6 +2653,7 @@ jobs:
           bash tests/test_lexos_maj.sh
 
       - name: Fuseau horaire — les treize provinces et territoires du Canada
+        if: ${{ !cancelled() }}
         run: |
           #  Alex a envoyé une maquette avec toutes les régions du Canada et
           #  a demandé que « tout soit rempli ». LIEUX_CANADA (lexos-datetime)
@@ -2665,6 +2666,7 @@ jobs:
           bash tests/test_lexos_fuseau.sh
 
       - name: Horloge du panneau — le badge « lexOS pro », lisible partout
+        if: ${{ !cancelled() }}
         run: |
           #  ALEX a envoyé une image (porte-clés bleus, fond noir,
           #  « <[lexOS⚡pro]> ») et a demandé la même chose en haut de
