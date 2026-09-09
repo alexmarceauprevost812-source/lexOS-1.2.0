@@ -2866,6 +2866,114 @@ jobs:
           #  Toronto, confirmeur, intégration à lexos-install).
           bash tests/test_lexos_fuseau_gps.sh
 
+      - name: La vidéo d'accueil — la boucle du greeter et le halo de l'après-connexion
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX A ENVOYÉ DEUX VIDÉOS ET UN CONSTAT : celle du greeter ne
+          #  bouclait pas, et la nouvelle vidéo d'après-connexion est CARRÉE
+          #  (720×720). Étirée sur un écran 16/9 elle déformait les visages ;
+          #  le hook 0300 lui compose donc, à la construction, un halo flou
+          #  1920×1080 tiré d'elle-même, et pose l'original net au centre.
+          #
+          #  Ce banc fait tourner le VRAI extrait du hook avec un VRAI ffmpeg,
+          #  puis RELÈVE LES PIXELS de l'image produite : la bande de gauche
+          #  doit être floue et non noire, et le sujet garder ses proportions.
+          #  Une composition qui se relit dans le script ne prouve rien — la
+          #  première version passait la relecture et déformait quand même.
+          for p in ffmpeg mpv imagemagick xvfb xdotool; do
+            dpkg -s "$p" >/dev/null 2>&1 \
+              || sudo apt-get install -y --no-install-recommends "$p" >/dev/null
+          done
+          python3 -c 'import PIL' 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-pil >/dev/null
+          bash tests/test_lexos_intro.sh
+
+      - name: Les fonds d'écran d'Alex — cadrés, pas étirés
+        if: ${{ !cancelled() }}
+        run: |
+          #  Les images qu'Alex a envoyées ne sont pas au format de l'écran :
+          #  un portrait de la mascotte, et une bannière très large. Mises
+          #  telles quelles, la première s'étirait en largeur et la seconde
+          #  se faisait rogner au mauvais endroit.
+          #
+          #  DEUX CONTRÔLES DE CE BANC ONT DÉJÀ ÉTÉ SANS DENTS, et c'est
+          #  pourquoi cette étape existe : l'un comparait la largeur de
+          #  l'image de RÉFÉRENCE (toujours la même, donc toujours vert),
+          #  l'autre exigeait une marge noire que le fond du portrait fournit
+          #  de lui-même. Ils mesurent maintenant la boîte du CONTENU.
+          for p in imagemagick; do
+            dpkg -s "$p" >/dev/null 2>&1 \
+              || sudo apt-get install -y --no-install-recommends "$p" >/dev/null
+          done
+          python3 -c 'import PIL' 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-pil >/dev/null
+          bash tests/test_lexos_fonds_alex.sh
+
+      - name: L'animation d'avant l'installateur — et son filet de sécurité
+        if: ${{ !cancelled() }}
+        run: |
+          #  Une animation qui se fige AVANT l'installateur, c'est un système
+          #  qu'on ne peut plus installer. Le lanceur borne donc la lecture
+          #  par « timeout -k », et ce banc le prouve en faisant tourner un
+          #  mpv VOLONTAIREMENT bloqué : sans la borne, il ne rendrait jamais
+          #  la main.
+          #
+          #  CE CONTRÔLE A DÉJÀ ÉTÉ VERT À TORT : « exec -a » n'existe pas
+          #  dans dash, le faux mpv mourait aussitôt, et le banc mesurait
+          #  « 0 s » en croyant avoir mesuré la borne. D'où le plancher de
+          #  durée et la pré-vérification qu'il porte maintenant.
+          for p in ffmpeg mpv; do
+            dpkg -s "$p" >/dev/null 2>&1 \
+              || sudo apt-get install -y --no-install-recommends "$p" >/dev/null
+          done
+          bash tests/test_lexos_install_animation.sh
+
+      - name: Les icônes du bureau suivent celles du menu
+        if: ${{ !cancelled() }}
+        run: |
+          #  Le raccourci posé sur le bureau et le lanceur du menu portent le
+          #  même nom de fichier mais deux « Icon= » différents : le bureau
+          #  gardait l'icône d'origine du paquet là où le menu montrait déjà
+          #  celle de LexOS. lexos-icones-bureau resynchronise la SEULE ligne
+          #  Icon=, sans toucher au reste du fichier.
+          #
+          #  Une mutation de ce banc a survécu au premier essai : le décor
+          #  donnait au raccourci copié la MÊME icône qu'à son homologue
+          #  système, donc l'outil n'avait rien à faire et le contrôle passait
+          #  quoi qu'on casse. Les deux icônes diffèrent maintenant.
+          bash tests/test_lexos_icones_bureau.sh
+
+      - name: Le guetteur de téléchargements — sans inotify-tools, sans sondage
+        if: ${{ !cancelled() }}
+        run: |
+          #  Le guetteur emploie Gio.FileMonitor, déjà fourni par python3-gi :
+          #  aucune dépendance nouvelle dans l'ISO. Sans ce paquet ici, le
+          #  banc SAUTE la moitié qui compte et reste vert pour rien — on
+          #  l'installe donc explicitement.
+          #
+          #  UN CONTRÔLE DE CE BANC LISAIT LA PROSE : le grep « inotifywait »
+          #  tombait sur le commentaire qui explique pourquoi inotify n'est
+          #  PAS employé. Il décommente d'abord, maintenant.
+          python3 -c 'import gi' 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-gi >/dev/null
+          bash tests/test_lexos_telechargements.sh
+
+      - name: Ollama posé à la main — le panneau IA le voit, le terminal Pro aussi
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « ollama est invisible dans le terminal Pro ». Il l'avait
+          #  posé par le script officiel, qui l'écrit dans /usr/local/bin.
+          #
+          #  LA MESURE A DÉMENTI L'HYPOTHÈSE. On soupçonnait « bash --noprofile
+          #  --norc » de perdre /usr/local/bin : c'est faux, ces deux options
+          #  empêchent de LIRE des fichiers, elles ne réinitialisent aucune
+          #  variable. Les deux PATH sont identiques, mesurés côte à côte.
+          #  Ce banc gèle la mesure pour que personne n'aille « corriger » le
+          #  PATH en croyant tenir le coupable, et garde le vrai point
+          #  sensible : « installé, à l'arrêt » ne doit pas se lire
+          #  « pas installé ».
+          bash tests/test_lexos_ia_ollama.sh
+
   partage:
     name: Serveur de partage
     runs-on: ubuntu-latest
