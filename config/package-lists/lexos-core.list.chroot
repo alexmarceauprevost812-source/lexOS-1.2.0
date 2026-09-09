@@ -220,6 +220,28 @@ papirus-icon-theme
 yad
 qrencode
 
+# --- L'extinction « téléviseur 1980 », et ce qui décide de l'allumer --------
+#  ═══ MÊME LEÇON QUE yad ET exfatprogs, TROISIÈME FOIS ═══
+#  Ces deux-là vivaient dans optional-packages/30-dock-effets.list — une liste
+#  que le hook 0250 installe « au mieux » et dont il TOLÈRE L'ABSENCE EN
+#  SILENCE. Pour un thème d'icônes, c'est raisonnable. Ici, chacun des deux
+#  éteint la fonction entière, et sans un mot :
+#
+#    · picom EST le moteur. Sans lui, lexos-crt écrit « picom absent » dans un
+#      journal que personne ne lit, et xfwm4 n'a AUCUNE animation d'ouverture
+#      ni de fermeture. Aucun réglage ne rattrape ça.
+#    · mesa-utils fournit glxinfo, et glxinfo est ce qui DÉCIDE. accel_3d()
+#      commence par « command -v glxinfo || return 1 » : sans lui, la réponse
+#      est « pas d'accélération 3D réelle » quelle que soit la carte, et picom
+#      n'est jamais lancé — sur une machine parfaitement capable. Une
+#      dépendance de la DÉCISION, pas de l'effet, et c'est ce qui la rend
+#      sournoise : tout le reste marche, et rien ne se voit.
+#
+#  Un effet qu'Alex réclame depuis des semaines ne doit pas dépendre du temps
+#  qu'il fait sur les miroirs Debian. Une absence ARRÊTE la construction.
+picom
+mesa-utils
+
 # --- Les volets du terminal --------------------------------------------------
 #  ═══ OBLIGATOIRE, ET PAS « AU MIEUX » ═══
 #  Le lanceur du dock, l'alias « multi » et la liste d'aide vont le proposer.

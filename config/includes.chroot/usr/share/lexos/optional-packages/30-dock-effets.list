@@ -36,15 +36,14 @@ dconf-gsettings-backend
 # lexos-wm sait encore le lancer sur demande explicite (LEXOS_WM_COMPIZ=1) ;
 # il n'est simplement plus livré ni démarré par défaut.
 
-# ═══ CE QUI FAIT L'EFFET AUJOURD'HUI ═══
-# picom sait animer depuis sa version 12 (« Animations! Yes, now picom
-# officially supports animations », son CHANGELOG, v12-rc1). C'est lui qui
-# joue l'extinction « téléviseur » à la fermeture, avec le script écrit dans
-# /usr/share/lexos/picom/lexos-tv.conf. lexos-crt vérifie la version avant de
-# s'en servir et ne touche à rien si elle est trop ancienne.
-picom
-
-# glxinfo, qui dit si l'accélération 3D est RÉELLE (et non llvmpipe). Sans
-# lui, lexos-crt comme lexos-wm refusent de lancer un compositeur : mettre des
-# fenêtres à l'échelle sur du rendu logiciel rend la machine collante.
-mesa-utils
+# ═══ picom ET mesa-utils SONT PARTIS D'ICI — ET C'EST LE CORRECTIF ═══
+# Ils y étaient : picom, le moteur de l'effet « téléviseur », et mesa-utils,
+# qui fournit le glxinfo dont accel_3d() a besoin pour DÉCIDER de lancer
+# picom. Or ce hook installe « au mieux » et tolère une absence EN SILENCE.
+# L'un des deux manquant, l'animation disparaît sans un mot — et pour
+# mesa-utils c'est pire : tout est installé, la carte est capable, et la
+# réponse est quand même « pas d'accélération 3D réelle ».
+# Les deux sont donc passés dans config/package-lists/lexos-core.list.chroot,
+# la liste STRICTE : leur absence arrête la construction.
+# (Le contrôle « Un paquet n'est pas à la fois obligatoire et au mieux » de la
+# CI interdit de les laisser aux deux endroits — et il a raison.)

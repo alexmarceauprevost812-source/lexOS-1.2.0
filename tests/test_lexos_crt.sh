@@ -499,12 +499,32 @@ fi
 # =============================================================================
 titre "7. TOUT EST BRANCHÉ — l'ISO, la session, le routeur"
 # =============================================================================
-grep -qE '^picom$' "$LISTE" \
-	&& ok "picom est dans la liste de paquets de l'image" \
-	|| non "picom n'est pas dans 30-dock-effets.list : l'ISO sortirait sans lui"
-grep -qE '^mesa-utils$' "$LISTE" \
-	&& ok "mesa-utils aussi (glxinfo, qui dit si la 3D est réelle)" \
-	|| non "mesa-utils absent : ni lexos-wm ni lexos-crt ne sauraient juger la 3D"
+#  ═══ DANS LA LISTE STRICTE, ET DANS AUCUNE AUTRE ═══
+#  CE QUE CE CONTRÔLE DISAIT AVANT : « picom est dans 30-dock-effets.list ».
+#  Il l'était — et c'était le défaut. Cette liste-là, le hook 0250 l'installe
+#  « au mieux » et TOLÈRE UNE ABSENCE EN SILENCE. Le contrôle bénissait donc
+#  l'endroit exact où la fonction pouvait mourir sans un bruit.
+#  Pour mesa-utils c'est pire encore : glxinfo n'est pas l'effet, c'est ce qui
+#  DÉCIDE de l'effet — accel_3d() commence par « command -v glxinfo ». Sans
+#  lui, la réponse est « pas d'accélération 3D réelle » sur une machine
+#  parfaitement capable, et picom n'est jamais lancé.
+STRICTE="$RACINE/config/package-lists/lexos-core.list.chroot"
+for P in picom mesa-utils; do
+	if grep -qE "^$P\$" "$STRICTE"; then
+		ok "$P est dans la liste STRICTE : son absence arrête la construction"
+	else
+		non "$P n'est pas obligatoire — l'ISO peut sortir sans lui, en silence"
+	fi
+	#  ET NULLE PART AILLEURS. Un paquet dans les deux listes redevient
+	#  « au mieux » pour le hook 0250, qui l'installe une seconde fois sans
+	#  garde. La CI l'interdit ; le banc le vérifie ici aussi, parce que
+	#  c'est ici qu'on saura pourquoi ça compte.
+	if grep -qE "^$P\$" "$LISTE"; then
+		non "$P est AUSSI dans 30-dock-effets.list : il redevient « au mieux »"
+	else
+		ok "$P n'est plus dans la liste « au mieux »"
+	fi
+done
 
 sed 's/#.*$//' "$WM" > "$BANC/wm.sh"
 grep -q 'lexos-crt --demarrer' "$BANC/wm.sh" \
