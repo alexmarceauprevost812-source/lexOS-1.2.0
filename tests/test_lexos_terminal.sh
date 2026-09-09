@@ -97,7 +97,7 @@ python3 -c 'import PIL' 2>/dev/null || true   # (pas besoin ici, laissé pour la
 genere() { # genere <accent> <mode-terminal>
 	rm -rf "${BANC:?}/t"; mkdir -p "$BANC/t"
 	LEXOS_SKEL="$RACINE/config/includes.chroot/etc/skel" LEXOS_PANNEAU_CSS="$RACINE/config/includes.chroot/usr/share/lexos/gtk-panneau.css" \
-		bash "$GEN" --target "$BANC/t" --terminal "$2" "$1" >/tmp/lexos-terminal-banc.log 2>&1
+		bash "$GEN" --target "$BANC/t" --terminal "$2" "$1" >"$BANC/theme-gen.log" 2>&1
 }
 
 RC="$BANC/t/.config/xfce4/terminal/terminalrc"
