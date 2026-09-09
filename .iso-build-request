@@ -2520,4 +2520,17 @@ suite: trixie
 # installé et compilé correctement, mais l'écran perdait quand même le signal
 # au lancement du bureau — sans kernel modesetting, nvidia-drm ne pilote pas
 # l'affichage sur une machine où la carte NVIDIA est la seule sortie vidéo.
-build: 117
+# build 118 : la CI de la 117 rougissait sur ses propres garde-fous, pas sur
+# l'ISO. Deux d'un coup : cinq bancs renvoyaient un texte dans « grep -q »
+# sous pipefail (une course qui donne un faux rouge une fois sur cinq, et un
+# faux VERT dans un controle inverse), et six bancs du depot n'etaient lances
+# par aucun travail de la CI. Les deux sont reparees, et la correction du
+# premier a reveille un controle qui se taisait depuis toujours dans
+# test_lexos_utilisateurs.sh.
+# Cette ISO porte aussi tout ce qui attendait depuis la 117 : la video
+# d'apres-connexion carree avec son halo flou, les fonds d'ecran d'Alex, le
+# menu Whisker lisible au survol, la barre du haut sans gris autour des
+# outils, l'icone du terminal XFCE, les icones du bureau recalees, l'animation
+# d'avant l'installateur, le guetteur de telechargements, et le bouton de
+# position du dock qui ne ment plus quand il ne sait pas.
+build: 118
