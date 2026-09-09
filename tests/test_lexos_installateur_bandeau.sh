@@ -464,9 +464,12 @@ let n = 0; for (const g of bac.__nav) n += g.items.length;
 console.log(n);
 JS
 	VRAI="$(node "$BANC/compte.js" "$APP" 2>/dev/null)"
-	MOTS="$(grep -oE 'Trente-six|Treize|Vingt|Quarante' "$QML" | head -1)"
-	if [[ "$VRAI" == "36" && "$MOTS" == "Trente-six" ]]; then
-		ok "la diapositive dit « Trente-six sections », et il y en a bien 36"
+	#  « Trente-sept » depuis que la page « Formater un support » existe.
+	#  Le banc COMPTE les sections et compare : c'est le nombre qui décide,
+	#  pas le mot — on ajoute seulement le mot à la liste reconnue.
+	MOTS="$(grep -oE 'Trente-sept|Trente-six|Treize|Vingt|Quarante' "$QML" | head -1)"
+	if [[ "$VRAI" == "37" && "$MOTS" == "Trente-sept" ]]; then
+		ok "la diapositive dit « Trente-sept sections », et il y en a bien 37"
 	elif [[ -z "$VRAI" ]]; then
 		saut "les sections n'ont pas pu être comptées — le chiffre du diaporama n'est pas éprouvé"
 	else

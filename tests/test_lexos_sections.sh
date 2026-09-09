@@ -16,7 +16,7 @@
 #  pas de page blanche, pas de message : rien. « node --check » ne dit que
 #  ceci : le fichier se parse. Il se parsait très bien.
 #
-#  Trente-six sections, et aucun banc ne les rendait une par une. Il y en a un
+#  Trente-sept sections, et aucun banc ne les rendait une par une. Il y en a un
 #  maintenant, et il éprouve quatre choses pour CHACUNE :
 #
 #    1. elle ne lève pas ;
@@ -85,7 +85,7 @@ try {
       if (typeof h !== "string" || h.trim().length < 20) vides.push(cle);
     }
     dit(casses.length === 0,
-        `${nom} : aucune section ne lève (${casses.join(", ") || "36/36"})`);
+        `${nom} : aucune section ne lève (${casses.join(", ") || sections.length + "/" + sections.length})`);
     dit(vides.length === 0,
         `${nom} : aucune section ne rend du vide (${vides.join(", ") || "toutes rendent"})`);
   }
@@ -230,7 +230,7 @@ try {
     }
   }
   dit(casses2.length === 0,
-      `état empoisonné : aucune section ne lève (${casses2.join(", ") || "36/36"})`);
+      `état empoisonné : aucune section ne lève (${casses2.join(", ") || sections.length + "/" + sections.length})`);
   dit(mauvais.length === 0,
       `état empoisonné : chaque attribut reste du JavaScript valide (${
         mauvais.length ? mauvais.slice(0, 3).join(" | ") : "tous"})`);
@@ -267,7 +267,7 @@ console.log("FIN|");
 JS
 
 # =============================================================================
-titre "Les 36 sections, rendues une par une"
+titre "Les 37 sections, rendues une par une"
 # =============================================================================
 #  L'état réel de la machine vient de settings.py lui-même : c'est ce que la
 #  page reçoit vraiment. S'il n'est pas lisible ici (python3 absent, outils

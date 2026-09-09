@@ -45,6 +45,7 @@ const NAV = [
   {grp:"Périphériques", items:[
     ["souris","🖱","Souris et pavé tactile"], ["couleurs","🌈","Gestion des couleurs"],
     ["imprimantes","🖨","Imprimantes"], ["amovibles","💾","Supports amovibles"],
+    ["formatage","⚠","Formater un support"],
     ["tablette","🖊","Tablette graphique"]]},
   {grp:"Système", items:[
     ["confidentialite","🛡","Confidentialité et sécurité"], ["maj","⬆","Mises à jour"],
@@ -882,6 +883,116 @@ function suitMaj(quoi){
     }
   }, 1500);
 }
+/* ===========================================================================
+   LA PAGE « FORMATER UN SUPPORT »
+   ===========================================================================
+   ALEX : « la page de formatage, on pourrait-tu la mettre un peu plus gros
+   pour bien voir tout le menu ? » — puis, mieux : une vraie page plutôt que
+   la suite de boîtes zenity. C'est le bon réflexe, et ça règle le défaut à
+   la racine : une page se remet en forme toute seule. Aucune hauteur en
+   pixels ne peut plus cacher la troisième option, quelle que soit l'écriture
+   choisie dans Apparence.
+
+   ═══ LA RÈGLE QUI GOUVERNE CE FICHIER ═══
+   CETTE PAGE AFFICHE ET DEMANDE. lexos-format DÉCIDE ET EXÉCUTE.
+   Aucune vérification de sécurité n'est réécrite ici. La liste affichée est
+   celle que lexos-format ACCEPTERAIT de formater — il la rend lui-même, avec
+   les mêmes fonctions qu'il s'applique. Un deuxième juge écrit en JavaScript
+   finirait par ne plus dire la même chose que le premier, et ce jour-là,
+   c'est un disque qui y passe.
+
+   ═══ RIEN N'EST PRÉSÉLECTIONNÉ. JAMAIS. ═══
+   Sur un écran qui efface des disques, un choix par défaut est un accident
+   qui attend. Ni le support, ni le système de fichiers.
+
+   ═══ ET LA CONFIRMATION SE TAPE ═══
+   Un clic ne suffit pas : il faut recopier le nom du support. C'est la même
+   doctrine que lexos-install, qui « vérifie, avertit, puis passe la main »,
+   et que le mode terminal de lexos-format, où l'on tape FORMATER. */
+let fmt = {charge:false, erreur:"", supports:[], systemes:[],
+           agent:true, pkexec:true,
+           choisi:null, fs:null, saisie:"", enCours:false, fini:""};
+
+async function fmtCharge(force){
+  if(fmt.charge && !force) return;
+  const r = await api("formatage", "liste");
+  fmt.charge = true;
+  if(!r.ok){ fmt.erreur = r.erreur || "liste indisponible"; }
+  else {
+    fmt.erreur = "";
+    fmt.supports = r.supports || [];
+    fmt.systemes = r.systemes || [];
+    fmt.agent = r.agent !== false;
+    fmt.pkexec = r.pkexec !== false;
+    /*  Le support choisi a pu être débranché entre-temps : on ne garde un
+        choix que s'il est encore dans la liste. Sans ça, la page garderait
+        un nom que la machine ne connaît plus, et le bouton mènerait à un
+        refus incompréhensible. */
+    if(fmt.choisi && !fmt.supports.some(s => s.chemin === fmt.choisi)){
+      fmt.choisi = null; fmt.saisie = "";
+    }
+  }
+  rendSection();
+}
+function fmtChoisir(chemin){
+  /*  Re-cliquer sur le support choisi le DÉSÉLECTIONNE : on doit pouvoir
+      revenir à « rien de choisi », qui est l'état de départ. */
+  fmt.choisi = (fmt.choisi === chemin) ? null : chemin;
+  fmt.saisie = ""; fmt.fini = "";
+  rendSection();
+}
+function fmtSysteme(cle){ fmt.fs = (fmt.fs === cle) ? null : cle; rendSection(); }
+function fmtSaisie(v){
+  /*  On ne redessine PAS la page à chaque touche : le champ perdrait le
+      curseur à chaque caractère. Seul le bouton change d'état. */
+  fmt.saisie = v;
+  const b = document.getElementById("fmt-go");
+  if(b) b.disabled = !fmtPret();
+}
+function fmtSupport(){ return fmt.supports.find(s => s.chemin === fmt.choisi) || null; }
+function fmtPret(){
+  const s = fmtSupport();
+  if(!s || !fmt.fs || fmt.enCours) return false;
+  return fmt.saisie.trim() === s.nom;
+}
+async function fmtLancer(){
+  if(!fmtPret()) return;
+  const s = fmtSupport();
+  fmt.enCours = true; fmt.fini = ""; rendSection();
+  const r = await api("formatage", "lancer:" + s.chemin + ":" + fmt.fs);
+  fmt.enCours = false;
+  if(r.ok){
+    fmt.fini = "ok";
+    fmt.choisi = null; fmt.fs = null; fmt.saisie = "";
+    await fmtCharge(true);
+    toast("✔ " + s.nom + " est formaté et prêt à l'emploi");
+  } else {
+    fmt.fini = "non";
+    fmt.erreur = r.erreur || "le formatage a échoué";
+    rendSection();
+  }
+}
+function fmtLigneSupport(s){
+  const choisi = fmt.choisi === s.chemin;
+  const detail = [s.taille, s.modele, s.etiquette ? "« " + s.etiquette + " »" : ""]
+        .filter(Boolean).map(esc).join(" · ");
+  const monte = s.montages
+        ? `<div class="d" style="color:var(--att)">Monté sur ${esc(s.montages)} — son contenu disparaîtra</div>`
+        : `<div class="d">Rien n'est ouvert dessus en ce moment</div>`;
+  return `<div class="srow${choisi ? " sel" : ""}"
+       style="cursor:pointer;${choisi ? "outline:2px solid var(--ac);outline-offset:-2px" : ""}"
+       onclick="fmtChoisir('${jsq(s.chemin)}')">
+    <span style="width:56px;height:56px;display:flex;align-items:center;
+                 justify-content:center;flex:none">${usbGlyph(44)}</span>
+    <div style="flex:1">
+      <div class="t">${esc(s.nom)}${detail ? " — " + detail : ""}</div>
+      ${monte}
+      <div class="d">${esc(s.chemin)}</div>
+    </div>
+    <span class="etat ${choisi ? "ok" : "abs"}">${choisi ? "choisi" : "choisir"}</span>
+  </div>`;
+}
+
 async function actionUsb(quoi){
   const r = await api("usb", quoi);
   if(!r.ok) toast("Échec : " + (r.erreur || "commande refusée"));
@@ -1515,6 +1626,93 @@ function contenu(cle){
       machine en a un ; sinon il assombrit l'image et le dit clairement, parce
       que ça n'économise alors aucune batterie.</p>
       ${btnOuvrir("energie","État détaillé (terminal)")}`;
+    case "formatage": {
+      /*  On charge à l'ouverture, pas à chaque rafraîchissement global :
+          « lexos-format --json » interroge les disques, ce n'est pas gratuit,
+          et la page des Paramètres se rafraîchit après chaque bouton. */
+      if(!fmt.charge){ setTimeout(() => fmtCharge(false), 0); }
+      const s = fmtSupport();
+      const avert = [];
+      if(!fmt.pkexec) avert.push(`<p class="notice" style="border-color:var(--non)">
+        <b>pkexec est absent.</b> Sans lui, LexOS ne peut pas demander les droits
+        d'administration depuis une fenêtre. Le formatage reste possible au
+        terminal : <code>lexos format</code>.</p>`);
+      else if(!fmt.agent) avert.push(`<p class="notice" style="border-color:var(--non)">
+        <b>Aucune fenêtre de mot de passe n'est disponible sur cette session.</b>
+        pkexec ne dessine pas lui-même cette fenêtre : il la demande à un agent
+        d'authentification qui doit tourner dans la session, et il n'y en a
+        aucun ici. Sans lui, le bouton ne ferait rien, en silence.
+        Pose-le puis rouvre la session : <code>lexos install lxpolkit</code>.
+        En attendant, <code>lexos format</code> marche au terminal.</p>`);
+
+      return `<h2>Formater un support</h2>
+      <div class="sub">Effacer et remettre à neuf une clé USB, une carte mémoire
+      ou un disque externe</div>
+      ${avert.join("")}
+      ${fmt.erreur ? `<p class="notice" style="border-color:var(--non)">${esc(fmt.erreur)}</p>` : ""}
+
+      <div class="srow" style="display:block">
+        <div class="t">1 · Quel support ?</div>
+        <div class="d" style="margin-bottom:8px">Le disque système n'est jamais
+        proposé, ni aucun disque qui porte tes dossiers. C'est
+        <code>lexos-format</code> qui dresse cette liste — la page ne décide rien.</div>
+      </div>
+      ${!fmt.charge ? `<p class="notice">Lecture des supports branchés…</p>`
+        : fmt.supports.length
+          ? fmt.supports.map(fmtLigneSupport).join("")
+          : `<p class="notice">Aucun support amovible n'est branché. Branche une
+             clé USB, une carte mémoire ou un disque externe, puis
+             <button class="btn ghost" onclick="fmtCharge(true)">Regarder à nouveau</button></p>`}
+
+      ${s ? `
+      <div class="srow" style="display:block">
+        <div class="t">2 · Quel format ?</div>
+        <div class="d" style="margin-bottom:8px">Les trois sont là, avec ce qu'ils
+        changent pour toi.</div>
+        ${fmt.systemes.map(y => `
+          <div class="srow${fmt.fs === y.cle ? " sel" : ""}"
+               style="cursor:pointer;${fmt.fs === y.cle ? "outline:2px solid var(--ac);outline-offset:-2px" : ""}"
+               onclick="fmtSysteme('${jsq(y.cle)}')">
+            <div style="flex:1">
+              <div class="t">${esc(y.titre)}</div>
+              <div class="d">${esc(y.texte)}</div>
+            </div>
+            <span class="etat ${fmt.fs === y.cle ? "ok" : "abs"}">${fmt.fs === y.cle ? "choisi" : "choisir"}</span>
+          </div>`).join("")}
+      </div>` : ""}
+
+      ${s && fmt.fs ? `
+      <div class="srow" style="display:block;border-color:var(--non)">
+        <div class="t">3 · Confirmation</div>
+        <p class="notice" style="border-color:var(--non)">
+          <b>Tout ce que contient ${esc(s.nom)} va disparaître, définitivement.</b><br>
+          ${esc(s.nom)} — ${esc(s.taille)}${s.modele ? " · " + esc(s.modele) : ""}
+          ${s.etiquette ? "<br>Étiquette actuelle : « " + esc(s.etiquette) + " »" : ""}
+          ${s.montages ? "<br>Ouvert en ce moment sur : " + esc(s.montages) : ""}
+          <br>Nouveau format : ${esc(fmt.fs)}
+        </p>
+        <div class="d" style="margin-bottom:6px">Pour confirmer, recopie le nom du
+        support : <b>${esc(s.nom)}</b></div>
+        <div class="row">
+          <input id="fmt-saisie" class="champ" type="text" autocomplete="off"
+                 placeholder="${esc(s.nom)}" value="${esc(fmt.saisie)}"
+                 oninput="fmtSaisie(this.value)" style="max-width:220px">
+          <button id="fmt-go" class="btn" onclick="fmtLancer()"
+                  ${fmtPret() ? "" : "disabled"}>Tout effacer et formater</button>
+        </div>
+      </div>` : ""}
+
+      ${fmt.enCours ? `<p class="notice"><b>Formatage en cours…</b> Démontage,
+        table de partitions, puis écriture du système de fichiers. Ça peut
+        prendre une minute — la fenêtre n'est pas figée, et le support ne doit
+        pas être débranché.</p>` : ""}
+      ${fmt.fini === "ok" ? `<p class="notice">Terminé — le support est prêt à
+        l'emploi.</p>` : ""}
+
+      <p class="notice">Le terminal fait la même chose et pose les mêmes
+      questions : <code>lexos format</code>. C'est le chemin quand il n'y a pas
+      de bureau — sur une machine qu'on répare, c'est souvent le seul.</p>`;
+    }
     case "usb": {
       const app = etat.usb || [];
       return `<h2>Appareils USB</h2><div class="sub">Branchements détectés</div>
@@ -1538,7 +1736,7 @@ function contenu(cle){
         <div class="row">
           <button class="btn" onclick="actionUsb('vide-memoire')">Vide mémoire +</button>
           <button class="btn ghost" onclick="actionUsb('terminal')">Terminal de l'appareil</button>
-          <button class="btn ghost" onclick="actionUsb('formater')">⚠ Formater…</button>
+          <button class="btn ghost" onclick="allerA('formatage')">⚠ Formater…</button>
         </div>
       </div>
       <p class="notice"><code>lexos vide-memoire</code> copie en un clic tout le contenu
