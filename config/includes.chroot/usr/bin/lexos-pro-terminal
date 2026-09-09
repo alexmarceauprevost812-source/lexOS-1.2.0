@@ -41,13 +41,40 @@ CODE="/usr/lib/lexos/terminal-pro.py"
 DONNEES="${LEXOS_TERMINAL_PRO_WEB:-/usr/share/lexos/terminal-pro/web}"
 
 classique() {
-	#  Même liste, même ordre que lexos-ouvrir et lexos-welcome : on ne
-	#  devine pas un seul nom, on essaie ceux qui existent vraiment sur une
-	#  install Debian/XFCE.
-	for T in x-terminal-emulator xfce4-terminal gnome-terminal xterm; do
-		command -v "$T" >/dev/null 2>&1 && exec "$T"
+	#  ═══ JAMAIS « x-terminal-emulator » ICI : IL POINTE SUR NOUS ═══
+	#  CE QUE ÇA FAISAIT AVANT : cette liste commençait par
+	#  « x-terminal-emulator », par symétrie avec lexos-ouvrir et
+	#  lexos-welcome. La symétrie était le piège : chez EUX, l'alternative
+	#  Debian désigne un terminal. Ici, le hook 0455 l'a rebranchée sur
+	#  lexos-pro-terminal.wrapper, qui fait « exec /usr/bin/lexos-pro-terminal ».
+	#  Autrement dit, notre filet de secours nous rappelait NOUS.
+	#
+	#  MESURÉ, en reproduisant la vraie machine (x-terminal-emulator branché
+	#  sur le pont, PySide6 absent) :
+	#      « lexos-pro-terminal --classique » : tué au bout de 8 s (code 124),
+	#      1222 passages dans ce lanceur, xfce4-terminal lancé 0 fois.
+	#  Deux conséquences, et la seconde est la pire :
+	#    · le menu « Terminal classique » ouvrait le terminal Pro ;
+	#    · sur une machine SANS PySide6 — précisément celle où ce filet est
+	#      la dernière chance d'avoir un terminal — la boucle est infinie.
+	#      Le seul raccourci que l'on connaît, Super+T, ne donne plus rien
+	#      du tout et occupe un cœur.
+	#
+	#  On nomme donc les vrais terminaux, et on REFUSE tout chemin qui
+	#  revient sur ce programme — la garde vaut pour le prochain pont, pas
+	#  seulement pour celui d'aujourd'hui.
+	local MOI CHEMIN CIBLE T
+	MOI="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+	for T in xfce4-terminal gnome-terminal konsole mate-terminal xterm; do
+		CHEMIN="$(command -v "$T" 2>/dev/null)" || continue
+		[[ -n "$CHEMIN" ]] || continue
+		CIBLE="$(readlink -f "$CHEMIN" 2>/dev/null || printf '%s' "$CHEMIN")"
+		#  Ni nous-mêmes, ni notre pont : les deux ramèneraient ici.
+		[[ "$CIBLE" == "$MOI" ]] && continue
+		[[ "$CIBLE" == *lexos-pro-terminal* ]] && continue
+		exec "$CHEMIN"
 	done
-	die "Aucun terminal disponible (ni LexOS Pro Terminal, ni un terminal classique)."
+	die "Aucun terminal classique disponible (xfce4-terminal, gnome-terminal, konsole, mate-terminal ou xterm)."
 }
 
 case "${1:-}" in

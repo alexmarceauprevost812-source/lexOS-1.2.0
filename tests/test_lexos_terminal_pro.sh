@@ -279,6 +279,70 @@ bash -n "$LANCEUR" 2>/dev/null && ok "lexos-pro-terminal : syntaxe bash valide" 
 grep -qE -- '--classique\|classique\)[[:space:]]*classique[[:space:]]*;;' "$LANCEUR" \
 	&& ok "le Terminal classique reste atteignable (branche --classique du case)" \
 	|| non "aucun repli vers un vrai terminal"
+
+# =============================================================================
+#  ═══ ET ON LE LANCE POUR DE VRAI — LE grep CI-DESSUS NE PROUVAIT RIEN ═══
+# =============================================================================
+#  CE QUE ÇA FAISAIT AVANT : le contrôle du dessus certifiait « le Terminal
+#  classique reste atteignable » en trouvant une branche de « case ». La
+#  branche était bien là. Elle appelait classique(), qui commençait par
+#  « exec x-terminal-emulator » — l'alternative Debian que le hook 0455 a
+#  rebranchée sur lexos-pro-terminal.wrapper, lequel fait « exec
+#  /usr/bin/lexos-pro-terminal ». Le filet de secours se rappelait lui-même.
+#
+#  MESURÉ AVANT LE CORRECTIF, dans le bac à sable ci-dessous :
+#      « --classique », PySide6 absent : tué à 8 s (code 124),
+#      1222 passages dans le lanceur, xfce4-terminal lancé 0 fois.
+#  Sur une machine sans PySide6 — exactement celle où ce filet est la
+#  dernière chance d'avoir un terminal — Super+T ne donnait plus rien et
+#  occupait un cœur.
+#
+#  Un contrôle qui lit du texte ne pouvait pas voir ça. Celui-ci EXÉCUTE le
+#  lanceur, dans une machine reconstituée : x-terminal-emulator branché sur
+#  le pont, PySide6 absent, et un faux xfce4-terminal qui dit son nom.
+BAC="$BANC/classique"; mkdir -p "$BAC/bin" "$BAC/web"
+cp "$LANCEUR" "$BAC/bin/lexos-pro-terminal"
+sed "s|/usr/bin/lexos-pro-terminal|$BAC/bin/lexos-pro-terminal|" \
+	"$RACINE/config/includes.chroot/usr/bin/lexos-pro-terminal.wrapper" \
+	> "$BAC/bin/lexos-pro-terminal.wrapper"
+ln -sf "$BAC/bin/lexos-pro-terminal.wrapper" "$BAC/bin/x-terminal-emulator"
+printf '#!/bin/sh\necho VRAI-TERMINAL-CLASSIQUE\n' > "$BAC/bin/xfce4-terminal"
+#  PySide6 absent : c'est le cas qui compte, celui du filet de secours.
+printf '#!/bin/sh\nexit 1\n' > "$BAC/bin/python3"
+chmod +x "$BAC/bin"/*
+#  Un compteur de passages : une boucle se voit au nombre, pas au silence.
+sed -i "3i printf x >> $BAC/tours" "$BAC/bin/lexos-pro-terminal"
+: > "$BAC/tours"
+#  CODE est en dur dans le lanceur ; sans ce fichier il sort avant d'arriver
+#  au filet, et le contrôle ne mesurerait rien.
+if [ -r /usr/lib/lexos/terminal-pro.py ]; then
+	SORTIE_CL="$(PATH="$BAC/bin:$PATH" LEXOS_TERMINAL_PRO_WEB="$BAC/web" \
+		timeout 8 "$BAC/bin/lexos-pro-terminal" --classique 2>&1)"
+	CODE_CL=$?
+	TOURS_CL="$(wc -c < "$BAC/tours" | tr -d ' ')"
+	if [ "$CODE_CL" = "124" ]; then
+		non "« --classique » ne s-arrête jamais : ${TOURS_CL} passages en 8 s — le filet de secours se rappelle lui-même"
+	elif grep -q 'VRAI-TERMINAL-CLASSIQUE' <<< "$SORTIE_CL" && [ "${TOURS_CL:-0}" -le 2 ]; then
+		ok "« --classique » lance VRAIMENT le terminal classique, en un seul passage (mesuré, pas lu)"
+	else
+		non "« --classique » n-a pas lancé le terminal classique (${TOURS_CL} passages, code ${CODE_CL})"
+	fi
+	#  Et le filet lui-même : lancement NORMAL sans PySide6.
+	: > "$BAC/tours"
+	SORTIE_FI="$(PATH="$BAC/bin:$PATH" LEXOS_TERMINAL_PRO_WEB="$BAC/web" \
+		timeout 8 "$BAC/bin/lexos-pro-terminal" 2>&1)"
+	CODE_FI=$?
+	TOURS_FI="$(wc -c < "$BAC/tours" | tr -d ' ')"
+	if [ "$CODE_FI" = "124" ]; then
+		non "sans PySide6, le lanceur boucle : ${TOURS_FI} passages en 8 s — plus aucun terminal sur la machine"
+	elif grep -q 'VRAI-TERMINAL-CLASSIQUE' <<< "$SORTIE_FI"; then
+		ok "sans PySide6, le filet ouvre le terminal classique — Super+T donne toujours quelque chose"
+	else
+		non "sans PySide6, aucun terminal ne s-ouvre (${TOURS_FI} passages, code ${CODE_FI})"
+	fi
+else
+	printf '  \033[2mrepli du terminal non EXÉCUTÉ : /usr/lib/lexos/terminal-pro.py absent de cette machine\033[0m\n'
+fi
 grep -q 'QtWebEngineWidgets' "$LANCEUR" \
 	&& ok "PySide6 WebEngine est vérifié avant de lancer la fenêtre" \
 	|| non "aucune vérification de PySide6 avant le lancement"
