@@ -2,9 +2,10 @@
 # =============================================================================
 #  lexos-wm — démarre le gestionnaire de fenêtres avec les effets CRT
 # =============================================================================
-#  Compiz donne l'ouverture/fermeture « tube cathodique » (effet Glide 2).
-#  Il exige une accélération 3D : sans elle, on reste sur xfwm4 pour ne PAS
-#  risquer un écran noir. Le repli est automatique et silencieux.
+#  xfwm4 + picom est le chemin PAR DÉFAUT. picom v12 sait animer, suit les
+#  zones endommagées, et ne fabrique pas de bureau virtuel géant.
+#  Compiz reste possible, mais SUR DEMANDE EXPLICITE (LEXOS_WM_COMPIZ=1) :
+#  voir plus bas pourquoi, avec les mesures.
 # =============================================================================
 set -uo pipefail
 
@@ -27,6 +28,58 @@ if [[ "$WANT" != "on" ]]; then
 	log "effets CRT désactivés — xfwm4"
 	exec xfwm4 --replace
 fi
+
+# =============================================================================
+#  CHEMIN PAR DÉFAUT : xfwm4 + picom
+# =============================================================================
+#  ═══ POURQUOI COMPIZ N'EST PLUS LE DÉFAUT — MESURÉ, PAS SUPPOSÉ ═══
+#  Diagnostic du 2026-09-09, ThinkPad T460 d'Alex :
+#
+#      $ pgrep -a compiz
+#      2276 compiz --replace ccp
+#      $ xprop -root _NET_DESKTOP_GEOMETRY
+#      _NET_DESKTOP_GEOMETRY(CARDINAL) = 7680, 1080     ← 4× l'écran (1920)
+#
+#  Compiz 0.8.18 (la branche héritée, celle que Debian livre encore) activait
+#  le greffon « wall », qui fabrique un bureau virtuel quatre fois plus large
+#  que l'écran. Cette branche n'a AUCUN suivi des zones endommagées : elle
+#  repeint la surface entière à chaque image, sur un GPU intégré qui partage
+#  la mémoire système. C'est la cause nº1 des saccades.
+#
+#  ═══ ET LE BON CHEMIN ÉTAIT INATTEIGNABLE ═══
+#  Le bloc Compiz plus bas fait « wait "$CPID" », qui ne rend la main que si
+#  Compiz MEURT. Tant qu'il vivait, tout le code en dessous était mort :
+#  le démarrage de picom ET le « exec xfwm4 --replace » final. La version
+#  fluide était écrite depuis des semaines et n'a jamais pu s'exécuter.
+#  Le commentaire qui expliquait ce repli affirmait « Compiz a été RETIRÉ de
+#  Debian trixie, donc has_3d() échoue toujours » : c'est faux sur l'image
+#  livrée, et c'est précisément ce qui a masqué le bogue.
+#
+#  ═══ CE QU'ON GAGNE EN PLUS ═══
+#  Le chemin Compiz coûtait, à CHAQUE ouverture de session, cinq secondes de
+#  « sleep » puis un « xfce4-panel --restart » complet — le « menu qui
+#  apparaît et disparaît » qu'Alex décrivait. Relevé dans son wm.log :
+#      [10:58:35] démarrage de Compiz (effets CRT)
+#      [10:58:40] Compiz en place — on relance la barre du haut
+#  Ce chemin-ci n'a ni l'un ni l'autre.
+#
+#  lexos-crt vérifie lui-même ses conditions (effets demandés, version de
+#  picom, accélération 3D réelle) et sort sans rien faire s'il en manque
+#  une : on peut donc l'appeler sans garde ici. Et il est lancé DÉTACHÉ,
+#  parce que « exec » plus bas remplace ce processus.
+if [[ "${LEXOS_WM_COMPIZ:-0}" != "1" ]]; then
+	log "compositeur : xfwm4 + picom"
+	if command -v lexos-crt >/dev/null 2>&1; then
+		setsid lexos-crt --demarrer >/dev/null 2>&1 &
+	fi
+	exec xfwm4 --replace
+fi
+
+# =============================================================================
+#  CHEMIN COMPIZ — sur demande explicite seulement (LEXOS_WM_COMPIZ=1)
+# =============================================================================
+#  Gardé pour le débogage et pour qui veut comparer. Compiz n'est plus livré
+#  dans l'ISO : ce chemin ne sert qu'à celui qui l'a installé lui-même.
 
 # --- L'accélération 3D est-elle réelle ? ------------------------------------
 has_3d() {
@@ -80,10 +133,15 @@ fi
 
 #  ═══ LES EFFETS « TÉLÉVISEUR », SANS COMPIZ ═══
 #  ALEX : « l'effet d'animation n'est pas là quand je ferme des fenêtres ».
-#  Il avait raison, et ce n'était pas un réglage : Compiz a été RETIRÉ de
-#  Debian trixie, donc has_3d() ci-dessus échoue toujours sur son premier
-#  test — « compiz absent » — et on se replie ici, sur un xfwm4 qui n'a
-#  AUCUNE animation d'ouverture ni de fermeture.
+#
+#  CE COMMENTAIRE A DÉJÀ MENTI UNE FOIS, ET ÇA A COÛTÉ DES SEMAINES.
+#  Il affirmait « Compiz a été RETIRÉ de Debian trixie, donc has_3d()
+#  échoue toujours et on se replie ici ». C'était faux sur l'image livrée :
+#  Compiz s'installait, has_3d() réussissait, le « wait » du bloc ci-dessus
+#  ne rendait jamais la main, et ces lignes-ci n'étaient JAMAIS atteintes.
+#  Une prémisse fausse dans un commentaire est plus dangereuse qu'un
+#  commentaire absent : elle décourage de vérifier.
+#  Aujourd'hui ce repli sert quand Compiz, demandé à la main, s'arrête.
 #
 #  lexos-crt reprend ce travail avec picom, qui sait animer depuis sa v12.
 #  Il vérifie lui-même tout ce qu'il faut (effets demandés, picom présent et
