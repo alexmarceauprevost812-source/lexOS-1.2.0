@@ -38,10 +38,29 @@
 	    banc interdit cette écriture-là dans ce fichier, et un commentaire
 	    qui la citerait en entier déclencherait le garde-fou pour rien — ou
 	    pire, apprendrait à l'émousser pour le faire taire. */
+	/*  ═══ LES 8 % : MESURÉS, POUR QU'ALEX TRANCHE SUR UN CHIFFRE ═══
+	    Alex a demandé « toute noire ». Ces 8 % laissent passer le fond
+	    d'écran, et le sien est orangé — d'où la question. Calcul exact du
+	    mélange sur son orange (#E8590C) :
+
+	        92 % (ici) .......... #130701   luminance 0,0029
+	       100 % (proposé) ...... #000000   luminance 0,0000
+
+	    Soit 0,29 % d'écart sur l'échelle de luminance. Ce n'est PAS ce
+	    qu'il voyait : le gris de sa capture était le fond des greffons
+	    (239 px de #292B34), retiré plus bas. On laisse donc les 8 %, qui
+	    servent au compositeur, et la décision de passer à 100 % lui
+	    revient — elle ne se verra presque pas. */
 	background-color: rgba(0, 0, 0, 0.92);
 	border-radius: 14px;
 	/*  Un liseré très pâle : sur un fond d'écran sombre, sans lui, le bord
-	    de la barre disparaît et l'arrondi ne se lit plus. */
+	    de la barre disparaît et l'arrondi ne se lit plus.
+	    MESURÉ, même question qu'au-dessus : ce blanc à 7 % donne #241813
+	    sur la barre, soit 1,15:1 de contraste — un cheveu, exactement ce
+	    qu'il faut pour dessiner un bord sans se voir comme une couleur.
+	    L'enlever rendrait la barre franchement noire ET ferait disparaître
+	    l'arrondi, qu'Alex a demandé. On ne l'enlève pas de sa propre
+	    initiative : c'est un arbitrage entre deux choses qu'il a voulues. */
 	border: 1px solid rgba(255, 255, 255, 0.07);
 	/*  L'écart avec le haut de l'écran, pour que la barre ait l'air posée
 	    plutôt qu'accrochée. Selon la version de GTK et de xfce4-panel, cette
