@@ -2966,6 +2966,24 @@ jobs:
             || sudo apt-get install -y --no-install-recommends python3-gi >/dev/null
           bash tests/test_lexos_telechargements.sh
 
+      - name: L'assistant Nextcloud ne s'ouvre plus à chaque démarrage
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « la page pour ajouter un compte nextcloud s'affiche tout
+          #  le temps quand on ouvre l'ordinateur ».
+          #
+          #  nextcloud-desktop est dans optional-packages/48-comptes.list, et
+          #  le hook 0250 installe ces listes DANS l'ISO. Le paquet pose son
+          #  entrée dans /etc/xdg/autostart : le client démarre à chaque
+          #  session et, faute de compte, ouvre son assistant.
+          #
+          #  Le banc fait tourner le VRAI hook 0256 sur un répertoire
+          #  d'autostart fabriqué — avec nm-applet et blueman à côté, parce
+          #  qu'un hook qui ratisse un répertoire peut très bien emporter le
+          #  réseau et le Bluetooth au passage, et que ça ne se verrait qu'au
+          #  démarrage suivant.
+          bash tests/test_lexos_autostart.sh
+
       - name: Les boîtes de dialogue montrent tout ce qu'elles proposent
         if: ${{ !cancelled() }}
         run: |

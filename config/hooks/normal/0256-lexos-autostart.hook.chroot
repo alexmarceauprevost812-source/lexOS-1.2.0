@@ -1,0 +1,108 @@
+#!/bin/sh
+# =============================================================================
+#  LexOS — les assistants qui s'ouvrent tout seuls à chaque démarrage
+# =============================================================================
+#  ALEX : « la page pour ajouter un compte nextcloud s'affiche tout le temps
+#  quand on ouvre l'ordinateur, peux-tu faire en sorte qu'on la voie pas tout
+#  le temps ? »
+#
+#  ═══ D'OÙ ELLE VIENT ═══
+#  nextcloud-desktop est dans optional-packages/48-comptes.list, et le hook
+#  0250 installe ces listes DANS l'ISO. Le paquet pose son propre fichier
+#  dans /etc/xdg/autostart : le client démarre donc à chaque ouverture de
+#  session, et comme aucun compte n'est configuré, il ouvre son assistant
+#  « ajouter un compte ». Tous les jours, à chaque démarrage.
+#
+#  ═══ CE QU'ON FAIT, ET CE QU'ON NE FAIT PAS ═══
+#  On ne DÉSINSTALLE pas : Alex a peut-être un Nextcloud, et « lexos comptes »
+#  le propose. Le client reste dans le menu et se lance quand on le demande.
+#  On enlève seulement le démarrage AUTOMATIQUE.
+#
+#  DEUX VERROUS, ET LES DEUX SERVENT :
+#    · « Hidden=true » dans /etc/skel/.config/autostart : c'est la façon
+#      prévue par la norme XDG pour qu'un utilisateur annule une entrée du
+#      système. Elle survit à une mise à jour du paquet, et celui qui veut
+#      le retour n'a qu'à effacer ce fichier ;
+#    · la même ligne ajoutée à l'entrée du système. Elle, elle vaut TOUT DE
+#      SUITE, y compris pour les comptes qui existent déjà — /etc/skel ne
+#      sert qu'aux comptes créés APRÈS.
+#
+#  ON NE DEVINE PAS LE NOM DU FICHIER. Il a changé au moins une fois en
+#  amont (« nextcloud.desktop », puis « com.nextcloud.desktopclient.
+#  nextcloud.desktop »). On demande à dpkg ce que le paquet a posé, et à
+#  défaut on ratisse le répertoire. Un nom recopié serait faux le jour où il
+#  change, et le hook resterait silencieux.
+# =============================================================================
+set -e
+
+echo "[lexos] hook 0256 : assistants au démarrage"
+
+AUTO_SYS="${LEXOS_AUTOSTART_SYS:-/etc/xdg/autostart}"
+AUTO_SKEL="${LEXOS_AUTOSTART_SKEL:-/etc/skel/.config/autostart}"
+
+#  Les paquets dont l'assistant s'ouvre sur un compte vide. Le nom du paquet,
+#  pas celui du fichier : c'est dpkg qui dira le fichier.
+PAQUETS="nextcloud-desktop"
+
+trouver_entrees() {   # $1 = nom du paquet
+	if command -v dpkg-query >/dev/null 2>&1 \
+	   && dpkg-query -L "$1" >/dev/null 2>&1; then
+		dpkg-query -L "$1" 2>/dev/null \
+			| grep -E "^${AUTO_SYS}/.*\.desktop$" || true
+	fi
+	#  Repli : le paquet n'est pas là, ou dpkg ne sait pas répondre. On
+	#  ratisse par le nom, sans tenir compte de la casse.
+	find "$AUTO_SYS" -maxdepth 1 -type f -iname "*$1*.desktop" 2>/dev/null || true
+	find "$AUTO_SYS" -maxdepth 1 -type f -iname "*${1%%-*}*.desktop" 2>/dev/null || true
+}
+
+[ -d "$AUTO_SYS" ] || { echo "[lexos]   $AUTO_SYS absent — rien à faire"; exit 0; }
+mkdir -p "$AUTO_SKEL"
+
+POSES=0
+for P in $PAQUETS; do
+	VUES=0
+	#  Le tri retire les doublons que les trois recherches produisent.
+	for F in $(trouver_entrees "$P" | sort -u); do
+		[ -r "$F" ] || continue
+		VUES=$((VUES + 1))
+		N="$(basename "$F")"
+
+		#  1) L'annulation par l'utilisateur, la façon prévue par la norme.
+		#     Le fichier doit porter le MÊME nom que celui du système, sans
+		#     quoi il n'annule rien du tout.
+		#  On reprend le NOM LISIBLE de l'entrée d'origine : c'est celui
+		#  qu'un panneau « applications au démarrage » affichera. Sans lui,
+		#  Alex y verrait « com.nextcloud.desktopclient.nextcloud.desktop »
+		#  et ne saurait pas ce que c'est.
+		NOM="$(sed -n 's/^Name=//p' "$F" 2>/dev/null | head -1)"
+		[ -n "$NOM" ] || NOM="$N"
+		{
+			printf '[Desktop Entry]\n'
+			printf 'Type=Application\n'
+			printf 'Name=%s\n' "$NOM"
+			printf 'Exec=/bin/true\n'
+			printf 'Hidden=true\n'
+			printf 'X-GNOME-Autostart-enabled=false\n'
+			printf '#  Pose par LexOS (hook 0256). Alex : « la page pour ajouter un\n'
+			printf '#  compte nextcloud s affiche tout le temps quand on ouvre\n'
+			printf '#  l ordinateur ». Efface ce fichier pour le retour au demarrage\n'
+			printf '#  automatique ; le programme lui-meme reste installe et lancable\n'
+			printf '#  depuis le menu.\n'
+		} > "$AUTO_SKEL/$N"
+
+		#  2) Et tout de suite, pour les comptes qui existent déjà.
+		if ! grep -q '^Hidden=true' "$F" 2>/dev/null; then
+			printf 'Hidden=true\n' >> "$F"
+		fi
+		if ! grep -q '^X-GNOME-Autostart-enabled=false' "$F" 2>/dev/null; then
+			printf 'X-GNOME-Autostart-enabled=false\n' >> "$F"
+		fi
+		echo "[lexos]   $N : ne s'ouvrira plus tout seul (le programme reste installé)"
+		POSES=$((POSES + 1))
+	done
+	[ "$VUES" -eq 0 ] && echo "[lexos]   $P : aucune entrée de démarrage automatique — rien à faire"
+done
+
+echo "[lexos]   $POSES entrée(s) neutralisée(s)"
+echo "[lexos] hook 0256 : ok"
