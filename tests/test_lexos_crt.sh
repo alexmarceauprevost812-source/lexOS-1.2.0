@@ -544,5 +544,66 @@ for C in '"crt": act_crt,' '"crt": _crt_etat,'; do
 		|| non "$N entrées « $C » : la dernière gagne, sans un mot"
 done
 
+# =============================================================================
+titre "8. L'EFFET EST-IL ALLUMÉ DANS CE QU'ON LIVRE ?"
+# =============================================================================
+#  ═══ LE TROU QUE CES QUARANTE CONTRÔLES LAISSAIENT ═══
+#  Tout ce qui précède éprouve la MÉCANIQUE : le script d'animation est
+#  conforme au manuel, un vrai picom le lit, les trois conditions sont
+#  vérifiées, la page dit ce qui manque, tout est branché. Quarante contrôles,
+#  zéro rouge — et l'effet ne jouait sur AUCUNE machine fraîchement installée.
+#
+#  MESURÉ : lexos.conf posait « LEXOS_CRT_EFFECTS="off" », build.sh le recopie
+#  dans /etc/lexos/build.conf, et « voulu() » le lit AVANT tout le reste :
+#
+#      build.conf=on  -> voulu = on
+#      build.conf=off -> voulu = off        ← ce qu'on livrait
+#
+#  Sur « off », cmd_demarrer écrit « effets non demandés — rien à faire » et
+#  sort avant même de regarder si picom est là. Aucun des quarante contrôles
+#  ne pouvait le voir : ils éprouvaient l'outil, jamais le RÉGLAGE LIVRÉ.
+#  Un interrupteur en position « arrêt » n'est pas une panne de la machine ;
+#  c'est quand même une fonction absente pour celui qui s'en sert.
+CONF_LEXOS="$RACINE/lexos.conf"
+DEFAUT="$(sed -n 's/^LEXOS_CRT_EFFECTS="\([^"]*\)".*/\1/p' "$CONF_LEXOS" | tail -1)"
+[ "$DEFAUT" = "on" ] \
+	&& ok "lexos.conf livre l'effet ALLUMÉ (LEXOS_CRT_EFFECTS=\"on\")" \
+	|| non "lexos.conf livre « ${DEFAUT:-?} » : sur une machine neuve, l'animation ne joue jamais"
+
+#  ET LA VALEUR VOYAGE VRAIMENT JUSQU'À L'ISO.
+grep -q 'LEXOS_CRT_EFFECTS=' "$RACINE/build.sh" \
+	&& ok "build.sh recopie ce réglage dans /etc/lexos/build.conf" \
+	|| non "build.sh ne recopie pas LEXOS_CRT_EFFECTS : l'ISO ne saurait pas ce qu'on a choisi"
+
+#  ═══ ON NE LIT PAS « voulu() », ON LA FAIT TOURNER ═══
+#  Deux fichiers build.conf pour de vrai, et on demande son avis à l'outil.
+#  C'est ce qui manquait : le chemin de build.conf était écrit en dur, donc
+#  aucun banc ne pouvait éprouver la décision sans écrire dans /etc.
+for V in on off; do
+	FOYER="$BANC/voulu-$V"
+	mkdir -p "$FOYER/.config/lexos"
+	printf 'LEXOS_CRT_EFFECTS="%s"\n' "$V" > "$BANC/build-$V.conf"
+	VU="$(HOME="$FOYER" XDG_CONFIG_HOME="$FOYER/.config" \
+	      LEXOS_BUILD_CONF="$BANC/build-$V.conf" \
+	      bash "$OUTIL" --json 2>/dev/null | sed -n 's/.*"voulu": "\([^"]*\)".*/\1/p')"
+	[ "$VU" = "$V" ] \
+		&& ok "build.conf=$V → l'outil répond « $VU » (mesuré, pas lu)" \
+		|| non "build.conf=$V → l'outil répond « ${VU:-rien} » : la décision ne suit pas le réglage"
+done
+
+#  ET L'ÉTAT ÉCRIT PAR L'UTILISATEUR GAGNE SUR LE DÉFAUT DE LA CONSTRUCTION.
+#  Sans ça, « lexos crt on » sur une ISO livrée en « off » ne tiendrait pas
+#  d'une session à l'autre — et personne ne comprendrait pourquoi.
+FOYER="$BANC/voulu-priorite"
+mkdir -p "$FOYER/.config/lexos"
+printf 'on\n' > "$FOYER/.config/lexos/crt"
+printf 'LEXOS_CRT_EFFECTS="off"\n' > "$BANC/build-priorite.conf"
+VU="$(HOME="$FOYER" XDG_CONFIG_HOME="$FOYER/.config" \
+      LEXOS_BUILD_CONF="$BANC/build-priorite.conf" \
+      bash "$OUTIL" --json 2>/dev/null | sed -n 's/.*"voulu": "\([^"]*\)".*/\1/p')"
+[ "$VU" = "on" ] \
+	&& ok "le choix de l'utilisateur passe DEVANT le défaut de la construction" \
+	|| non "le défaut de la construction écrase le choix de l'utilisateur (« $VU »)"
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]

@@ -57,6 +57,15 @@ CONF_PICOM="$(readlink -f "$(dirname "$(readlink -f "$0")")/../share/lexos/picom
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lexos"
 ETAT="$CONF_DIR/crt"
 LOG="$CONF_DIR/crt.log"
+#  LE DÉFAUT DE LA CONSTRUCTION, ET SON CHEMIN EST SURCHARGEABLE.
+#  Pas pour qu'on le change en production — la valeur par défaut est la vraie —
+#  mais pour qu'un banc puisse ÉPROUVER la décision au lieu de la lire. C'est
+#  le procédé du hook 0250 (LEXOS_OPTIONAL_DIR) et du hook 0610, et il vient
+#  de servir : ce réglage a tenu l'effet éteint pendant des semaines sans
+#  qu'aucun des quarante contrôles de ce banc ne puisse le voir, parce
+#  qu'aucun ne pouvait faire tourner « voulu() » sur un autre fichier que
+#  /etc/lexos/build.conf — et un banc n'écrit pas dans /etc.
+CONF_BUILD="${LEXOS_BUILD_CONF:-/etc/lexos/build.conf}"
 #  La version de picom à partir de laquelle « animations » existe. Nommée une
 #  fois : le contrôle, le message et le JSON la lisent tous ici.
 PICOM_MIN=12
@@ -126,9 +135,9 @@ voulu() {
 		local v; v="$(cat "$ETAT" 2>/dev/null)"
 		[[ "$v" == "on" || "$v" == "off" ]] && { printf '%s' "$v"; return 0; }
 	fi
-	if [[ -r /etc/lexos/build.conf ]]; then
-		# shellcheck disable=SC1091
-		local d; d="$(. /etc/lexos/build.conf 2>/dev/null; printf '%s' "${LEXOS_CRT_EFFECTS:-on}")"
+	if [[ -r "$CONF_BUILD" ]]; then
+		# shellcheck disable=SC1090,SC1091
+		local d; d="$(. "$CONF_BUILD" 2>/dev/null; printf '%s' "${LEXOS_CRT_EFFECTS:-on}")"
 		[[ "$d" == "off" ]] && { printf 'off'; return 0; }
 	fi
 	printf 'on'
