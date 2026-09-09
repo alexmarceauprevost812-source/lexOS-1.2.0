@@ -2435,7 +2435,7 @@ jobs:
           #  personnel sur le réseau.
           bash tests/test_lexos_partage_page.sh
 
-      - name: Les 36 sections des Paramètres se rendent toutes
+      - name: Les 37 sections des Paramètres se rendent toutes
         if: ${{ !cancelled() }}
         run: |
           #  « Diagnostic » ne s'affichait PAS. Elle écrivait
@@ -2965,6 +2965,23 @@ jobs:
           python3 -c 'import gi' 2>/dev/null \
             || sudo apt-get install -y --no-install-recommends python3-gi >/dev/null
           bash tests/test_lexos_telechargements.sh
+
+      - name: La page « Formater un support » — la page demande, l'outil décide
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX voulait une vraie page plutôt que la suite de boîtes zenity.
+          #  La règle du chantier : la page AFFICHE et DEMANDE, lexos-format
+          #  DÉCIDE et EXÉCUTE. Aucune vérification de sécurité n'est réécrite
+          #  en JavaScript ni en Python — deux juges finissent par ne plus dire
+          #  la même chose, et ce jour-là c'est un disque qui y passe.
+          #
+          #  Le banc fait tourner le VRAI lexos-format sur un décor de quatre
+          #  disques dont un seul est formatable, et lui donne un VRAI
+          #  périphérique bloc (une boucle losetup) pour éprouver le refus
+          #  d'une cible non amovible : sans un vrai bloc, le programme
+          #  sortirait avant le contrôle qui compte et le banc serait vert
+          #  pour la mauvaise raison.
+          bash tests/test_lexos_formatage_page.sh
 
       - name: L'assistant Nextcloud ne s'ouvre plus à chaque démarrage
         if: ${{ !cancelled() }}
