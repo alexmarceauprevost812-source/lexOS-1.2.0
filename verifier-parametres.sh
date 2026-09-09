@@ -186,6 +186,12 @@ lexos-dev
 #  clone git » à côté du réglage de la luminosité.
 lexos-dev-sync
 lexos-dualboot
+#  Une REMISE EN ACCORD ponctuelle, pas un reglage : elle recale les icones
+#  des raccourcis du bureau sur celles des lanceurs systeme, puis elle a fini.
+#  Il n'y a rien a y regler — un bouton « recaler les icones » dans les
+#  Parametres serait un bouton qu'on ne reclique jamais. Elle est atteinte par
+#  « lexos icones-bureau », et son compte rendu est le terminal.
+lexos-icones-bureau
 lexos-game
 lexos-gps
 lexos-jeux

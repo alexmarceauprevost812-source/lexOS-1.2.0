@@ -117,6 +117,7 @@ ${B}ÉNERGIE${R}
   ${A}sauvegarde init${R} <d>  Créer le coffre ${D}(disque externe conseillé)${R}
   ${A}sauvegarde maintenant${R} Copier Documents, Images, Musique, Vidéos, Bureau
   ${A}epingler${R} <app>      Mettre une application sur le dock ${D}(--enlever pour la retirer)${R}
+  ${A}icones-bureau${R}       Remettre les icônes du bureau d'accord avec les lanceurs ${D}(--essai)${R}
   ${A}etiquette${R} <dossier>  Écrit les 3 premières lettres SUR le dossier ${D}(--maison pour les tiens)${R}
   ${A}diagnostic${R} [onglet]  La machine en direct, dans une fenêtre ${D}(materiel|medecin|disques)${R}
   ${A}medecin${R}             « Qu'est-ce qui ne va pas ? » — le tri complet, traduit
@@ -1087,6 +1088,7 @@ case "$CMD" in
 	boost|scan|optimisation) exec lexos-boost "$@" ;;
 	sauvegarde|backup|sauve) exec lexos-sauvegarde "$@" ;;
 	epingler|epingle|pin) exec lexos-epingler "$@" ;;
+	icones-bureau|icônes-bureau|icones|raccourcis) exec lexos-icones-bureau "$@" ;;
 	etiquette|etiqueter|etiquettes) exec lexos-etiquette "$@" ;;
 	disques|disque|disks)  exec lexos-disques "$@" ;;
 	#  ═══ « diagnostic » CHANGE DE MAIN, ET C'EST VOULU ═══

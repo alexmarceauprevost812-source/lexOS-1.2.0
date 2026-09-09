@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  lexos-icones-bureau — reaccorder les icônes du bureau sur les lanceurs
+# =============================================================================
+#  ═══ POURQUOI CET OUTIL EXISTE ═══
+#  ALEX, PHOTO DU BUREAU : « Terminal Xfce » portait un carré gris. Le
+#  correctif de l'ISO fait pointer le lanceur SYSTÈME sur l'icône LexOS —
+#  mais une icône POSÉE SUR LE BUREAU n'est pas le lanceur système : c'est
+#  une COPIE, avec sa propre ligne « Icon= », figée au jour où elle a été
+#  faite. Alex aurait donc vu le correctif partout SAUF à l'endroit exact de
+#  sa photo.
+#
+#  LexOS ne dépose rien sur le bureau — vérifié : il n'y a aucun dossier
+#  « Desktop » ni « Bureau » dans /etc/skel. Ces copies viennent de la
+#  personne elle-même, ou d'une ISO plus ancienne. On ne peut donc pas les
+#  corriger à la construction : ça se répare sur la machine, et c'est un
+#  geste qui se demande.
+#
+#  ═══ LA RÈGLE, ET ELLE EST ÉTROITE À DESSEIN ═══
+#  Pour chaque .desktop du bureau, s'il existe un lanceur système DU MÊME NOM
+#  DE FICHIER, on recopie SA ligne « Icon= » dans la copie. Rien d'autre.
+#  Pas le nom, pas la commande, pas les catégories : quelqu'un qui a renommé
+#  son raccourci ou changé sa commande l'a fait exprès, et un outil qui
+#  écraserait ça ferait plus de dégâts qu'un carré gris.
+#
+#  On ne touche pas non plus aux copies SANS équivalent système : un
+#  raccourci écrit à la main n'a pas de référence à suivre.
+# =============================================================================
+set -uo pipefail
+
+PROG="lexos-icones-bureau"
+
+#  Les seams du banc : on déplace ce qu'on lit, on ne donne aucun droit.
+BUREAU_DIR="${LEXOS_BUREAU_DIR:-}"
+CATALOGUES="${LEXOS_APPS_DIRS:-/usr/local/share/applications /usr/share/applications}"
+
+ESSAI=0
+for a in "$@"; do
+	case "$a" in
+		--essai|-n) ESSAI=1 ;;
+		-h|--aide|--help)
+			cat <<'AIDE'
+lexos-icones-bureau — remet les icônes du bureau d'accord avec les lanceurs
+
+  Une icône posée sur le bureau est une COPIE du lanceur, avec sa propre
+  ligne « Icon= ». Quand LexOS change l'icône d'une application, cette copie
+  ne suit pas. Cet outil la recale.
+
+  Il ne touche QUE la ligne « Icon= », et seulement quand un lanceur système
+  du même nom existe. Le nom, la commande et le reste ne bougent pas.
+
+Usage :
+  lexos-icones-bureau            recale les icônes
+  lexos-icones-bureau --essai    montre ce qui changerait, sans rien écrire
+AIDE
+			exit 0 ;;
+	esac
+done
+
+dire() { printf '%s\n' "$*"; }
+
+# --- Où est le bureau ? ------------------------------------------------------
+#  Trois écritures, parce qu'aucune n'est garantie : xdg-user-dir quand
+#  user-dirs est configuré, le nom français des ISO fr_CA, et l'anglais pour
+#  une session créée avant que les dossiers soient traduits.
+if [ -z "$BUREAU_DIR" ]; then
+	if command -v xdg-user-dir >/dev/null 2>&1; then
+		BUREAU_DIR="$(xdg-user-dir DESKTOP 2>/dev/null)"
+	fi
+	#  xdg-user-dir rend le DOSSIER PERSONNEL quand il ne sait pas — et
+	#  ratisser tout le dossier personnel n'est pas ce qu'on veut.
+	if [ -z "$BUREAU_DIR" ] || [ "$BUREAU_DIR" = "$HOME" ]; then
+		BUREAU_DIR=""
+		for D in "$HOME/Bureau" "$HOME/Desktop"; do
+			[ -d "$D" ] && { BUREAU_DIR="$D"; break; }
+		done
+	fi
+fi
+
+if [ -z "$BUREAU_DIR" ] || [ ! -d "$BUREAU_DIR" ]; then
+	dire "$PROG : aucun dossier Bureau — rien à recaler."
+	exit 0
+fi
+
+# --- Le lanceur système du même nom, s'il existe -----------------------------
+#  L'ordre compte : /usr/local d'abord, c'est là que LexOS pose ses
+#  surcharges et c'est celui que les menus voient en premier.
+lanceur_systeme() {
+	local nom="$1" d
+	for d in $CATALOGUES; do
+		[ -r "$d/$nom" ] && { printf '%s' "$d/$nom"; return 0; }
+	done
+	return 1
+}
+
+CHANGES=0
+VUS=0
+for F in "$BUREAU_DIR"/*.desktop; do
+	[ -e "$F" ] || continue
+	VUS=$((VUS + 1))
+	NOM="$(basename "$F")"
+	SYS="$(lanceur_systeme "$NOM")" || continue
+
+	ICONE_SYS="$(sed -n 's/^Icon=//p' "$SYS" | head -1)"
+	ICONE_BUR="$(sed -n 's/^Icon=//p' "$F"   | head -1)"
+	[ -n "$ICONE_SYS" ] || continue
+	[ "$ICONE_SYS" = "$ICONE_BUR" ] && continue
+
+	if [ "$ESSAI" = 1 ]; then
+		dire "$NOM : « ${ICONE_BUR:-aucune} » -> « $ICONE_SYS » (essai, rien écrit)"
+		CHANGES=$((CHANGES + 1))
+		continue
+	fi
+
+	#  ═══ ON ÉCRIT PAR UN FICHIER TEMPORAIRE, PAS AVEC « sed -i » ═══
+	#  Un « sed -i » sur un fichier du bureau qui échoue à mi-chemin (disque
+	#  plein, coupure) laisserait un raccourci tronqué : l'icône
+	#  disparaîtrait ET le double-clic ne ferait plus rien. On écrit à côté,
+	#  et on ne remplace qu'une fois le fichier complet.
+	TMP="$(mktemp "${F}.lexos.XXXXXX" 2>/dev/null)" || TMP=""
+	if [ -z "$TMP" ]; then
+		dire "$PROG : impossible d'écrire à côté de $NOM — ignoré."
+		continue
+	fi
+	if [ -n "$ICONE_BUR" ]; then
+		sed "s|^Icon=.*|Icon=${ICONE_SYS}|" "$F" > "$TMP"
+	else
+		#  Pas de ligne Icon= : on la pose sous l'en-tête.
+		sed "0,/^\[Desktop Entry\]/s//[Desktop Entry]\nIcon=${ICONE_SYS}/" "$F" > "$TMP"
+	fi
+	if [ -s "$TMP" ] && grep -q "^Icon=${ICONE_SYS}$" "$TMP"; then
+		#  Les raccourcis du bureau sont souvent exécutables : on garde le
+		#  mode du fichier d'origine, sinon XFCE le marque « non fiable ».
+		chmod --reference="$F" "$TMP" 2>/dev/null || true
+		mv -f "$TMP" "$F"
+		dire "$NOM : icône « ${ICONE_BUR:-aucune} » -> « $ICONE_SYS »"
+		CHANGES=$((CHANGES + 1))
+	else
+		rm -f "$TMP"
+		dire "$PROG : $NOM non modifié (écriture incomplète)"
+	fi
+done
+
+if [ "$VUS" = 0 ]; then
+	dire "$PROG : aucun raccourci sur le bureau."
+elif [ "$CHANGES" = 0 ]; then
+	dire "$PROG : les $VUS raccourci(s) du bureau sont déjà d'accord avec leurs lanceurs."
+else
+	dire "$PROG : $CHANGES raccourci(s) recalé(s) sur $VUS."
+fi
+exit 0
