@@ -250,7 +250,10 @@ trap 'rm -rf "$BANC5"' EXIT
 #  leurs boutons portaient « class="btn ghost" » écrit en dur, sans condition.
 #  Et ce n'était pas un oubli d'une ligne — etat() ne DISAIT pas quel fond est
 #  posé, il n'y avait rien à comparer.
-grep -q '"fond": _fond_etat(' "$SET" \
+#  « lambda: _fond_etat(perso) » depuis que les collecteurs sont lancés de
+#  front : la table porte la fonction, pas son appel. On cherche la clé et
+#  le nom du collecteur, sans la ponctuation qui les sépare.
+grep -qE '"fond":.*_fond_etat' "$SET" \
 	&& ok "le moteur publie QUEL fond est posé (sans ça, rien à mettre en couleur)" \
 	|| non "etat() ne dit pas quel fond est posé : aucun bouton ne peut se colorer"
 #  Le nom EXACT, et son emploi : « def _fond_actuel » tout court laissait

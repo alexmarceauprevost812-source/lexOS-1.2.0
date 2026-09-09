@@ -533,7 +533,11 @@ for F in act_crt _crt_etat; do
 		&& ok "une seule définition de $F" \
 		|| non "$N définitions de $F : la dernière écrase l'autre en silence"
 done
-for C in '"crt": act_crt,' '"crt": _crt_etat(),'; do
+#  « _crt_etat, » et non « _crt_etat(), » : depuis que les collecteurs sont
+#  lancés DE FRONT, la table d'etat() porte la fonction, pas son appel. Le
+#  contrôle vise la clé et son collecteur — ce qui compte — pas la
+#  ponctuation, qui a déjà changé une fois.
+for C in '"crt": act_crt,' '"crt": _crt_etat,'; do
 	N="$(grep -cF "$C" "$MOTEUR")"
 	[ "$N" = "1" ] \
 		&& ok "une seule entrée « $C »" \

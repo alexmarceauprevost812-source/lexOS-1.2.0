@@ -169,12 +169,76 @@ grep -q 'function vu(' "$JS_NU" && grep -q 'function choisir(' "$JS_NU" \
 	&& ok "vu() et choisir() existent — le patron est écrit une fois, pas recopié" \
 	|| non "l'affichage optimiste n'est plus branché"
 
-#  ═══ LA SECTION 3 ARRIVE AVEC LE CORRECTIF QU'ELLE GARDE ═══
-#  « Un collecteur qui n'aboutit pas rend inconnu sans bloquer les autres »
-#  est le point 3 de la consigne. Le contrôle est écrit et il est ROUGE
-#  aujourd'hui : avec tous les outils muets, etat() attend trente-huit fois
-#  dix secondes bout à bout. On ne le pose pas ici pour qu'il rougisse sans
-#  correctif — il arrive avec lui, au commit suivant.
+# =============================================================================
+titre "3. UN COLLECTEUR QUI N'ABOUTIT PAS NE BLOQUE PAS LES AUTRES"
+# =============================================================================
+if ! command -v python3 >/dev/null 2>&1; then
+	saute "python3 absent : le moteur n'a PAS été éprouvé"
+else
+	SORTIE="$(cd "$RACINE" && timeout 300 python3 - "$RACINE/config/includes.chroot/usr/lib/lexos" <<'PY' 2>&1 | grep -E '^(OK|NON|FIN)\|' || true
+import sys, time
+sys.path.insert(0, sys.argv[1])
+import settings
+def dit(bon, m): print(("OK|" if bon else "NON|") + m)
+
+#  UN OUTIL QUI NE RÉPOND JAMAIS. On remplace _sortie par une version qui
+#  dort plus longtemps que le délai autorisé : c'est exactement bluetoothctl
+#  sans adaptateur, ou une imprimante réseau éteinte.
+vrai = settings._sortie
+def lent(argv, **kw):
+    time.sleep(kw.get("timeout", 10) + 0.5)
+    return ""
+settings._sortie = lent
+t0 = time.perf_counter()
+try:
+    e = settings.etat()
+finally:
+    settings._sortie = vrai
+duree = time.perf_counter() - t0
+
+dit(isinstance(e, dict) and len(e) > 10,
+    "avec TOUS les outils muets, etat() rend quand même un état complet")
+#  LE PLAFOND EST LE DÉLAI ANNONCÉ, PAS UN CHIFFRE CONFORTABLE.
+#  Première version : « < 120 s ». Elle passait au vert sur une
+#  implémentation qui mettait 63 s — la fermeture du pool attendait les
+#  fils qu'on venait d'abandonner, et le délai ne tenait pas. Un plafond
+#  trop généreux ne mesure rien.
+plafond = settings._ETAT_DELAI + 3
+dit(duree < plafond,
+    "…et il tient son délai : %.1f s (plafond %.0f s), au lieu d'attendre "
+    "chaque outil bout à bout" % (duree, plafond))
+inconnues = [k for k, v in e.items() if v is None]
+dit(len(inconnues) > 0,
+    "…et ce qu'il n'a pas pu lire vaut « inconnu » (%d clés), jamais une "
+    "valeur inventée" % len(inconnues))
+#  CE QUI NE DÉPEND D'AUCUN OUTIL DOIT TOUJOURS ÊTRE LÀ. C'est ce qui
+#  permet à la page de se dessiner même quand la machine ne répond à rien :
+#  le thème, l'accent, la police, le nom de la machine. Compter « au moins
+#  N clés lues » ne voulait rien dire — avec TOUS les outils muets, il est
+#  normal que la plupart soient inconnues.
+socle = ["perf", "theme", "accent", "police", "hote", "version"]
+manquant = [k for k in socle if e.get(k) in (None, "")]
+dit(not manquant,
+    "…et ce qui ne dépend d'aucun outil est toujours là : la page peut se "
+    "dessiner (%s)" % ", ".join(socle))
+
+#  ═══ ET ON NE RELIT QUE CE QU'ON DEMANDE ═══
+settings._sortie = vrai
+t0 = time.perf_counter(); une = settings.etat(cles=["dock"]); d1 = time.perf_counter() - t0
+t0 = time.perf_counter(); tout = settings.etat();             d2 = time.perf_counter() - t0
+dit(len(une) < len(tout),
+    "etat(cles=[…]) rend moins que tout (%d clés contre %d)" % (len(une), len(tout)))
+dit("dock" in une, "…et la clé demandée en fait partie")
+dit(d1 <= d2 + 0.05,
+    "…et ça ne coûte pas plus cher (%.3f s contre %.3f s)" % (d1, d2))
+print("FIN|")
+PY
+)"
+	grep -q '^FIN|' <<< "$SORTIE" || non "l'épreuve du collecteur muet n'est pas allée au bout"
+	while IFS='|' read -r V M; do
+		case "$V" in OK) ok "$M" ;; NON) non "$M" ;; esac
+	done <<< "$SORTIE"
+fi
 
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]

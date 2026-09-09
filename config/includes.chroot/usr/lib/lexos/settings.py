@@ -16,6 +16,7 @@ Le serveur n'écoute que 127.0.0.1, sur un port libre tiré au lancement.
 """
 import functools
 import http.server
+import concurrent.futures
 import json
 import mimetypes
 import os
@@ -2393,10 +2394,19 @@ ACTIONS = {
 #  État — ce que la page affiche au chargement.
 # =============================================================================
 
-def _sortie(argv, *, timeout=10):
-    #  Le délai par défaut suffit à tout ce qui lit la machine ; le balayage
-    #  Wi-Fi, lui, peut prendre plus de dix secondes sur une borne encombrée —
-    #  d'où le paramètre.
+#  ═══ DEUX SECONDES POUR LIRE, ET C'EST VOULU ═══
+#  Le défaut était de DIX secondes. Lire n'est pas agir : bluetoothctl sans
+#  adaptateur, nmcli pendant un balayage, une imprimante réseau éteinte — ce
+#  qui ne répond pas tout de suite ne répondra pas, et pendant ce temps la
+#  page entière attendait, les trente-sept autres sections comprises.
+#  Le paramètre reste : le balayage Wi-Fi, lui, prend légitimement plus
+#  longtemps sur une borne encombrée, et il le demande explicitement.
+_LIRE_DELAI = float(os.environ.get("LEXOS_LIRE_DELAI", "2"))
+
+
+def _sortie(argv, *, timeout=None):
+    if timeout is None:
+        timeout = _LIRE_DELAI
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         return r.stdout.strip() if r.returncode == 0 else ""
@@ -3855,7 +3865,40 @@ def _heure_etat():
     }
 
 
-def etat():
+#  ═══ CE QUE COÛTAIT UN ÉTAT COMPLET, ET POURQUOI ON L'A DÉCOUPÉ ═══
+#  ALEX : « il faudrait au moins que les Paramètres soient fluides quand on
+#  change les couleurs et qu'on prend des options ».
+#
+#  etat() appelait ses trente-huit collecteurs À LA FILE, chacun libre
+#  d'attendre dix secondes. Mesuré sur un décor où chaque outil répond en
+#  0,25 s : 14,55 s. Changer la couleur d'accent relisait le Wi-Fi, les clés
+#  USB, les imprimantes, le Bluetooth, les sorties audio, les écrans, les
+#  comptes et les mises à jour — et la page attendait tout ça avant de
+#  montrer le clic.
+#
+#  TROIS CHANGEMENTS, ET AUCUN NE TOUCHE À CE QUE LES COLLECTEURS LISENT :
+#    1. on peut n'en demander QUE CERTAINS (« cles ») — ce qui n'est pas à
+#       l'écran n'a pas besoin d'être à jour, il le sera à l'ouverture ;
+#    2. ils travaillent DE FRONT : trente-huit attentes à la file, c'est leur
+#       somme ; menées ensemble, c'est la plus lente qui compte ;
+#    3. celui qui n'aboutit pas dans le délai rend « inconnu » (None) et NE
+#       BLOQUE PAS LES AUTRES. Pas de valeur inventée : la page sait dire
+#       « je ne sais pas », c'est la leçon du bogue du dock.
+#
+#  LES CLÉS BON MARCHÉ (fichiers de configuration, nom de machine) restent
+#  calculées à chaque fois : elles ne coûtent rien et la page en a toujours
+#  besoin pour se dessiner.
+_ETAT_DELAI = float(os.environ.get("LEXOS_ETAT_DELAI", "4"))
+_ETAT_FRONTS = int(os.environ.get("LEXOS_ETAT_FRONTS", "12"))
+
+
+def etat(cles=None):
+    """L'état de la machine. « cles » limite aux collecteurs demandés.
+
+    Rendre None pour une clé veut dire « je n'ai pas pu lire » — jamais
+    « c'est vide ». Les deux ne se ressemblent pas à l'écran, et confondre
+    les deux est exactement ce qui faisait dire au dock « c'est à droite »
+    quand il n'en savait rien."""
     conf = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "lexos"
 
     def fichier(nom, defaut):
@@ -3864,16 +3907,9 @@ def etat():
         except OSError:
             return defaut
 
-    #  Même règle que avion_state() dans lexos-net : « -t » (terse) donne des
-    #  mots-clés fixes, jamais traduits — contrairement à la sortie normale de
-    #  nmcli, qui suit la langue du système (fr_CA par défaut sur LexOS).
-    avion = "off"
-    if shutil.which("nmcli"):
-        wifi = _sortie(["nmcli", "-t", "radio", "wifi"]) or "?"
-        wwan = _sortie(["nmcli", "-t", "radio", "wwan"]) or "?"
-        if wifi == "disabled" and wwan in ("disabled", "missing"):
-            avion = "on"
-
+    #  Le mode avion vit maintenant dans _avion_etat(), lancé avec les autres
+    #  collecteurs : il appelle nmcli DEUX fois, et les faire ici, avant le
+    #  reste, remettait deux attentes en file devant tout le monde.
     version = ""
     try:
         for ligne in Path(ETC_DIR / "os-release").read_text().splitlines():
@@ -3896,75 +3932,166 @@ def etat():
     #  désignerait alors la mauvaise vignette.
     perso = _fonds_perso()
 
-    return {
+    #  ═══ CE QUI NE COÛTE RIEN : toujours là ═══
+    #  Fichiers de configuration, nom de machine, version : aucune commande
+    #  externe. La page en a besoin pour se dessiner, quelle que soit la
+    #  section demandée.
+    base = {
         "perf": perf,
         "theme": fichier("mode", "sombre"),
         "accent": fichier("accent", "orange"),
         "police": fichier("police", "defaut"),
-        "avion": avion,
         "hote": socket.gethostname(),
         "version": version or "LexOS 2.0.0 « Nomad »",
-        "noyau": _sortie(["uname", "-r"]),
-        "libre": _libre_etat(),
-        "tiers": _tiers_etat(),
-        #  L'état réel du matériel, pour que les sections montrent des
-        #  VALEURS et pas seulement des boutons.
-        "wifi": _wifi_etat(),
-        "son": _son_etat(),
-        "batterie": _batterie_etat(),
-        "ecrans": _ecrans_etat(),
         #  La galerie du fond d'écran : index + nom seulement. Le CHEMIN reste
         #  côté machine — la page applique par indice (fond-fichier revalide),
         #  et les vignettes passent par /api/fond-vignette, jamais par un
         #  chemin que la page choisirait.
         "fonds_perso": [{"i": i, "nom": Path(c).name}
                         for i, c in enumerate(perso)],
-        #  ALEX : « pour changer de couleur sur le bouton sélectionné ». Sans
-        #  cette clé, la page n'avait RIEN à comparer : les cinq fonds
-        #  intégrés et les vignettes de la galerie étaient les seuls choix de
-        #  toute l'interface à ne pas montrer lequel était posé.
-        "fond": _fond_etat(perso),
-        #  Vide n'est pas une réponse. Quand la liste ci-dessus l'est, celle-ci
-        #  dit POURQUOI — et la page peut enfin l'écrire au lieu de laisser
-        #  croire qu'aucun écran n'est branché.
-        "ecrans_probleme": _ecrans_probleme(),
-        "echelle": _echelle_etat(),
-        "image": _image_etat(),
-        "souris": _souris_etat(),
-        "heure": _heure_etat(),
-        "lumiere": _lumiere_etat(),
-        "energie": _energie_etat(),
-        "bluetooth": _bluetooth_complet(),
-        "dock": _dock_etat(),
-        "intro": _intro_etat(),
-        "barreCachee": _barre_cachee(),
-        "bureaux": _bureaux_etat(),
-        "apercu": _apercu_etat(),
-        "usb": _usb_etat(),
-        "securite": _securite_etat(),
-        "amovibles": _amovibles_etat(),
-        "access": _access_etat(),
-        "maj": _maj_etat(),
-        "utilisateurs": _utilisateurs_etat(),
-        "imprimantes": _imprimantes_etat(),
-        "clavier": _clavier_etat(),
-        "distant": _distant_etat(),
-        "reseau": _reseau_etat(),
-        "defaut": _defaut_etat(),
-        "couleurs": _couleurs_etat(),
-        "tablette": _tablette_etat(),
-        "notif": _notif_etat(),
-        "mac": _mac_etat(),
-        "partage": _partage_etat(),
-        "terminal": _terminal_etat(),
-        "crt": _crt_etat(),
-        "recherche": _recherche_etat(),
-        "comptes": _comptes_etat(),
-        "bienetre": _bienetre_etat(),
-        "langue": _sortie(["sh", "-c", "printf %s \"${LANG:-}\""]) or os.environ.get("LANG", ""),
     }
 
+    #  ═══ CE QUI INTERROGE LA MACHINE : mené de front, et borné ═══
+    #  Chaque entrée est une fonction SANS argument : c'est ce qui permet de
+    #  les lancer ensemble. Les mettre ici, plutôt qu'en appels directs dans
+    #  un dictionnaire, est tout le changement — leur contenu n'a pas bougé.
+    collecteurs = {
+        "avion": _avion_etat,
+        "noyau": lambda: _sortie(["uname", "-r"]),
+        "libre": _libre_etat,
+        "tiers": _tiers_etat,
+        "wifi": _wifi_etat,
+        "son": _son_etat,
+        "batterie": _batterie_etat,
+        "ecrans": _ecrans_etat,
+        #  ALEX : « pour changer de couleur sur le bouton sélectionné ». Sans
+        #  cette clé, la page n'avait RIEN à comparer.
+        "fond": lambda: _fond_etat(perso),
+        "ecrans_probleme": _ecrans_probleme,
+        "echelle": _echelle_etat,
+        "image": _image_etat,
+        "souris": _souris_etat,
+        "heure": _heure_etat,
+        "lumiere": _lumiere_etat,
+        "energie": _energie_etat,
+        "bluetooth": _bluetooth_complet,
+        "dock": _dock_etat,
+        "intro": _intro_etat,
+        "bureaux": _bureaux_etat,
+        "apercu": _apercu_etat,
+        "usb": _usb_etat,
+        "securite": _securite_etat,
+        "amovibles": _amovibles_etat,
+        "access": _access_etat,
+        "maj": _maj_etat,
+        "utilisateurs": _utilisateurs_etat,
+        "imprimantes": _imprimantes_etat,
+        "clavier": _clavier_etat,
+        "distant": _distant_etat,
+        "reseau": _reseau_etat,
+        "defaut": _defaut_etat,
+        "couleurs": _couleurs_etat,
+        "tablette": _tablette_etat,
+        "notif": _notif_etat,
+        "mac": _mac_etat,
+        "partage": _partage_etat,
+        "terminal": _terminal_etat,
+        "crt": _crt_etat,
+        "recherche": _recherche_etat,
+        "comptes": _comptes_etat,
+        "bienetre": _bienetre_etat,
+        "langue": _langue_etat,
+    }
+    if cles is not None:
+        demandes = {k: f for k, f in collecteurs.items() if k in set(cles)}
+    else:
+        demandes = collecteurs
 
+    base.update(_de_front(demandes))
+    return base
+
+
+def _avion_etat():
+    """Le mode avion, d'après nmcli. Même règle que avion_state() dans
+    lexos-net : « -t » (terse) donne des mots-clés fixes, jamais traduits —
+    contrairement à la sortie normale de nmcli, qui suit la langue du
+    système (fr_CA par défaut sur LexOS)."""
+    if not shutil.which("nmcli"):
+        return "off"
+    wifi = _sortie(["nmcli", "-t", "radio", "wifi"]) or "?"
+    wwan = _sortie(["nmcli", "-t", "radio", "wwan"]) or "?"
+    if wifi == "disabled" and wwan in ("disabled", "missing"):
+        return "on"
+    return "off"
+
+
+def _langue_etat():
+    return (_sortie(["sh", "-c", "printf %s \"${LANG:-}\""])
+            or os.environ.get("LANG", ""))
+
+
+def _de_front(collecteurs):
+    """Lance les collecteurs EN MÊME TEMPS et rend {clé: valeur}.
+
+    ═══ CE QUE ÇA CHANGE, ET CE QUE ÇA NE CHANGE PAS ═══
+    Rien de ce que les collecteurs lisent ne bouge. Seul leur ORDONNANCEMENT
+    change : ils ne s'attendent plus les uns les autres.
+
+    ═══ CELUI QUI TRAÎNE NE RETIENT PLUS PERSONNE ═══
+    Une imprimante réseau éteinte, bluetoothctl sans adaptateur, nmcli
+    pendant un balayage : il suffisait d'UN outil lent pour que les
+    trente-sept autres sections attendent avec lui. Passé le délai, la clé
+    vaut None — « je ne sais pas » — et la page le dit. On n'invente pas de
+    valeur : c'est la leçon du bogue du dock, où « je ne sais pas » était
+    devenu « c'est à droite ».
+
+    Le fil qui traîne n'est PAS tué : on ne peut pas interrompre proprement
+    un appel système en cours, et l'essayer laisserait un sous-processus
+    orphelin. On cesse simplement de l'attendre ; il finira dans son coin,
+    et son propre timeout le bornera."""
+    if not collecteurs:
+        return {}
+    resultats = {}
+    fin = time.monotonic() + _ETAT_DELAI
+    #  ═══ PAS DE « with » ICI, ET C'EST TOUT LE POINT ═══
+    #  La sortie d'un « with ThreadPoolExecutor » appelle shutdown(wait=True) :
+    #  elle ATTEND tous les fils, y compris ceux qu'on vient d'abandonner.
+    #  Le délai ne tenait donc pas — mesuré : avec tous les outils muets,
+    #  etat() rendait la main au bout de 63 s au lieu des 4 s annoncées, parce
+    #  que la fermeture du pool rattrapait tout ce que la boucle avait lâché.
+    #  On ferme donc à la main, sans attendre.
+    pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(_ETAT_FRONTS, len(collecteurs)),
+        thread_name_prefix="lexos-etat")
+    try:
+        futurs = {pool.submit(_sans_lever, f): k for k, f in collecteurs.items()}
+        for fut, cle in futurs.items():
+            reste = max(0.0, fin - time.monotonic())
+            try:
+                resultats[cle] = fut.result(timeout=reste)
+            except concurrent.futures.TimeoutError:
+                resultats[cle] = None
+            except Exception:
+                resultats[cle] = None
+    finally:
+        #  Le fil qui traîne n'est PAS tué : on ne peut pas interrompre
+        #  proprement un appel système en cours, et l'essayer laisserait un
+        #  sous-processus orphelin. On cesse de l'attendre ; son propre
+        #  timeout (deux secondes de lecture) le bornera de toute façon.
+        pool.shutdown(wait=False)
+    return resultats
+
+
+def _sans_lever(f):
+    """Un collecteur qui lève ne doit pas emporter les autres avec lui.
+
+    Ils sont écrits pour ne jamais lever ; ce filet existe parce que « écrit
+    pour » n'est pas « garanti », et qu'une exception dans un fil du pool
+    remonterait ici sous une forme méconnaissable."""
+    try:
+        return f()
+    except Exception:
+        return None
 # =============================================================================
 #  Serveur : fichiers statiques + API.
 # =============================================================================
@@ -3982,8 +4109,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(corps)
 
     def do_GET(self):
-        if self.path == "/api/etat":
-            return self._json(200, etat())
+        if self.path == "/api/etat" or self.path.startswith("/api/etat?"):
+            #  ═══ « ?cles=a,b,c » : ne relis que ça ═══
+            #  Changer la couleur d'accent ne modifie ni les imprimantes ni le
+            #  Bluetooth ; les relire est du temps pur perdu, et c'est ce
+            #  temps-là qu'Alex voyait. La page dit ce qu'elle a besoin de
+            #  revoir ; sans paramètre, on rend tout — c'est ce que fait
+            #  l'ouverture de la fenêtre.
+            #  On NE VALIDE PAS la liste contre les clés connues : une clé
+            #  inconnue ne correspond simplement à aucun collecteur et ne
+            #  produit rien. Refuser aurait demandé de tenir une seconde
+            #  liste, qui aurait fini par diverger de la première.
+            from urllib.parse import parse_qs, urlparse
+            brut = parse_qs(urlparse(self.path).query).get("cles", [""])[0]
+            demande = [c for c in brut.split(",") if c]
+            return self._json(200, etat(demande) if demande else etat())
         #  ═══ LES VIGNETTES DE LA GALERIE ═══
         #  La page ne demande JAMAIS un chemin — seulement un indice, revalidé
         #  contre une énumération fraîche. Servir un chemin venu de la page,
