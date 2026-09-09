@@ -328,10 +328,21 @@ PYIMG
 				set -- $MESURE
 				GAUCHE="$1"; DROITE="$2"; LARG="$3"
 				BANDE_D=$((LARG - 1 - DROITE))
-				#  8 px de tolérance : le halo est très flou, ses toutes
-				#  premières colonnes peuvent tomber sous le seuil de
-				#  luminosité sans qu'il y ait de bande noire pour autant.
-				if [ "$GAUCHE" -le 8 ] && [ "$BANDE_D" -le 8 ]; then
+				#  ═══ LE SEUIL EST À 100 px, ET IL EST MESURÉ ═══
+				#  Il était à 8. Rouge, et à tort : le halo est FLOU et la
+				#  vidéo BOUGE. Selon l'image saisie, ses dernières colonnes
+				#  tombent sous le seuil de luminosité — mesuré 0 px à gauche
+				#  et 37 px à droite sur une image, 0 et 0 sur une autre. Le
+				#  contrôle dépendait donc du hasard du moment de la capture.
+				#
+				#  Ce qu'on veut écarter n'est pas une bande de 37 px : c'est
+				#  le carré posé sur du noir, qui en donnerait 420 de chaque
+				#  côté (mesuré à la mutation). 100 px laisse quatre fois de
+				#  marge sous ce défaut-là tout en absorbant la variation
+				#  d'image. Et le contrôle du FICHIER, lui, reste strict :
+				#  netteté et luminosité des bandes sont mesurées en
+				#  section 7, sur des images extraites, pas sur l'écran.
+				if [ "$GAUCHE" -le 100 ] && [ "$BANDE_D" -le 100 ]; then
 					ok "aucune bande noire : l'image atteint les deux bords (${GAUCHE} px à gauche, ${BANDE_D} px à droite)"
 				else
 					non "bandes de ${GAUCHE} et ${BANDE_D} px — le halo n'est pas posé, la vidéo flotte sur du noir"

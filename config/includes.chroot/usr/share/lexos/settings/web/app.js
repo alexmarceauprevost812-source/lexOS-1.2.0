@@ -1608,6 +1608,18 @@ function contenu(cle){
         <div class="row">${["droite","gauche","bas","haut"].map(d=>
           `<button class="btn ${d===etat.dock?"sel":"ghost"}" onclick="setDock('${d}')">${
             d.charAt(0).toUpperCase()+d.slice(1)}</button>`).join("")}</div>
+        ${/*  ═══ « JE NE SAIS PAS » SE DIT, IL NE SE DEVINE PAS ═══
+              ALEX, DEUXIÈME SIGNALEMENT sur ce bouton. Le moteur répondait
+              « droite » dès qu'il ne pouvait pas lire la position : un bouton
+              s'allumait, et la page avait l'air de marcher pendant que rien
+              ne marchait. Il rend maintenant null, et on l'affiche —
+              aucun bouton allumé, et la raison en une ligne. Un réglage qui
+              n'affiche rien pousse à chercher ; un réglage qui affiche une
+              valeur fausse fait perdre des heures. */""}
+        ${etat.dock == null ? `<div class="sub" style="margin-top:8px">
+          Position introuvable — Plank n'est pas installé, ou
+          <code>gsettings</code> ne répond pas. Aucun bouton n'est allumé :
+          la position réelle du dock n'est pas connue.</div>` : ""}
       </div>
       ${srow("Masquer la barre d'outils","Elle glisse hors de l'écran ; la poignée du bord la ramène",
              sw(etat.barreCachee, "basculeBarre()"))}

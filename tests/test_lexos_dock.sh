@@ -232,17 +232,23 @@ fi
 titre "4. Les deux replis, et celui qu'il ne faut PAS faire"
 # -----------------------------------------------------------------------------
 LIB="$RACINE/config/includes.chroot/usr/lib/lexos"
-#  gsettings absent → « droite » : c'est le défaut de Plank, et sans dock il
-#  n'y a personne pour dire autrement.
+#  ═══ CE CONTRÔLE A CHANGÉ DE SENS, ET C'EST ALEX QUI L'A DEMANDÉ ═══
+#  Il exigeait « droite » quand gsettings manque, au motif que c'est le défaut
+#  de Plank. ALEX, DEUXIÈME SIGNALEMENT : c'est précisément ce repli qui fait
+#  perdre du temps. Il transforme « je ne sais pas » en « c'est à droite », un
+#  bouton s'allume, et l'interface a l'air de marcher pendant que rien ne
+#  marche. Un réglage qui n'affiche rien pousse à chercher ; un réglage qui
+#  affiche une valeur fausse fait perdre des heures.
+#  On exige donc maintenant l'INVERSE : None, et la page n'allume rien.
 SANS="$(python3 -c "
 import sys; sys.path.insert(0, '$LIB')
 import settings
 settings.shutil.which = lambda n: None
 print(settings._dock_etat())" 2>/dev/null)"
-if [[ "$SANS" == "droite" ]]; then
-	ok "sans gsettings, on retombe sur « droite »"
+if [[ "$SANS" == "None" ]]; then
+	ok "sans gsettings, on rend None — aucune position inventée"
 else
-	non "sans gsettings, on rend « $SANS » au lieu de « droite »"
+	non "sans gsettings, on rend « $SANS » : une réponse inventée"
 fi
 #  ET SURTOUT : une valeur PRÉSENTE qu'on ne sait pas traduire ne doit PAS
 #  devenir « droite ». Répondre « droite » à une question sans réponse est
@@ -307,5 +313,100 @@ else
 	fi
 fi
 
+titre "Le bouton en surbrillance suit la position RÉELLE — les quatre, mesurées"
+# ═════════════════════════════════════════════════════════════════════════════
+#  ═══ ALEX A SIGNALÉ CE BOGUE DEUX FOIS ═══
+#  La première : setDock() était déclarée deux fois, la seconde écrasait la
+#  bonne. La deuxième : _dock_etat() lisait ~/.config/lexos/dock, un fichier
+#  que personne n'écrit — elle répondait donc « droite » à tous les coups.
+#  Les deux sont corrigés. Ce contrôle est là pour qu'aucun troisième ne passe
+#  sans qu'on le voie : il FAIT TOURNER la fonction avec un gsettings truqué
+#  et compare, pour les quatre positions.
+PYGI=""
+for C in python3 python3.12 python3.11 python3.13; do
+	command -v "$C" >/dev/null 2>&1 || continue
+	if "$C" -c 'import ast' 2>/dev/null; then PYGI="$C"; break; fi
+done
+SETTINGS_PY="$RACINE/config/includes.chroot/usr/lib/lexos/settings.py"
+if [[ -z "$PYGI" || ! -r "$SETTINGS_PY" ]]; then
+	printf '  %s—%s %s\n' "$GRAS" "$FIN" "python3 ou settings.py manquent : la position n'est pas mesurée"
+else
+	FAUX="$BANC/faux-gsettings"; mkdir -p "$FAUX"
+	cat > "$FAUX/gsettings" <<'FINGS'
+#!/bin/sh
+#  Un gsettings truqué : il rend ce que le banc a écrit dans « valeur ».
+if [ "$1" = "get" ]; then printf "'%s'\n" "$(cat "$FAUX_VALEUR")"; exit 0; fi
+exit 0
+FINGS
+	chmod +x "$FAUX/gsettings"
+
+	POS_KO=""
+	for PAIRE in "right droite" "left gauche" "bottom bas" "top haut"; do
+		set -- $PAIRE
+		printf '%s' "$1" > "$BANC/valeur"
+		LU="$(PATH="$FAUX:$PATH" FAUX_VALEUR="$BANC/valeur" "$PYGI" -c "
+import sys
+sys.path.insert(0, '$RACINE/config/includes.chroot/usr/lib/lexos')
+import settings
+print(settings._dock_etat())" 2>/dev/null | tail -1)"
+		if [[ "$LU" == "$2" ]]; then
+			ok "gsettings dit « $1 » -> la page allume « $2 »"
+		else
+			non "gsettings dit « $1 » -> la page lit « $LU » (attendu « $2 »)"
+			POS_KO=1
+		fi
+	done
+	[[ -z "$POS_KO" ]] || true
+
+	#  ═══ ET LE CAS « ON NE SAIT PAS » ═══
+	#  Le vrai poison n'était pas la mauvaise source : c'était le repli qui
+	#  transformait « je ne sais pas » en « c'est à droite ». Sans gsettings,
+	#  la fonction doit rendre None — la page n'allume alors aucun bouton.
+	#  ═══ ON FABRIQUE L'ABSENCE, ON NE VIDE PAS LE PATH ═══
+	#  Premier jet : PATH="$VIDE". Python lui-même devenait introuvable, la
+	#  commande ne rendait rien, et le contrôle rougissait en accusant la
+	#  mauvaise pièce. Une ferme de liens sans gsettings, comme ailleurs
+	#  dans ce dépôt.
+	VIDE="$BANC/sans-gsettings"; mkdir -p "$VIDE"
+	for d in /usr/bin /bin /usr/sbin /sbin /usr/local/bin; do
+		[[ -d "$d" ]] || continue
+		for f in "$d"/*; do
+			b="$(basename "$f")"
+			[[ "$b" == "gsettings" ]] && continue
+			[[ -e "$VIDE/$b" ]] || ln -s "$f" "$VIDE/$b" 2>/dev/null
+		done
+	done
+	LU="$(PATH="$VIDE" "$PYGI" -c "
+import sys
+sys.path.insert(0, '$RACINE/config/includes.chroot/usr/lib/lexos')
+import settings
+print(settings._dock_etat())" 2>/dev/null | tail -1)"
+	if [[ "$LU" == "None" ]]; then
+		ok "sans gsettings : la fonction rend None — elle n'invente pas « droite »"
+	else
+		non "sans gsettings : la fonction rend « $LU » — une réponse inventée"
+	fi
+
+	#  Et la page doit VRAIMENT traiter ce null, sinon le moteur est honnête
+	#  et l'écran ment quand même.
+	APP_JS="$RACINE/config/includes.chroot/usr/share/lexos/settings/web/app.js"
+	if grep -q 'etat.dock == null' "$APP_JS"; then
+		ok "…et la page prévoit ce cas : aucun bouton allumé, une explication"
+	else
+		non "la page ne traite pas le cas « position inconnue » : elle n'affichera rien d'utile"
+	fi
+
+	#  Le fichier fantôme ne doit pas revenir : c'était la deuxième source de
+	#  vérité, et c'est elle qui a coûté le deuxième signalement d'Alex.
+	SANS_COM="$BANC/settings-sans-commentaires.py"
+	sed 's/#.*$//' "$SETTINGS_PY" > "$SANS_COM"
+	if grep -qE '"dock"\s*\)?\s*\.read_text|/ *"dock" *\)' "$SANS_COM"; then
+		non "settings.py relit un fichier « dock » : la deuxième source de vérité est revenue"
+	else
+		ok "aucune relecture d'un fichier « dock » : une seule source, gsettings"
+	fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
 printf '\n%s%d réussis, %d échoués%s\n\n' "$GRAS" "$REUSSIS" "$ECHOUES" "$FIN"
 [[ "$ECHOUES" -eq 0 ]]

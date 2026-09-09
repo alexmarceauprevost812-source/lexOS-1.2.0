@@ -2887,28 +2887,35 @@ def _dock_etat():
     on lit ce qui COMMANDE, on n'ouvre pas un deuxième registre à synchroniser
     à la main.
 
-    LE REPLI NE VAUT QUE POUR L'ABSENCE. Sans gsettings — donc sans Plank —
-    « droite » est la bonne réponse : c'est le défaut de Plank, et il n'y a
-    pas de dock pour dire autrement. Mais une valeur PRÉSENTE qu'on ne sait
-    pas traduire est rendue telle quelle : aucun bouton ne s'allumera, ce qui
-    est honnête, au lieu d'en allumer un faux. C'était exactement le défaut
-    qu'on répare — répondre « droite » à une question sans réponse.
+    ═══ ET ON NE RÉPOND PLUS « DROITE » QUAND ON NE SAIT PAS ═══
+    ALEX, DEUXIÈME SIGNALEMENT. Le repli disait « droite » dès que gsettings
+    manquait, au motif que c'est le défaut de Plank. C'était encore une
+    réponse inventée : « je ne sais pas » devenait « c'est à droite », un
+    bouton s'allumait, et l'interface avait l'air de marcher pendant que rien
+    ne marchait. Un réglage qui n'affiche rien pousse à chercher ; un réglage
+    qui affiche une valeur fausse fait perdre des heures.
+
+    On rend donc None quand la position ne peut pas être lue — gsettings
+    absent, Plank pas installé, schéma introuvable, valeur vide. La page
+    n'allume alors AUCUN bouton et dit pourquoi en une ligne.
     """
     if shutil.which("gsettings") is None:
-        return "droite"
+        return None
     try:
         r = subprocess.run(["gsettings", "get", DOCK_SCHEMA, "position"],
                            capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
-        return "droite"
-    #  Schéma absent (Plank pas installé) : gsettings sort en erreur. C'est le
-    #  même cas que « gsettings absent », et le même repli.
+        return None
+    #  Schéma absent (Plank pas installé) : gsettings sort en erreur.
     if r.returncode != 0:
-        return "droite"
+        return None
     #  gsettings rend la chaîne AVEC ses apostrophes : «'right'».
     brut = r.stdout.strip().strip("'\"")
     if not brut:
-        return "droite"
+        return None
+    #  Une valeur PRÉSENTE qu'on ne sait pas traduire est rendue telle quelle :
+    #  aucun bouton ne s'allumera, ce qui est honnête, mais la page saura que
+    #  la lecture a réussi — ce n'est pas le même cas que « on ne sait pas ».
     return DOCK_POSITIONS.get(brut, brut)
 
 
