@@ -1,0 +1,61 @@
+// ===========================================================================
+//  LexOS — formater une clé USB depuis la page « Formatage » des Paramètres
+// ===========================================================================
+//  Les Paramètres tournent sous le compte ordinaire. Formater demande root :
+//  la page passe donc par pkexec, qui protège l'appel par l'action
+//  « org.freedesktop.policykit.exec ».
+//
+//  ═══ CE QUE CETTE RÈGLE FAIT, ET CE QU'ELLE NE FAIT PAS ═══
+//  Elle ne dispense de RIEN. Le mot de passe administrateur reste demandé.
+//  Elle change une seule chose : « auth_admin » devient « auth_admin_keep »
+//  pour CE programme et lui seul. Autrement dit, le mot de passe est demandé
+//  une fois et vaut quelques minutes — le temps de formater deux clés de
+//  suite sans le retaper.
+//
+//  ═══ POURQUOI PAS « YES » (aucun mot de passe) ═══
+//  Ce serait plus commode, et c'est ce que font certains bureaux pour les
+//  disques amovibles. On ne le fait pas de nous-mêmes : formater efface tout,
+//  définitivement, et le mot de passe est la dernière barrière entre une
+//  fausse manœuvre et un disque vide. La page fait déjà recopier le nom du
+//  support à la main ; ces deux gestes ensemble sont volontairement lourds.
+//  Si Alex veut le passage sans mot de passe, c'est UNE ligne à changer ici
+//  (« polkit.Result.YES » à la place de « AUTH_ADMIN_KEEP ») — c'est sa
+//  décision, pas la nôtre.
+//
+//  ═══ LA PORTÉE EST AUSSI ÉTROITE QUE POSSIBLE ═══
+//  Trois conditions, toutes obligatoires :
+//    · l'action est exactement org.freedesktop.policykit.exec ;
+//    · le programme est exactement /usr/bin/lexos-format — pas un chemin qui
+//      commence par, pas un nom : le chemin complet, tel que pkexec le pose
+//      dans action.lookup("program") ;
+//    · la session est ACTIVE et LOCALE. Une session distante (SSH, x11vnc)
+//      ne gagne rien : quelqu'un qui n'est pas devant la machine n'a aucune
+//      raison de formater ses disques avec un mot de passe qui dure.
+//  Tout le reste tombe dans les règles de Debian, inchangées.
+//
+//  ═══ POURQUOI « 49- » ═══
+//  polkitd lit ses règles dans l'ordre alphabétique et s'arrête à la
+//  première qui répond. Les règles de Debian vivent dans 50-default.rules :
+//  « 49- » passe avant, sinon la réponse par défaut serait déjà tombée.
+//  (Même raison que 49-lexos-connexion-arret.rules, voir son en-tête.)
+//
+//  ═══ ET SANS AGENT D'AUTHENTIFICATION, RIEN DE TOUT CECI NE S'AFFICHE ═══
+//  polkitd ne dessine pas la fenêtre du mot de passe : il la demande à un
+//  agent qui doit tourner dans la session. Sans agent, pkexec échoue en
+//  silence — le bouton « ne fait rien ». C'est pourquoi settings.py vérifie
+//  la présence de l'agent AVANT de lancer quoi que ce soit, et affiche un
+//  motif au lieu d'un silence. Cette règle-ci n'y change rien.
+// ===========================================================================
+
+polkit.addRule(function (action, subject) {
+    if (action.id !== "org.freedesktop.policykit.exec") {
+        return;
+    }
+    if (action.lookup("program") !== "/usr/bin/lexos-format") {
+        return;
+    }
+    if (subject.active && subject.local) {
+        return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+    //  Pas de return ici : les règles de Debian s'appliquent comme avant.
+});

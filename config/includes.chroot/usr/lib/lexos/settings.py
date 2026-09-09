@@ -1057,6 +1057,95 @@ def act_usb(arg):
     return {"ok": False, "erreur": "valeur inattendue"}
 
 
+#  ═══ LA PAGE « FORMATAGE » ═══
+#  ALEX voulait une vraie page plutôt que la suite de boîtes zenity : « la
+#  page de formatage, on pourrait-tu la mettre un peu plus gros pour bien
+#  voir tout le menu ? » Une page HTML se remet en forme toute seule, et
+#  aucune hauteur en pixels ne peut plus cacher la troisième option.
+#
+#  ═══ LA RÈGLE QUI GOUVERNE TOUT CE QUI SUIT ═══
+#  LA PAGE AFFICHE ET DEMANDE. lexos-format DÉCIDE ET EXÉCUTE.
+#  Aucune vérification de sécurité n'est réécrite ici : ni « est-ce
+#  amovible », ni « est-ce le disque système », ni « héberge-t-il /home ».
+#  Elles vivent toutes dans lexos-format, et la liste que cette page affiche
+#  est CELLE QUE lexos-format ACCEPTERAIT (« --json »), produite par les
+#  mêmes fonctions que celles qu'il s'applique à lui-même.
+#  Un deuxième juge, écrit en Python ou en JavaScript, finirait un jour par
+#  ne plus dire la même chose que le premier — et ce jour-là, c'est un disque
+#  qui y passe.
+#
+#  CE QU'ON VÉRIFIE QUAND MÊME ICI, ET POURQUOI CE N'EST PAS UN DEUXIÈME
+#  JUGE : la cible envoyée par la page est confrontée à la liste que
+#  lexos-format vient de rendre. Ce n'est pas un jugement, c'est un refus de
+#  prendre la page au mot — exactement ce que fait déjà act_usb pour
+#  « éjecter ». Sans lui, une page altérée pourrait proposer /dev/sda.
+def _formatage_liste():
+    """Ce que lexos-format accepterait de formater, tel qu'il le dit."""
+    if shutil.which("lexos-format") is None:
+        return None, "lexos-format est introuvable sur cette machine."
+    try:
+        r = subprocess.run(["lexos-format", "--json"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"lexos-format n'a pas pu être interrogé : {e}"
+    if r.returncode != 0:
+        motif = (r.stderr or r.stdout).strip().splitlines()
+        return None, (motif[-1] if motif else
+                      f"lexos-format a échoué (code {r.returncode})")
+    try:
+        return json.loads(r.stdout or "{}"), ""
+    except ValueError:
+        return None, "lexos-format a rendu une réponse illisible."
+
+
+def act_formatage(arg):
+    """« liste » rend l'inventaire ; « lancer:<chemin>:<fs> » formate.
+
+    L'ÉTAT DE L'AGENT POLKIT VOYAGE AVEC LA LISTE, et c'est voulu : la page
+    doit pouvoir le dire AVANT le clic, pas après un clic qui ne fait rien.
+    Le dépôt a déjà payé ce silence — « les boutons dans les paramètres ne
+    fonctionnaient pas » — et la cause était exactement celle-là : pkexec ne
+    dessine pas la fenêtre du mot de passe, il la demande à un agent qui doit
+    tourner dans la session."""
+    quoi, _, reste = str(arg).partition(":")
+
+    if quoi == "liste":
+        donnees, motif = _formatage_liste()
+        if donnees is None:
+            return {"ok": False, "erreur": motif}
+        admin = os.geteuid() == 0
+        return {"ok": True,
+                "supports": donnees.get("supports", []),
+                "systemes": donnees.get("systemes", []),
+                "pkexec": shutil.which("pkexec") is not None or admin,
+                "agent": admin or _agent_polkit()}
+
+    if quoi == "lancer":
+        cible, _, fs = reste.partition(":")
+        #  1. Le système de fichiers est l'un des trois que lexos-format
+        #     nomme lui-même. On ne recopie pas la liste : on la lui demande.
+        donnees, motif = _formatage_liste()
+        if donnees is None:
+            return {"ok": False, "erreur": motif}
+        connus = {s.get("cle") for s in donnees.get("systemes", [])}
+        if fs not in connus:
+            return {"ok": False,
+                    "erreur": f"Système de fichiers inconnu : {fs}"}
+        #  2. La cible est l'un des supports que lexos-format ACCEPTERAIT.
+        #     On ne prend pas la page au mot.
+        chemins = {s.get("chemin") for s in donnees.get("supports", [])}
+        if cible not in chemins:
+            return {"ok": False,
+                    "erreur": "Ce support n'est plus dans la liste de ceux "
+                              "que LexOS accepte de formater — il a peut-être "
+                              "été débranché. Rafraîchis la page."}
+        #  3. Et seulement là, l'élévation. _run_admin dit POURQUOI quand
+        #     elle est impossible, au lieu d'échouer en silence.
+        return _run_admin(["lexos-format", cible, f"--fs={fs}", "--confirme"])
+
+    return {"ok": False, "erreur": "valeur inattendue"}
+
+
 def act_crt(arg):
     """Les effets de fenêtres « téléviseur 1980 » — « on », « off », « toggle ».
 
@@ -2262,6 +2351,7 @@ ACTIONS = {
     "bluetooth-radio": act_bluetooth,
     "crt": act_crt,
     "usb": act_usb,
+    "formatage": act_formatage,
     "amovibles": act_amovibles,
     "notif": act_notif,
     "access": act_access,
