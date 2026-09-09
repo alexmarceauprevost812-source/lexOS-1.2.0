@@ -279,14 +279,42 @@ sys.exit(0 if n >= 40 else 1)
 PYVU
 		xvfb_lancer 1100x700x24 || true
 		DISP="$XVFB_AFF"
-		#  ═══ windowfocus AVANT windowactivate — MESURÉ SUR LA CI ═══
-		#  Ce contrôle rendait « 0 px blancs et 896 px verts » sur le coureur
-		#  GitHub : l'invite s'affichait bien, la frappe n'arrivait nulle
-		#  part. « windowactivate » passe par _NET_ACTIVE_WINDOW, que SEUL un
-		#  gestionnaire de fenêtres honore — et il n'y en a aucun sous ce
-		#  Xvfb. « windowfocus » appelle XSetInputFocus, qui ne dépend de
-		#  personne. windowactivate reste ensuite, au cas où un WM serait là,
-		#  mais ce n'est plus lui qui porte le contrôle.
+		#  ═══ LA FENÊTRE VISIBLE, PAS LA PREMIÈRE VENUE — MESURÉ ═══
+		#  Ce contrôle a rendu « 0 px blancs et 896 px verts » sur le coureur
+		#  GitHub pendant trois constructions : l'invite s'affichait bien
+		#  (l'histogramme des couleurs le prouve — #00D700 ×725 pour le
+		#  chemin, #159A3D ×177 pour LEXOS, #FF7B7B ×108 pour le nom), et
+		#  la frappe n'arrivait NULLE PART. Deux explications ont été tentées
+		#  et démenties avant celle-ci ; la troisième a été MESURÉE.
+		#
+		#  xfce4-terminal ouvre DEUX fenêtres X portant la classe
+		#  « xfce4-terminal ». La première dans l'ordre des identifiants est
+		#  une fenêtre auxiliaire de GTK, INVISIBLE, de 10×10 pixels,
+		#  posée en 10,10. « head -1 » choisissait celle-là :
+		#      fenetre=2097153  geometrie: Position 10,10  Geometry: 10x10
+		#      fenetre=2097155  geometrie: Position 0,0     Geometry: 2015x578
+		#  XSetInputFocus sur une fenêtre non affichée ÉCHOUE. Le focus
+		#  restait donc à PointerRoot — c'est-à-dire « la fenêtre sous le
+		#  pointeur » — et la frappe partait là où la souris se trouvait par
+		#  hasard, au centre de l'écran.
+		#
+		#  MESURÉ, les trois cas, sous le même Xvfb :
+		#      A. code d'avant, souris au centre (dans le terminal) : 18 blancs
+		#      B. code d'avant, souris dans un coin (hors terminal) :  0 blancs
+		#      C. --onlyvisible, souris dans un coin                 : 18 blancs
+		#  B est EXACTEMENT le symptôme du coureur. Le contrôle ne tenait
+		#  donc pas à la couleur de la frappe mais à la position d'une souris
+		#  que personne ne plaçait — vert ici, rouge là-bas, sans rien dire.
+		#
+		#  « --onlyvisible » écarte la fenêtre auxiliaire ; le focus prend
+		#  alors pour de bon (focus=2097155 au lieu de « focused window of 1 »)
+		#  et la souris n'a plus voix au chapitre. windowactivate reste
+		#  ensuite, au cas où un gestionnaire de fenêtres serait là.
+		#
+		#  ET LE BANC NOTE CE QU'IL A OBTENU : la fenêtre choisie et le focus
+		#  réellement en place sont écrits dans un fichier, et relus dans le
+		#  message d'échec. Un échec qui n'annonce qu'une absence a déjà coûté
+		#  trois allers-retours.
 		#
 		#  ET L'IMAGE EST PRISE QUAND LA FRAPPE EST VUE, pas après une pause
 		#  fixe : sur un coureur chargé, 0,8 s ne suffit pas toujours à VTE
@@ -300,11 +328,25 @@ PYVU
 			xfce4-terminal --disable-server --geometry=100x24 \
 				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
 			sleep 4
-			W="$(timeout 20 xdotool search --sync --class xfce4-terminal 2>/dev/null | head -1)"
+			timeout 20 xdotool search --sync --class xfce4-terminal >/dev/null 2>&1
+			W="$(timeout 10 xdotool search --onlyvisible --class xfce4-terminal 2>/dev/null | head -1)"
+			#  Repli : la DERNIÈRE créée. Les identifiants X croissent, et la
+			#  fenêtre auxiliaire de GTK naît la première (2097153 avant
+			#  2097155, mesuré) — donc « tail -1 » désigne la vraie, si
+			#  jamais --onlyvisible ne rendait rien.
+			[ -n "$W" ] || W="$(timeout 10 xdotool search --class xfce4-terminal 2>/dev/null | tail -1)"
 			if [ -n "$W" ]; then
 				timeout 10 xdotool windowfocus --sync "$W" 2>/dev/null
 				timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
 			fi
+			#  AUCUNE APOSTROPHE DANS CE BLOC — pas même dans un
+			#  commentaire : tout ceci vit dans « bash -c » entre
+			#  apostrophes, et la première rencontrée ferme la commande.
+			#  « tr » comprend seul la barre oblique inverse, donc les
+			#  guillemets doubles suffisent.
+			printf "fenetre=%s  focus=%s  %s\\n" "${W:-aucune}" \
+				"$(timeout 5 xdotool getwindowfocus 2>&1 | head -1)" \
+				"$(timeout 5 xdotool getwindowgeometry "${W:-0}" 2>&1 | tr "\\n" " ")" > "$3"
 			sleep 0.5
 			timeout 10 xdotool type --delay 40 "echo BONJOUR"
 			for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -312,7 +354,7 @@ PYVU
 				timeout 20 import -window root "$1" 2>/dev/null || continue
 				python3 "$2" "$1" && break
 			done
-		  ' _ "$BANC/frappe.png" "$BANC/vu.py" ) >/dev/null 2>&1
+		  ' _ "$BANC/frappe.png" "$BANC/vu.py" "$BANC/focus.txt" ) >/dev/null 2>&1
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
 		if [ -s "$BANC/frappe.png" ]; then
 			#  Première ligne du terminal (les 30 premiers pixels de haut).
@@ -357,6 +399,7 @@ PYPX
 				ok "sur l'écran : l'invite est verte ($VERT_PX px) et « echo BONJOUR » est BLANC ($BLANC_PX px)"
 			else
 				non "sur l'écran : $BLANC_PX px blancs et $VERT_PX px verts — la frappe n'est pas blanche sur une invite verte"
+				[ -s "$BANC/focus.txt" ] && sed 's/^/       /' "$BANC/focus.txt"
 				#  ═══ UN ÉCHEC QUI NE DIT PAS CE QU'IL A VU NE SE CORRIGE PAS ═══
 				#  Ce contrôle est rouge sur le coureur GitHub et vert
 				#  partout ailleurs. Deux explications ont déjà été tentées
