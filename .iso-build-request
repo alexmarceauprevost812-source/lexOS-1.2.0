@@ -2556,4 +2556,29 @@ suite: trixie
 # chaque demarrage, les cartes SD dont le nom etait rogne (mmcblk0 -> mmcblk),
 # la barre du haut passee au noir franc, et les panneaux web enfin au meme
 # gris que le bureau.
-build: 120
+#
+# =============================================================================
+#  ISO 121 — CE QU'ELLE PORTE, ET COMMENT L'EPROUVER
+# =============================================================================
+#
+#  1. L'ANIMATION D'OUVERTURE REMPLIT L'ECRAN, ET VA JUSQU'AU BOUT.
+#     ALEX : « qu'on voie l'animation quand on ouvre l'ordinateur, en
+#     premiere page, en tout son ecran ». Elle etait dessinee en 640x360 au
+#     centre d'un ecran de 1920x1080 — un neuvieme de la surface — et coupee
+#     a 3,5 s, c'est-a-dire juste avant que « LEXOS » apparaisse.
+#     A EPROUVER : demarrer la machine. Le logo doit occuper tout l'ecran, et
+#     le mot LEXOS doit etre la avant que la mascotte ne reprenne la main.
+#
+#  2. LE FORMATAGE MARCHE UNE FOIS LE MOT DE PASSE ENTRE.
+#     ALEX : « que toutes les commandes pour un formatage soient bien
+#     activees une fois qu'on a ecrit le mot de passe ». pkexec efface
+#     DISPLAY : apres le mot de passe, plus aucune fenetre ne pouvait
+#     s'afficher — pas meme le message d'erreur.
+#     A EPROUVER : Parametres -> Formater un support, avec une cle USB.
+#     La fenetre du mot de passe doit dire « LexOS va effacer completement le
+#     support choisi ». Un format dont l'outil manque est GRISE avant.
+#
+#  3. LE TERMINAL PRO : inchange depuis l'ISO 120, mais son banc mesure
+#     enfin la bonne chose (la frappe etait ecrite hors de l'ecran du banc).
+#
+build: 121
