@@ -160,10 +160,18 @@ tp = importlib.util.module_from_spec(spec); spec.loader.exec_module(tp)
 srv, port, jeton = tp.demarrer_serveur()
 print("PRET %d %s" % (port, jeton), flush=True)
 time.sleep(240)`;
-const proc = spawn('python3', ['-c', py], {env: {...process.env, LEXOS_TERMINAL_PRO_WEB: WEB}});
-const [, port, jeton] = await new Promise(r => proc.stdout.on('data', d => {
-  const m = String(d).match(/PRET (\d+) (\S+)/); if (m) r(m);
-}));
+//  UN PONT = UN PROCESSUS. Les identifiants de volets sont comptés par la
+//  PAGE (1, 2, 3…) : deux pages sur le même pont se disputeraient les mêmes
+//  numéros de session. Le contrôle de la grille rattrapée ouvre donc une
+//  seconde page contre un SECOND pont, à lui.
+const pont = async () => {
+  const pr = spawn('python3', ['-c', py], {env: {...process.env, LEXOS_TERMINAL_PRO_WEB: WEB}});
+  const [, p, j] = await new Promise(r => pr.stdout.on('data', d => {
+    const m = String(d).match(/PRET (\d+) (\S+)/); if (m) r(m);
+  }));
+  return {proc: pr, port: p, jeton: j};
+};
+const {proc, port, jeton} = await pont();
 
 const nav = await chromium.launch({executablePath: process.env.LEXOS_CHROME, args: ['--no-sandbox']});
 const page = await nav.newPage({viewport: {width: 1200, height: 760}});
@@ -174,7 +182,38 @@ page.on('response', r => { if (!r.ok()) ennuis.push('HTTP ' + r.status() + ' ' +
 
 const dit = (b, m) => console.log((b ? 'OK|' : 'NON|') + m);
 //  LE TAMPON, PAS LE DOM : voir l'en-tête de ce fichier.
+//  ═══ ET UNE LIGNE QUI SE REPLIE EST **UNE** LIGNE ═══
+//  MESURÉ, et ça a coûté une construction rouge. xterm.js range une ligne
+//  trop longue sur DEUX lignes de tampon, la seconde marquée « isWrapped ».
+//  Ce lecteur les recollait avec un saut de ligne au milieu — donc le texte
+//  affiché à l'écran, celui qu'un humain lit d'un trait, arrivait coupé en
+//  deux au banc.
+//  Sur le coureur GitHub, l'invite de bash est « runner@fv-az…:~$ » (24
+//  caractères) dans une grille de 80 colonnes. Le contrôle des soixante
+//  frappes rapides écrit « echo » + 60 caractères : 89 colonnes, donc la
+//  ligne se replie. Le banc ne retrouvait la rafale qu'UNE fois au lieu de
+//  deux et criait « frappes mélangées » — alors que le shell avait tout reçu
+//  dans l'ordre. Reproduit ici à l'identique en forçant 80 colonnes et cette
+//  invite-là : lecture brute 1 / lecture recollée 2.
+//  Un banc qui accuse la frappe pour une histoire de largeur de fenêtre ne
+//  mesure pas ce qu'il annonce.
 const ecran = () => page.evaluate(() => {
+  const f = window.LexOS.fenetreActive(); if (!f || !f.term) return '';
+  const b = f.term.buffer.active, out = [];
+  for (let i = 0; i < b.length; i++) {
+    const l = b.getLine(i); if (!l) continue;
+    const t = l.translateToString(true);
+    if (l.isWrapped && out.length) out[out.length - 1] += t;
+    else out.push(t);
+  }
+  return out.join('\n');
+});
+//  LE MÊME ÉCRAN, LU BRUTALEMENT : une ligne de tampon = une ligne. Il ne
+//  sert qu'à UN contrôle — celui qui prouve que le recollement ci-dessus
+//  change vraiment quelque chose. Sans cette seconde lecture, un contrôle
+//  « sur une ligne repliée » resterait vert le jour où la ligne cesse de se
+//  replier, et ne prouverait plus rien.
+const ecranBrut = () => page.evaluate(() => {
   const f = window.LexOS.fenetreActive(); if (!f || !f.term) return '';
   const b = f.term.buffer.active, out = [];
   for (let i = 0; i < b.length; i++) { const l = b.getLine(i); if (l) out.push(l.translateToString(true)); }
@@ -254,6 +293,38 @@ dit((t1.match(/bonjour depuis le navigateur/g) || []).length >= 2,
   const apres = await ecran();
   dit((apres.match(new RegExp(RAFALE, 'g')) || []).length >= 2,
       'soixante frappes rapides arrivent au shell DANS L\'ORDRE (rien de mélangé)');
+
+  //  ═══ LA MÊME RAFALE, MAIS SUR UNE LIGNE QUI SE REPLIE ═══
+  //  C'est la géométrie EXACTE du coureur GitHub : une invite longue
+  //  (« runner@fv-az…:~$ ») dans une grille étroite. La ligne tapée dépasse
+  //  la largeur et xterm.js la range sur deux lignes de tampon.
+  //  Sans le recollement des lignes repliées (voir ecran(), plus haut), ce
+  //  contrôle-ci est ROUGE — vérifié en le rejouant sans : rafale trouvée
+  //  UNE fois au lieu de deux. Il garde donc la lecture honnête, et il
+  //  continue de mesurer l'ORDRE des frappes, pas la largeur de la fenêtre.
+  await page.setViewportSize({width: 470, height: 600});
+  await page.waitForTimeout(1400);
+  const etroit = await page.evaluate(() => window.LexOS.fenetreActive().term.cols);
+  await page.evaluate((t) => {
+    const f = window.LexOS.fenetreActive();
+    f.envoyer('echo ');
+    for (const c of t) f.envoyer(c);
+    f.envoyer('\r');
+  }, RAFALE);
+  await page.waitForTimeout(2000);
+  const cpt = (t) => (t.match(new RegExp(RAFALE, 'g')) || []).length;
+  const nRec = cpt(await ecran()), nBrut = cpt(await ecranBrut());
+  //  DEUX EXIGENCES, ET LA SECONDE EST CE QUI DONNE DES DENTS AU CONTRÔLE :
+  //   · recollée ≥ 2  → la rafale est bien arrivée dans l'ordre ;
+  //   · brute    < 2  → la ligne s'est VRAIMENT repliée, donc la lecture
+  //                     naïve (celle du coureur, avant ce correctif) aurait
+  //                     échoué ici. Si la géométrie cessait de replier, ce
+  //                     contrôle deviendrait rouge au lieu de devenir muet.
+  dit(nRec >= 2 && nBrut < 2,
+      'et sur une ligne qui SE REPLIE (' + etroit + ' colonnes) : toujours dans l\'ordre '
+      + '(lue brute ' + nBrut + ', recollée ' + nRec + ')');
+  await page.setViewportSize({width: 1200, height: 760});
+  await page.waitForTimeout(1400);
 }
 
 await tape("printf 'ACCENTS: éàüç 🙂\\n'");
@@ -384,6 +455,73 @@ dit(ennuis.length === 0,
       r.length === 0
         ? 'huit volets ouverts : le terminal répond toujours (le 6e ne fige plus rien)'
         : 'le terminal se fige à partir du volet ' + r[0] + ' — le quota de connexions du navigateur est épuisé');
+}
+
+//  ═══ LA GRILLE REMPLIT LA FENÊTRE, MÊME QUAND LA MESURE ARRIVE EN RETARD ═══
+//  D'OÙ ÇA VIENT : sur le coureur GitHub, ce banc a mesuré « TAILLE=80x24 »
+//  dans une fenêtre de 1200×760 — la grille PAR DÉFAUT de xterm.js. Le shell
+//  y voyait 80 colonnes et repliait ses lignes au milieu de l'écran, pour
+//  toujours : rien ne réajustait après coup.
+//  LA CAUSE : xterm.js ne peut pas mesurer la largeur d'un caractère tant que
+//  rien n'est dessiné ; fit() ne fait alors RIEN, et ne le dit pas.
+//  ON LE REPRODUIT POUR DE VRAI, dans une seconde page : « body{display:none} »
+//  posé AVANT que le script ne construise le terminal, puis retiré. Mesuré
+//  avant le correctif — grille 80x24, corps 1198x670, proposé 154x36 : la
+//  fenêtre était prête et la grille ne bougeait plus.
+{
+  const deux = await pont();
+  const p2 = await nav.newPage({viewport: {width: 1200, height: 760}});
+  await p2.addInitScript(() => {
+    const poser = () => {
+      if (!document.documentElement) { setTimeout(poser, 0); return; }
+      if (document.getElementById('cachette')) return;
+      const s = document.createElement('style');
+      s.id = 'cachette';
+      s.textContent = 'body{display:none !important}';
+      document.documentElement.appendChild(s);
+    };
+    poser();
+  });
+  await p2.goto(`http://127.0.0.1:${deux.port}/index.html?port=${deux.port}&jeton=${deux.jeton}`);
+  await p2.waitForTimeout(1500);
+  const cachee = await p2.evaluate(() => {
+    const f = window.LexOS.fenetreActive();
+    return f && f.term ? f.term.cols : 0;
+  });
+  await p2.evaluate(() => { const c = document.getElementById('cachette'); if (c) c.remove(); });
+  await p2.waitForTimeout(3000);
+  const g = await p2.evaluate(() => {
+    const f = window.LexOS.fenetreActive();
+    let p; try { p = f.ajust.proposeDimensions(); } catch (e) { p = null; }
+    return {cols: f.term.cols, rows: f.term.rows, veut: p ? p.cols : 0};
+  });
+  //  La grille suit ce que la fenêtre permet — et 80 n'est pas une largeur
+  //  qu'on choisit, c'est celle qu'on subit quand personne n'a mesuré.
+  dit(g.veut > 0 && g.cols === g.veut && g.cols > 80,
+      'la grille remplit la fenêtre même si la mesure arrive en retard ('
+      + cachee + ' colonnes cachée → ' + g.cols + 'x' + g.rows + ' révélée)');
+  //  ET LE SHELL DOIT L'APPRENDRE. Une grille rattrapée dont le pty garde
+  //  80 colonnes ne corrige rien : bash replierait toujours au même endroit.
+  await p2.click('.fen.actif .xterm-screen');
+  //  « stty size » plutôt que « echo …$(tput cols) » : pas une majuscule ni
+  //  une parenthèse, donc aucune course entre les touches de Playwright et
+  //  la zone de saisie de xterm.js (voir tape(), plus haut). Il rend
+  //  « lignes colonnes », c'est-à-dire ce que le PTY croit, pas la page.
+  await p2.keyboard.type('stty size');
+  await p2.keyboard.press('Enter');
+  await p2.waitForTimeout(1800);
+  const vuShell = await p2.evaluate(() => {
+    const f = window.LexOS.fenetreActive(); const b = f.term.buffer.active, out = [];
+    for (let i = 0; i < b.length; i++) {
+      const l = b.getLine(i); if (!l) continue;
+      const t = l.translateToString(true);
+      if (l.isWrapped && out.length) out[out.length - 1] += t; else out.push(t);
+    }
+    return (out.join('\n').match(/^\d+ \d+$/gm) || []).pop();
+  });
+  dit(vuShell === g.rows + ' ' + g.cols,
+      'et le PTY apprend la nouvelle taille (stty size → ' + vuShell + ')');
+  await p2.close(); deux.proc.kill();
 }
 
 await nav.close(); proc.kill();
