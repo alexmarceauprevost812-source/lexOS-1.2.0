@@ -35,9 +35,18 @@ titre(){ printf '\n%s%s%s\n' "$GRAS" "$1" "$FIN"; }
 
 BAC="$(mktemp -d)"
 XVFB_PID=""
+YAD_PID=""
+#  ═══ PAR LE PID, JAMAIS PAR « pkill -f » ═══
+#  Il y avait ici « pkill -f "yad --title=BANC-AVERT" ». « -f » compare le
+#  motif à la LIGNE DE COMMANDE ENTIÈRE de tous les processus — y compris
+#  ceux qui ne font que MENTIONNER ce texte. Mesuré en écrivant les mutations
+#  de ce banc : un shell dont la commande contenait la chaîne s'est fait tuer
+#  par ce pkill-là, et le tout est sorti avec 144 sans une explication.
+#  Le dépôt s'est déjà fait prendre par ce piège avec « pkill -f polkitd ».
+#  On sait quel yad on a lancé : on le tue par son numéro.
 nettoyer() {
+	[[ -n "$YAD_PID" ]] && { kill "$YAD_PID" 2>/dev/null; wait "$YAD_PID" 2>/dev/null; }
 	[[ -n "$XVFB_PID" ]] && { kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; }
-	pkill -f "yad --title=BANC-AVERT" 2>/dev/null
 	rm -rf "$BAC"
 	return 0
 }
@@ -225,14 +234,85 @@ else
 		fi
 		aff="$XVFB_AFF"
 		H="$(DISPLAY="$aff" timeout 20 bash -c "$(declare -f ecran_hauteur hauteur_dialogue); hauteur_dialogue 720")"
+		#  ═══ LA PLAINTE DE YAD N'EST PLUS JETÉE ═══
+		#  Avant : « 2>&1 » vers /dev/null. Quand la fenêtre ne s'ouvrait pas,
+		#  le banc disait « rien à mesurer » ET RIEN D'AUTRE — pas le code de
+		#  sortie, pas un mot de yad, pas la liste de ce qui était à l'écran.
+		#  Mesuré sur le coureur : ce contrôle est tombé aux constructions 577,
+		#  578 et 584, et il était vert aux 574, 575, 576 et 583 — sur le MÊME
+		#  code. Sans trace, on ne peut que deviner, et deviner ici veut dire
+		#  corriger au hasard la dernière fenêtre avant qu'un disque s'efface.
+		PLAINTE="$BAC/yad-$res.err"
 		seq 1 40 | sed 's/^/ligne d avertissement assez longue pour remplir la largeur /' \
 		  | DISPLAY="$aff" yad --title=BANC-AVERT --width=640 --height="$H" --center \
 		      --borders=16 --text-info --wrap --text="avertissement" \
-		      --button="Annuler:1" --button="Installer:0" >/dev/null 2>&1 &
-		sleep 4
-		W="$(DISPLAY="$aff" timeout 20 xdotool search --name '^BANC-AVERT$' 2>/dev/null | tail -1)"
+		      --button="Annuler:1" --button="Installer:0" >/dev/null 2>"$PLAINTE" &
+		YAD_PID=$!
+		#  ═══ ON ATTEND LA FENÊTRE, ON NE DORT PLUS QUATRE SECONDES ═══
+		#  ET IL FAUT DIRE CE QUE ÇA CORRIGE, ET CE QUE ÇA NE CORRIGE PAS.
+		#  MESURÉ sur ce système, qui est celui du coureur (Ubuntu 24.04, yad
+		#  0.40.0-1build3), en chronométrant l'apparition de la fenêtre :
+		#      au repos                        : 125 à 242 ms
+		#      quatre cœurs saturés (×2)       : 325 à 404 ms
+		#      cache de polices vide           : 179 à 181 ms
+		#  Quatre secondes n'étaient donc PAS trop courtes : la cause du rouge
+		#  est ailleurs, et l'attente ci-dessous ne la corrige pas. Elle reste
+		#  juste : un délai fixe affirme une durée qu'on n'a pas mesurée, et
+		#  celui-ci s'arrête dès que la fenêtre est là.
+		#  « xdotool search --sync », qui attendrait tout seul, N'EXISTE PAS
+		#  dans cette version (3.20160805.1) : vérifié dans son propre --help,
+		#  qui ne connaît ni --sync ni --timeout. D'où la boucle.
+		#  On interroge jusqu'à trente secondes, et on s'arrête tout de suite
+		#  si yad est mort : inutile d'attendre un programme qui n'est plus là.
+		W=""; TOURS=0
+		DEBUT=$(date +%s%N)
+		for _ in $(seq 1 60); do
+			TOURS=$((TOURS+1))
+			W="$(DISPLAY="$aff" timeout 20 xdotool search --name '^BANC-AVERT$' 2>/dev/null | tail -1)"
+			[[ -n "$W" ]] && break
+			kill -0 "$YAD_PID" 2>/dev/null || break
+			sleep 0.5
+		done
+		MS=$(( ($(date +%s%N) - DEBUT) / 1000000 ))
 		if [[ -z "$W" ]]; then
-			non "$res : la fenêtre ne s'est pas ouverte — rien à mesurer"
+			#  ═══ ET ON DIT LAQUELLE DES PANNES C'EST ═══
+			#  Trois questions, trois réponses imprimées. C'est ce qui manquait
+			#  aux constructions 577, 578 et 584 : « rien à mesurer » et pas un
+			#  fait de plus, donc rien à quoi se raccrocher.
+			if kill -0 "$YAD_PID" 2>/dev/null; then
+				non "$res : yad TOURNE TOUJOURS après ${MS} ms et n'a pas ouvert de fenêtre"
+			else
+				wait "$YAD_PID" 2>/dev/null
+				non "$res : yad s'est ARRÊTÉ (code $?) après ${MS} ms, sans fenêtre"
+			fi
+			#  1. ce que yad avait à dire
+			if [[ -s "$PLAINTE" ]]; then
+				sed -n '1,5p' "$PLAINTE" | sed 's/^/       yad dit : /'
+			else
+				printf '       %s\n' "yad n'a rien dit sur sa sortie d'erreur"
+			fi
+			#  2. le serveur X répond-il encore ? (si non, ce n'est pas yad)
+			if GEO="$(DISPLAY="$aff" timeout 10 xdotool getdisplaygeometry 2>&1)"; then
+				printf '       %s\n' "le serveur X $aff répond : $GEO"
+			else
+				printf '       %s\n' "le serveur X $aff NE RÉPOND PLUS : $GEO"
+			fi
+			#  3. ce qui est VRAIMENT à l'écran — une fenêtre ouverte sous un
+			#     autre nom se verrait ici.
+			VUES="$(DISPLAY="$aff" timeout 20 xdotool search --name '.' 2>/dev/null | head -5)"
+			if [[ -n "$VUES" ]]; then
+				for id in $VUES; do
+					printf '       %s\n' "à l'écran : $(DISPLAY="$aff" timeout 10 xdotool getwindowname "$id" 2>/dev/null)"
+				done
+			else
+				printf '       %s\n' "aucune fenêtre nommée sur $aff"
+			fi
+			#  4. et le bus de session, que GTK interroge au démarrage : une
+			#     recherche d'accessibilité qui n'aboutit pas peut retenir une
+			#     application GTK longtemps. Ici il n'y en a PAS et yad démarre
+			#     en 180 ms ; sur le coureur, il y en a un. C'est la première
+			#     différence entre les deux machines, alors on l'imprime.
+			printf '       %s\n' "bus de session : ${DBUS_SESSION_BUS_ADDRESS:-aucun}"
 		else
 			geo="$(DISPLAY="$aff" timeout 20 xdotool getwindowgeometry --shell "$W" 2>/dev/null)"
 			eval "$geo"
@@ -243,7 +323,7 @@ else
 				non "$res : la fenêtre déborde de $(( bas - haut )) px — boutons hors écran"
 			fi
 		fi
-		pkill -f "yad --title=BANC-AVERT" 2>/dev/null
+		kill "$YAD_PID" 2>/dev/null; wait "$YAD_PID" 2>/dev/null; YAD_PID=""
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
 		XVFB_PID=""
 	done
