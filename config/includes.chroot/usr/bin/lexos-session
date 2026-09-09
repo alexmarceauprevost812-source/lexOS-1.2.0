@@ -349,7 +349,19 @@ IMG_VEILLE="$(img veille system-suspend)"
 #  La colonne d'images élargit la fenêtre d'une quarantaine de points : sans
 #  ce rattrapage, les libellés les plus longs (« Changer d'utilisateur »)
 #  seraient coupés par des points de suspension.
-LARGEUR_F=344
+#
+#  ═══ 400 x 380, ET LES DEUX CHIFFRES SONT MESURÉS ═══
+#  344x300 tenait — vérifié en rendant la VRAIE fenêtre yad sous Xvfb : les
+#  cinq gestes s'affichaient, avec 75 px de reste. Mais avec une police
+#  d'interface ordinaire seulement.
+#  LexOS livre douze écritures à la main, et Alex en change quand il veut.
+#  Relevé au Pango de GTK : « Tableau noir » (Gloria Hallelujah 10) prend
+#  33 px par rangée contre 24 par défaut — cinq rangées, c'est +45 px, soit
+#  presque tout le reste. Et « Ronde » (Short Stack 11) demande 213 px pour
+#  la colonne des libellés, contre 190.
+#  400x380 laisse la marge que 344x300 n'avait plus. La fenêtre reste
+#  ancrée à 40 px du bord droit : LARGEUR_F sert aussi à la placer.
+LARGEUR_F=400
 POSITION=(--center)
 if command -v xrandr >/dev/null 2>&1; then
 	ECRAN_L="$(xrandr 2>/dev/null | sed -n 's/^.*current \([0-9]\+\) x [0-9]\+.*$/\1/p' | head -1)"
@@ -361,7 +373,7 @@ fi
 if command -v yad >/dev/null 2>&1; then
 	CHOIX="$(yad --list --title="Session — LexOS" \
 		--window-icon=lexos-arret \
-		--width="$LARGEUR_F" --height=300 --borders=12 --on-top \
+		--width="$LARGEUR_F" --height=380 --borders=12 --on-top \
 		"${POSITION[@]}" \
 		--text="$TEXTE" \
 		--no-headers \
@@ -403,10 +415,22 @@ if command -v zenity >/dev/null 2>&1; then
 		#  ne sait lire qu'un chemin. Un seul nom dans le lot et on renonce.
 		[[ "$I" == /* && -r "$I" ]] || ZEN_IMAGES=0
 	done
+	#  ═══ 560x520, ET CE N'ÉTAIT PAS UNE TAILLE DE CONFORT ═══
+	#  Ces deux listes n'avaient AUCUNE taille : zenity leur donnait sa
+	#  fenêtre par défaut, 480x320. Mesuré en la rendant pour de vrai sous
+	#  Xvfb, avec la police d'interface ordinaire : sur les CINQ gestes
+	#  proposés, TROIS s'affichaient. « Redémarrer » et « Éteindre »
+	#  tombaient sous le bord — le bouton rouge du panneau menait à une
+	#  fenêtre où « Éteindre » n'était pas visible.
+	#  À 560x520, les cinq lignes sont là, avec la place de trois de plus :
+	#  de quoi encaisser « Tableau noir » (33 px par rangée contre 24) et
+	#  les icônes de la variante illustrée, qui grandissent les rangées.
+	#  MESURÉ, PAS DEVINÉ — banc test_lexos_format_boites.sh.
 	if [[ "$ZEN_IMAGES" == "1" ]]; then
 		CHOIX="$(zenity --list --title="Session — LexOS" \
 			--text="Tu es connecté en tant que ${QUI}." \
 			--imagelist --hide-header --print-column=2 \
+			--width=560 --height=520 \
 			--column=" " --column="Que faire ?" \
 			"$IMG_UTILISATEUR" "Changer d'utilisateur" \
 			"$IMG_DECONNEXION" "Déconnexion" \
@@ -416,6 +440,7 @@ if command -v zenity >/dev/null 2>&1; then
 	else
 		CHOIX="$(zenity --list --title="Session — LexOS" \
 			--text="Tu es connecté en tant que ${QUI}." \
+			--width=560 --height=520 \
 			--column="Que faire ?" \
 			"Changer d'utilisateur" "Déconnexion" "Mise en veille" "Redémarrer" "Éteindre" 2>/dev/null)"
 	fi

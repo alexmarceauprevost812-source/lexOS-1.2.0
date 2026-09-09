@@ -65,8 +65,13 @@ fi
 say()  { printf '%s»%s %s\n' "$O" "$R" "$*"; }
 ok()   { printf '%s✓%s %s\n' "$G" "$R" "$*"; }
 err()  { printf '%s✗%s %s\n' "$E" "$R" "$*" >&2; }
+#  420 px suffisaient avec une police d'interface. Avec une écriture à la
+#  main — douze au choix dans les Paramètres — le même message se replie sur
+#  quatre ou cinq lignes dans une boîte étroite. 560 px le tiennent sur deux.
+#  Rien n'est CACHÉ ici (zenity replie le texte, il ne le coupe pas) : c'est
+#  du confort, contrairement aux listes plus bas.
 die()  { err "$*"; [[ "$GUI" -eq 1 ]] && command -v zenity >/dev/null 2>&1 && \
-         zenity --error --width=420 --title="LexOS" --text="$*" 2>/dev/null; exit 1; }
+         zenity --error --width=560 --title="LexOS" --text="$*" 2>/dev/null; exit 1; }
 
 cmd_help() {
 	cat <<EOF
@@ -150,9 +155,22 @@ if [[ -z "$TARGET" ]]; then
 		while IFS= read -r line; do
 			LIST_ARGS+=("/dev/$(awk '{print $1}' <<< "$line")" "$line")
 		done <<< "$CANDIDATES"
+		#  ═══ 920x480, MESURÉ — ET LE NOMBRE DE LIGNES N'EST PAS CONNU ═══
+		#  Cette liste-ci est la plus exposée des cinq : le nombre de rangées
+		#  dépend de ce qui est branché. Une hauteur fixe de 280 px coupait
+		#  le troisième disque exactement comme elle cachait « ext4 » plus
+		#  bas.
+		#  Et la largeur était pire encore : à 520, la colonne « Détails »
+		#  était coupée POUR TOUTES LES POLICES, la police par défaut
+		#  comprise — la ligne d'un disque (nom, taille, modèle, partitions,
+		#  point de montage) demande 777 px avec elle, et 854 px avec
+		#  « Ronde », la plus large des douze écritures d'Alex.
+		#  À 920x480, cinq disques tiennent avec la plus haute des douze
+		#  (« Tableau noir », 33 px par rangée) et il reste de la place.
+		#  MESURÉ, PAS DEVINÉ — banc test_lexos_format_boites.sh.
 		DISK_PATH="$(zenity --list --title="Formater — choisir le support" \
 			--column="Support" --column="Détails" "${LIST_ARGS[@]}" \
-			--width=520 --height=280 2>/dev/null)"
+			--width=920 --height=480 2>/dev/null)"
 		[[ -n "$DISK_PATH" ]] || exit 0
 		DISK="$(basename "$DISK_PATH")"
 	else
@@ -252,7 +270,12 @@ Système de fichiers choisi : ${FSTYPE}
 Cette opération est irréversible."
 
 if [[ "$GUI" -eq 1 ]] && command -v zenity >/dev/null 2>&1; then
-	zenity --question --width=520 --title="Formater /dev/${DISK} ?" \
+	#  720 px : cette boîte affiche la sortie de « lsblk » telle quelle —
+	#  nom, taille, étiquette, point de montage sur une ligne. À 520 px ces
+	#  lignes se repliaient au milieu d'un chemin, et la question la plus
+	#  irréversible de LexOS devenait la moins lisible. Mesuré avec « Ronde »
+	#  (Short Stack 11), la plus large des douze écritures.
+	zenity --question --width=720 --title="Formater /dev/${DISK} ?" \
 		--text="$WARN" --ok-label="Tout effacer et formater" --cancel-label="Annuler" 2>/dev/null \
 		|| { say "Annulé — rien n'a été modifié."; exit 0; }
 else
