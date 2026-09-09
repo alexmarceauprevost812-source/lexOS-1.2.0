@@ -46,6 +46,7 @@ titre(){ printf '\n%s%s%s\n' "$GRAS" "$1" "$FIN"; }
 BAC="$(mktemp -d)"
 XVFB_PID=""
 YAD_PID=""
+ZEN_PID=""
 #  ═══ PAR LE PID, JAMAIS PAR « pkill -f » ═══
 #  Il y avait ici « pkill -f "yad --title=BANC-AVERT" ». « -f » compare le
 #  motif à la LIGNE DE COMMANDE ENTIÈRE de tous les processus — y compris
@@ -56,6 +57,7 @@ YAD_PID=""
 #  On sait quel yad on a lancé : on le tue par son numéro.
 nettoyer() {
 	[[ -n "$YAD_PID" ]] && { kill "$YAD_PID" 2>/dev/null; wait "$YAD_PID" 2>/dev/null; }
+	[[ -n "$ZEN_PID" ]] && { kill "$ZEN_PID" 2>/dev/null; wait "$ZEN_PID" 2>/dev/null; }
 	[[ -n "$XVFB_PID" ]] && { kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; }
 	rm -rf "$BAC"
 	return 0
@@ -97,6 +99,57 @@ xvfb_lancer() {   # $1 = résolution ; pose XVFB_PID et XVFB_AFF (« :N »)
 	done
 	[[ -s "$f" ]] || { kill "$XVFB_PID" 2>/dev/null; XVFB_PID=""; return 1; }
 	XVFB_AFF=":$(tr -dc 0-9 < "$f")"
+}
+
+#  ═══ ATTENDRE LA FENÊTRE, ET CHRONOMÉTRER L'ATTENTE ═══
+#  Pose FEN (le numéro de fenêtre, vide si rien) et MS (les millisecondes
+#  écoulées). S'arrête dès que la fenêtre est là, ou dès que le programme
+#  qu'on attend est mort : inutile de guetter ce qui n'existe plus.
+#  « xdotool search --sync » ferait ça tout seul, mais cette version —
+#  3.20160805.1, celle du coureur — ne connaît ni --sync ni --timeout :
+#  vérifié dans son propre --help.
+attendre_fenetre() {   # $1 = affichage ; $2 = titre exact ; $3 = pid attendu
+	local aff="$1" titre="$2" pid="$3" debut
+	FEN=""; MS=0
+	debut=$(date +%s%N)
+	for _ in $(seq 1 60); do
+		FEN="$(DISPLAY="$aff" timeout 20 xdotool search --name "^${titre}\$" 2>/dev/null | tail -1)"
+		[[ -n "$FEN" ]] && break
+		kill -0 "$pid" 2>/dev/null || break
+		sleep 0.5
+	done
+	MS=$(( ($(date +%s%N) - debut) / 1000000 ))
+}
+
+#  ═══ CE QU'IL Y AVAIT À L'ÉCRAN, ET CE QUE LE PROGRAMME A DIT ═══
+#  Les quatre faits qui départagent les hypothèses quand la fenêtre manque.
+#  C'est ce qui manquait aux constructions 577, 578 et 584 : « rien à
+#  mesurer », et pas un fait de plus.
+raconter() {   # $1 = affichage ; $2 = fichier de plaintes
+	local aff="$1" plainte="$2" geo vues id
+	if [[ -s "$plainte" ]]; then
+		sed -n '1,5p' "$plainte" | sed 's/^/       il dit : /'
+	else
+		printf '       %s\n' "rien sur sa sortie d'erreur"
+	fi
+	if geo="$(DISPLAY="$aff" timeout 10 xdotool getdisplaygeometry 2>&1)"; then
+		printf '       %s\n' "le serveur X $aff répond : $geo"
+	else
+		printf '       %s\n' "le serveur X $aff NE RÉPOND PLUS : $geo"
+	fi
+	vues="$(DISPLAY="$aff" timeout 20 xdotool search --name '.' 2>/dev/null | head -5)"
+	if [[ -n "$vues" ]]; then
+		for id in $vues; do
+			printf '       %s\n' "à l'écran : $(DISPLAY="$aff" timeout 10 xdotool getwindowname "$id" 2>/dev/null)"
+		done
+	else
+		printf '       %s\n' "aucune fenêtre nommée sur $aff"
+	fi
+	#  Le bus de session, que GTK interroge au démarrage : une recherche
+	#  d'accessibilité qui n'aboutit pas peut retenir une application GTK.
+	#  Ici il n'y en a PAS et yad démarre en 180 ms ; sur le coureur, il y en
+	#  a un. C'est la première différence connue entre les deux machines.
+	printf '       %s\n' "bus de session : ${DBUS_SESSION_BUS_ADDRESS:-aucun}"
 }
 
 # -----------------------------------------------------------------------------
@@ -274,16 +327,8 @@ else
 		#  qui ne connaît ni --sync ni --timeout. D'où la boucle.
 		#  On interroge jusqu'à trente secondes, et on s'arrête tout de suite
 		#  si yad est mort : inutile d'attendre un programme qui n'est plus là.
-		W=""; TOURS=0
-		DEBUT=$(date +%s%N)
-		for _ in $(seq 1 60); do
-			TOURS=$((TOURS+1))
-			W="$(DISPLAY="$aff" timeout 20 xdotool search --name '^BANC-AVERT$' 2>/dev/null | tail -1)"
-			[[ -n "$W" ]] && break
-			kill -0 "$YAD_PID" 2>/dev/null || break
-			sleep 0.5
-		done
-		MS=$(( ($(date +%s%N) - DEBUT) / 1000000 ))
+		attendre_fenetre "$aff" BANC-AVERT "$YAD_PID"
+		W="$FEN"
 		if [[ -z "$W" ]]; then
 			#  ═══ ET ON DIT LAQUELLE DES PANNES C'EST ═══
 			#  Trois questions, trois réponses imprimées. C'est ce qui manquait
@@ -295,34 +340,7 @@ else
 				wait "$YAD_PID" 2>/dev/null
 				non "$res : yad s'est ARRÊTÉ (code $?) après ${MS} ms, sans fenêtre"
 			fi
-			#  1. ce que yad avait à dire
-			if [[ -s "$PLAINTE" ]]; then
-				sed -n '1,5p' "$PLAINTE" | sed 's/^/       yad dit : /'
-			else
-				printf '       %s\n' "yad n'a rien dit sur sa sortie d'erreur"
-			fi
-			#  2. le serveur X répond-il encore ? (si non, ce n'est pas yad)
-			if GEO="$(DISPLAY="$aff" timeout 10 xdotool getdisplaygeometry 2>&1)"; then
-				printf '       %s\n' "le serveur X $aff répond : $GEO"
-			else
-				printf '       %s\n' "le serveur X $aff NE RÉPOND PLUS : $GEO"
-			fi
-			#  3. ce qui est VRAIMENT à l'écran — une fenêtre ouverte sous un
-			#     autre nom se verrait ici.
-			VUES="$(DISPLAY="$aff" timeout 20 xdotool search --name '.' 2>/dev/null | head -5)"
-			if [[ -n "$VUES" ]]; then
-				for id in $VUES; do
-					printf '       %s\n' "à l'écran : $(DISPLAY="$aff" timeout 10 xdotool getwindowname "$id" 2>/dev/null)"
-				done
-			else
-				printf '       %s\n' "aucune fenêtre nommée sur $aff"
-			fi
-			#  4. et le bus de session, que GTK interroge au démarrage : une
-			#     recherche d'accessibilité qui n'aboutit pas peut retenir une
-			#     application GTK longtemps. Ici il n'y en a PAS et yad démarre
-			#     en 180 ms ; sur le coureur, il y en a un. C'est la première
-			#     différence entre les deux machines, alors on l'imprime.
-			printf '       %s\n' "bus de session : ${DBUS_SESSION_BUS_ADDRESS:-aucun}"
+			raconter "$aff" "$PLAINTE"
 		else
 			geo="$(DISPLAY="$aff" timeout 20 xdotool getwindowgeometry --shell "$W" 2>/dev/null)"
 			eval "$geo"
@@ -334,6 +352,92 @@ else
 			fi
 		fi
 		kill "$YAD_PID" 2>/dev/null; wait "$YAD_PID" 2>/dev/null; YAD_PID=""
+		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
+		XVFB_PID=""
+	done
+fi
+
+# -----------------------------------------------------------------------------
+titre "6bis. Le REPLI zenity, ouvert pour de vrai lui aussi"
+#  ═══ POURQUOI CETTE SECTION EXISTE ═══
+#  lexos-install ouvre la fenêtre avec YAD, et retombe sur ZENITY quand yad
+#  manque. Les sections 4 et 5 LISENT les options de zenity ; personne
+#  n'ouvrait sa fenêtre. Sur une machine sans yad — et il n'est pas
+#  obligatoire — c'est pourtant CELLE-LÀ que quelqu'un voit avant d'effacer
+#  un disque, et rien n'en mesurait la hauteur.
+#
+#  ═══ ET ÇA RÈGLE LA PISTE « GTK 4 » ═══
+#  MESURÉ sur ce système, qui est celui du coureur : yad est en GTK 3.24.41,
+#  zenity en GTK 4 (libgtk-4.so.1). La fenêtre de la section 6 est donc du
+#  GTK 3 — le moteur de rendu de GTK 4 n'a rien à voir avec son échec.
+#  Et GTK 4 s'affiche très bien sur un Xvfb nu : mesuré ici, la fenêtre de
+#  zenity sort à 620×720 exactement, en se contentant de se plaindre
+#  (« libEGL warning: DRI3 error: Could not get DRI3 device ») avant de
+#  dessiner en logiciel. Aucune variable de rendu n'a été nécessaire — les
+#  ajouter aurait été quatre suppositions au lieu d'une mesure.
+if ! command -v Xvfb >/dev/null 2>&1 || ! command -v zenity >/dev/null 2>&1 \
+   || ! command -v xdotool >/dev/null 2>&1; then
+	saut "Xvfb, zenity ou xdotool absent — la fenêtre de repli n'est pas mesurée ici"
+else
+	for res in 1920x1080 1366x768; do
+		haut="${res#*x}"
+		if ! xvfb_lancer "${res}x24"; then
+			non "$res (zenity) : Xvfb n'a pas démarré — rien à mesurer"
+			continue
+		fi
+		aff="$XVFB_AFF"
+		H="$(DISPLAY="$aff" timeout 20 bash -c "$(declare -f ecran_hauteur hauteur_dialogue); hauteur_dialogue 720")"
+		PLAINTE="$BAC/zenity-$res.err"
+		#  LES MÊMES OPTIONS QUE lexos-install, case à cocher comprise : un
+		#  banc qui ouvrirait une fenêtre plus simple mesurerait autre chose.
+		seq 1 40 | sed 's/^/ligne d avertissement assez longue pour remplir la largeur /' \
+		  | DISPLAY="$aff" zenity --text-info --width=620 --height="$H" \
+		      --title=BANC-ZENITY \
+		      --checkbox="J ai lu l avertissement en entier" \
+		      --ok-label="J ai compris, installer" \
+		      --cancel-label="Annuler" >/dev/null 2>"$PLAINTE" &
+		ZEN_PID=$!
+		attendre_fenetre "$aff" BANC-ZENITY "$ZEN_PID"
+		if [[ -z "$FEN" ]]; then
+			#  ═══ TROIS ÉTATS, ET C'EST ICI QU'ILS COMPTENT ═══
+			#  zenity qui S'ARRÊTE en disant quelque chose, c'est un
+			#  environnement qui ne peut pas l'afficher : NON MESURÉ, avec
+			#  ses propres mots. zenity qui reste en vie sans rien montrer,
+			#  c'est une panne — et là c'est ROUGE.
+			if kill -0 "$ZEN_PID" 2>/dev/null; then
+				non "$res (zenity) : il TOURNE TOUJOURS après ${MS} ms sans fenêtre"
+				raconter "$aff" "$PLAINTE"
+			elif [[ -s "$PLAINTE" ]]; then
+				saut "$res (zenity) : pas d'affichage possible ici — $(grep -m1 . "$PLAINTE" || true)"
+			else
+				non "$res (zenity) : arrêté après ${MS} ms sans fenêtre et sans un mot"
+				raconter "$aff" "$PLAINTE"
+			fi
+		else
+			geo="$(DISPLAY="$aff" timeout 20 xdotool getwindowgeometry --shell "$FEN" 2>/dev/null)"
+			eval "$geo"
+			bas=$(( Y + HEIGHT ))
+			#  ═══ DEUX EXIGENCES, ET LA SECONDE EST CELLE QUI MORD ═══
+			#  MESURÉ en jouant la mutation « --height=2000 » : zenity 4 RABOTE
+			#  sa fenêtre à la hauteur de l'écran — 620×1080 sur un 1080p, bas
+			#  à 1080 px exactement. Un contrôle qui n'exigerait que « le bas
+			#  est à l'écran » serait donc VERT quoi que lexos-install calcule :
+			#  il ne prouverait plus rien.
+			#  On exige en plus que la fenêtre fasse EXACTEMENT la hauteur
+			#  demandée. Si le calcul dépasse l'écran, zenity la rabote, les
+			#  deux nombres divergent, et le banc le dit.
+			#  (yad, lui, ne rabote pas : c'est ainsi qu'il a pu ouvrir une
+			#  fenêtre de 2146 px de haut. La section 6 garde donc son
+			#  contrôle de débordement, qui y a un sens.)
+			if (( bas > haut )); then
+				non "$res (zenity) : la fenêtre déborde de $(( bas - haut )) px — boutons hors écran"
+			elif (( HEIGHT != H )); then
+				non "$res (zenity) : hauteur demandée ${H} px, obtenue ${HEIGHT} px — l'écran l'a rabotée, donc le calcul ne tient pas compte de l'écran"
+			else
+				ok "$res (zenity) : fenêtre ${WIDTH}×${HEIGHT} = la hauteur calculée, bas à ${bas} px — les boutons sont à l'écran"
+			fi
+		fi
+		kill "$ZEN_PID" 2>/dev/null; wait "$ZEN_PID" 2>/dev/null; ZEN_PID=""
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null
 		XVFB_PID=""
 	done
