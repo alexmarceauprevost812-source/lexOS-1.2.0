@@ -29,7 +29,36 @@
 # =============================================================================
 
 [org/compiz/profiles/Default/plugins/core]
-active-plugins=['core','composite','opengl','compiztoolbox','decor','grid','mousepoll','vpswitch','snap','regex','animation','fade','workarounds','scale','expo','ezoom','imgpng','move','place','resize','session','wall','ccp']
+#  ═══ « wall » EST PARTI, ET C'EST LE CHANGEMENT QUI COMPTE ═══
+#  Relevé sur le T460 d'Alex, Compiz en marche :
+#      $ xprop -root _NET_DESKTOP_GEOMETRY
+#      _NET_DESKTOP_GEOMETRY(CARDINAL) = 7680, 1080
+#  Le greffon « wall » fabriquait un bureau virtuel QUATRE FOIS plus large
+#  que l'écran (1920). Compiz 0.8.18 n'a pas de suivi des zones endommagées :
+#  il repeignait cette surface entière à chaque image, sur un GPU intégré qui
+#  partage la mémoire système. Quatre fois la bande passante, pour un bureau
+#  virtuel que personne n'a demandé.
+#  Partent avec lui, et pour la même raison — du travail à chaque image ou
+#  des réveils permanents, pour des fonctions que LexOS n'expose nulle part :
+#      mousepoll  sonde la position du pointeur sur minuterie fixe ;
+#      ezoom      le zoom, seul à avoir besoin de mousepoll ;
+#      expo/scale/vpswitch  la vue des bureaux virtuels, qui n'existent plus ;
+#      snap/imgpng  aimantation et chargeur PNG, inutilisés ici.
+#  RESTENT : « grid » (le partage d'écran qu'Alex a demandé, mot pour mot) et
+#  « animation »/« fade » (l'effet téléviseur), plus le socle.
+#
+#  ═══ ET CE FICHIER NE SERT PLUS QUE SI ON DEMANDE COMPIZ À LA MAIN ═══
+#  Compiz n'est plus livré dans l'ISO ni démarré par défaut : picom fait
+#  l'effet, sans bureau géant. Ces réglages restent pour qui l'installe et le
+#  lance par LEXOS_WM_COMPIZ=1 — autant que ce soit avec une configuration
+#  qui ne mette pas la machine à genoux.
+active-plugins=['core','composite','opengl','compiztoolbox','decor','grid','regex','animation','fade','workarounds','move','place','resize','session','ccp']
+
+#  Un seul bureau, de la taille de l'écran. C'est « wall » qui les
+#  multipliait ; sans lui ces deux valeurs le disent explicitement plutôt que
+#  de dépendre d'un défaut.
+hsize=1
+vsize=1
 
 [org/compiz/profiles/Default/plugins/grid]
 #  Les bords : glisser à gauche/droite donne une moitié — la demande
@@ -79,11 +108,18 @@ open-matches=['(type=Normal | type=Dialog | type=ModalDialog | type=Unknown)','(
 close-effects=['animation:Glide 2','animation:Glide 2','animation:Fade']
 close-durations=[260,220,150]
 close-matches=['(type=Normal | type=Dialog | type=ModalDialog | type=Unknown)','(type=Menu | type=PopupMenu | type=DropdownMenu)','(type=Tooltip | type=Notification | type=Utility)']
-minimize-effects=['animation:Magic Lamp']
-minimize-durations=[300]
+#  ═══ « MAGIC LAMP » S'EN VA : C'EST L'ANIMATION LA PLUS LOURDE DE COMPIZ ═══
+#  Elle déforme la fenêtre en la faisant couler vers le dock, image par image,
+#  sur 300 ms — un maillage recalculé à chaque trame, sans suivi des zones
+#  endommagées. Sur le HD 520 du T460 c'est le pire moment de toute la
+#  session. Un fondu de 150 ms dit la même chose et ne coûte rien.
+#  L'effet « téléviseur » demandé par Alex, lui, est à l'OUVERTURE et à la
+#  FERMETURE (Glide 2, au-dessus) : il n'est pas touché.
+minimize-effects=['animation:Fade']
+minimize-durations=[150]
 minimize-matches=['(type=Normal | type=Dialog | type=ModalDialog | type=Unknown)']
-unminimize-effects=['animation:Magic Lamp']
-unminimize-durations=[300]
+unminimize-effects=['animation:Fade']
+unminimize-durations=[150]
 unminimize-matches=['(type=Normal | type=Dialog | type=ModalDialog | type=Unknown)']
 focus-effects=['animation:None']
 
@@ -97,7 +133,10 @@ active-shadow-color='#000000ff'
 fade-time=180.0
 
 [org/compiz/profiles/Default/plugins/opengl]
-texture-filter=2
+#  0 = « Fast ». C'était 2 (« Best ») : mipmaps + filtrage anisotrope sur
+#  chaque texture de fenêtre, à chaque image. Sur un HD 520 ça se paie et ne
+#  se voit pas — les fenêtres sont affichées à leur taille native.
+texture-filter=0
 sync-to-vblank=true
 
 [org/compiz/profiles/Default/plugins/scale]

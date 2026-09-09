@@ -3,24 +3,38 @@
 plank
 dconf-cli
 dconf-gsettings-backend
-# ═══ COMPIZ N'EXISTE PLUS DANS trixie, ET CE N'ÉTAIT PAS SANS CONSÉQUENCE ═══
-# Les paquets ci-dessous sont restés listés après le passage à trixie. Un
-# paquet absent est toléré par le crochet 0250 (les dépôts bougent), donc rien
-# n'a jamais échoué — mais l'effet d'ouverture/fermeture « téléviseur », lui,
-# a disparu en silence : lexos-wm cherche « compiz », ne le trouve pas, et se
-# replie sur xfwm4, QUI N'A AUCUNE ANIMATION. Alex l'a signalé plusieurs
-# images plus tard : « l'effet d'animation n'est pas là quand je ferme des
-# fenêtres ». Le commentaire qui était ici prétendait que les effets
-# « retombent sur le compositeur de xfwm4 » : c'était faux, il n'y a pas
-# d'effet à reprendre.
+# ═══ COMPIZ EST RETIRÉ, ET LA RAISON EST MESURÉE SUR LA MACHINE D'ALEX ═══
+# Ce commentaire disait « COMPIZ N'EXISTE PLUS DANS trixie » et gardait les
+# paquets listés « au cas où ». LES DEUX ÉTAIENT FAUX, et c'est ce qui a coûté
+# le plus cher.
 #
-# On les garde listés — ils ne coûtent rien et reviendront peut-être — mais
-# ce n'est plus d'eux que dépend l'effet.
-compiz
-compiz-core
-compiz-plugins-extra
-compizconfig-settings-manager
-python3-compizconfig
+# Diagnostic du 2026-09-09 sur le ThinkPad T460 de référence :
+#     $ pgrep -a compiz
+#     2276 compiz --replace ccp
+#     $ dpkg -l | grep compiz
+#     compiz 2:0.8.18-8   compiz-core 2:0.8.18-8   compiz-plugins-extra …
+# Compiz EXISTE dans trixie, il s'installait bien, et il tournait.
+#
+# CE QU'IL COÛTAIT, MESURÉ :
+#     $ xprop -root _NET_DESKTOP_GEOMETRY
+#     _NET_DESKTOP_GEOMETRY(CARDINAL) = 7680, 1080     ← 4× la largeur réelle
+# Le greffon « wall » fabrique un bureau virtuel quatre fois plus large que
+# l'écran. Compiz 0.8.18 est la branche héritée, du code de 2010 : PAS de
+# suivi des zones endommagées. Il repeint donc 7680×1080 À CHAQUE IMAGE, sur
+# un HD 520 qui partage la mémoire système. C'est la cause nº1 des saccades
+# qu'Alex décrit depuis des semaines — « Ubuntu tourne parfaitement sur cette
+# machine, mais les paramètres de LexOS saccadent ».
+#
+# ET IL RENDAIT LE BON CHEMIN INATTEIGNABLE. lexos-wm lançait Compiz puis
+# faisait « wait "$CPID" », qui ne rend la main que si Compiz meurt : tant
+# qu'il vivait, TOUT le code en dessous était mort — y compris le démarrage de
+# picom et le « exec xfwm4 ». La version fluide était écrite et n'a jamais pu
+# s'exécuter.
+#
+# picom v12 (plus bas) fait le même effet, avec suivi des dégâts et sans
+# bureau géant. Compiz reste installable à la main pour qui veut essayer, et
+# lexos-wm sait encore le lancer sur demande explicite (LEXOS_WM_COMPIZ=1) ;
+# il n'est simplement plus livré ni démarré par défaut.
 
 # ═══ CE QUI FAIT L'EFFET AUJOURD'HUI ═══
 # picom sait animer depuis sa version 12 (« Animations! Yes, now picom
