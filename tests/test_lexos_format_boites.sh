@@ -142,8 +142,10 @@ for C in python3.12 python3.13 python3.11 python3; do
 done
 if [ -z "$PY" ]; then
 	saute "aucun python avec GTK 3 (python3-gi + gir1.2-gtk-3.0) : rien n'a été MESURÉ"
-elif ! command -v xvfb-run >/dev/null 2>&1; then
-	saute "xvfb-run absent : la mesure demande un écran, elle n'a PAS été faite"
+elif ! command -v Xvfb >/dev/null 2>&1; then
+	#  On nomme « Xvfb », pas « xvfb-run » : c'est Xvfb qu'on lance
+	#  directement, et les deux ne viennent pas forcément ensemble.
+	saute "Xvfb absent : la mesure demande un écran, elle n'a PAS été faite"
 else
 	#  Les polices d'Alex vivent dans le dépôt, pas sur la machine du banc :
 	#  on les rend visibles à fontconfig le temps de la mesure.
@@ -154,18 +156,38 @@ else
 
 	#  UN SEUL écran pour toute la section : « xvfb-run » par mesure
 	#  coûterait quinze démarrages de serveur X par boîte.
+	#
+	#  ═══ « -displayfd », ET PAS UNE RONDE DE NUMÉROS AVEC xdpyinfo ═══
+	#  Première version : on essayait les écrans 90 à 130 un par un, et on
+	#  demandait à « xdpyinfo » si le serveur répondait. Deux défauts, et le
+	#  second est le pire :
+	#
+	#    · xdpyinfo vient de « x11-utils », que l'étape de la CI n'installe
+	#      PAS. La sonde échouait donc toujours — pas parce que l'écran
+	#      manquait, mais parce que l'outil qui pose la question manquait ;
+	#    · le banc mettait alors 41 × 10 s = SEPT MINUTES à s'en apercevoir,
+	#      puis annonçait « 10 réussis, 0 échoués » en ayant sauté toute la
+	#      moitié qui MESURE. Vert, sept minutes, et rien de mesuré : le faux
+	#      vert exact que ce dépôt traque, avec l'attente en prime.
+	#
+	#  On reprend donc le patron déjà éprouvé ailleurs dans tests/ (voir
+	#  test_lexos_install_avertissement.sh) : Xvfb choisit LUI-MÊME le premier
+	#  numéro libre et l'écrit sur le descripteur 3. Aucun outil tiers, aucune
+	#  course sur les numéros, et l'échec se voit en une seconde.
 	AFF=""
-	for N in $(seq 90 130); do
-		[ -e "/tmp/.X${N}-lock" ] && continue
-		Xvfb ":$N" -screen 0 1366x768x24 >/dev/null 2>&1 &
-		XVFB_PID=$!
-		for _ in $(seq 1 40); do
-			DISPLAY=":$N" xdpyinfo >/dev/null 2>&1 && { AFF=":$N"; break; }
-			sleep 0.25
-		done
-		[ -n "$AFF" ] && break
-		kill "$XVFB_PID" 2>/dev/null
+	NUM="$BANC/xvfb.num"; : > "$NUM"
+	Xvfb -displayfd 3 -screen 0 1366x768x24 3>"$NUM" >/dev/null 2>&1 &
+	XVFB_PID=$!
+	for _ in $(seq 1 100); do
+		[ -s "$NUM" ] && break
+		kill -0 "$XVFB_PID" 2>/dev/null || break
+		sleep 0.1
 	done
+	if [ -s "$NUM" ]; then
+		AFF=":$(tr -dc 0-9 < "$NUM")"
+	else
+		kill "$XVFB_PID" 2>/dev/null; XVFB_PID=""
+	fi
 	if [ -z "$AFF" ]; then
 		saute "aucun écran X n'a pu être ouvert : rien n'a été MESURÉ"
 		printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
