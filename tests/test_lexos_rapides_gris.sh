@@ -288,11 +288,27 @@ else
 		else
 			non "les gouttières ($GOUT en $G_XY) sont restées noires"
 		fi
-		#  ET LA TUILE N'A PAS BOUGÉ : --bg-hi vaut #141416 en sombre.
-		if [[ "$TUILE" == "20,20,22" ]]; then
-			ok "la tuile éteinte vaut toujours $TUILE (#141416) — intacte, comme demandé"
+		#  ═══ ET LA TUILE VAUT TOUJOURS --bg-hi, QUELLE QUE SOIT SA VALEUR ═══
+		#  Ce contrôle attendait « 20,20,22 » écrit en dur (#141416). Le jour
+		#  où Alex a demandé que le fond des fenêtres monte au gris #121214,
+		#  toute l'échelle est montée avec lui — --bg-hi compris, à #212226 —
+		#  pour garder les mêmes écarts. Le contrôle a alors accusé le
+		#  correctif : « les boutons ont changé ». Ils avaient changé, oui, et
+		#  ils DEVAIENT : laisser la tuile à #141416 sur un fond #121214
+		#  l'aurait rendue invisible (1,03:1 au lieu de 1,18:1).
+		#  Ce qui compte n'est pas la valeur, c'est que la tuile soit CELLE de
+		#  ui.css et pas une autre. On la relève donc dans le fichier.
+		BGHI="$(grep -m1 -- '^  --bg-hi:' "$UI_CSS" | grep -oE '#[0-9A-Fa-f]{6}')"
+		ATTENDU="$(python3 -c "
+import sys
+v = sys.argv[1].lstrip('#')
+print(','.join(str(int(v[i:i+2], 16)) for i in (0, 2, 4)))" "$BGHI" 2>/dev/null)"
+		if [[ -z "$ATTENDU" ]]; then
+			non "--bg-hi illisible dans ui.css : le contrôle de la tuile ne prouverait rien"
+		elif [[ "$TUILE" == "$ATTENDU" ]]; then
+			ok "la tuile éteinte vaut $TUILE — c'est bien --bg-hi ($BGHI) de ui.css"
 		else
-			non "la tuile éteinte vaut $TUILE au lieu de 20,20,22 : les boutons ont changé"
+			non "la tuile éteinte vaut $TUILE au lieu de $ATTENDU ($BGHI) : elle ne suit plus ui.css"
 		fi
 
 		#  ═══ LA MUTATION ═══

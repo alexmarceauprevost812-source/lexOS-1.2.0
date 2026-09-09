@@ -49,6 +49,26 @@ LEXOS_SKEL="$RACINE/config/includes.chroot/etc/skel" LEXOS_PANNEAU_CSS="$RACINE/
 CSS="$BANC/t/.themes/LexOS-Noir/gtk-3.0/gtk.css"
 [ -r "$CSS" ] || { non "aucun gtk.css produit"; exit 1; }
 
+#  ═══ LE « NOIR DE LexOS » N'EST PLUS ÉCRIT EN DUR ICI ═══
+#  Il l'était — « #000000 » — et le jour où Alex a demandé que le fond des
+#  fenêtres passe au gris #121214, ce banc a rougi sur la CI pendant trois
+#  ISO en annonçant « le fond de fenêtre a bougé ». Il avait raison sur le
+#  fait et tort sur le verdict : le fond DEVAIT bouger. Une valeur recopiée
+#  dans un banc vieillit en silence et finit par accuser le correctif.
+#  On la relève maintenant dans lexos-theme-gen, qui la peint — la même
+#  extraction que le garde-fou « La palette des panneaux est celle du
+#  bureau » de la CI, à la même fenêtre else/fi.
+#  « grep -m1 » est interdit en bout de tuyau dans ce dépôt (la CI le
+#  vérifie) : il ferme le tuyau et fait mourir le producteur sur SIGPIPE,
+#  ce qui sous pipefail donne un faux rouge — ou un faux vert dans un
+#  contrôle inversé. On coupe avec « head -1 », qui vient après le grep.
+FOND_FENETRE="$(sed -n '/^else$/,/^fi$/p' "$GEN" \
+	| grep '^[[:space:]]*BG=' | grep -oE '#[0-9A-Fa-f]{6}' | head -1)"
+if [ -z "$FOND_FENETRE" ]; then
+	non "impossible de relever BG dans lexos-theme-gen — les contrôles de fond ne prouveraient rien"
+	FOND_FENETRE="#000000"
+fi
+
 # =============================================================================
 titre "1. La feuille est acceptée EN ENTIER par GTK"
 # =============================================================================
@@ -181,9 +201,9 @@ XfdesktopIconView .rubberband { background: alpha(@theme_selected_bg_color, 0.2)
 			*)      non "au repos, la vue est OPAQUE ($REPOS) — elle cache le fond d'écran" ;;
 		esac
 		FEN="$(val fenetre)"
-		[ "${FEN%%:*}" = "#000000" ] \
-			&& ok "et une vraie fenêtre, elle, reste noire ($FEN) : la règle n'a pas débordé" \
-			|| non "une fenêtre ordinaire ne vaut plus le noir de LexOS ($FEN)"
+		[ "${FEN%%:*}" = "$FOND_FENETRE" ] \
+			&& ok "et une vraie fenêtre garde le fond du bureau ($FEN) : la règle n'a pas débordé" \
+			|| non "une fenêtre ordinaire ne vaut plus le fond du bureau ($FEN au lieu de $FOND_FENETRE)"
 
 		# =============================================================
 		titre "3. La tuile choisie reste allumée, MENU OUVERT COMPRIS"
@@ -261,8 +281,8 @@ XfdesktopIconView .rubberband { background: alpha(@theme_selected_bg_color, 0.2)
 			[ "$MAUVAIS" = 0 ] && ok "$CLE : gris pâle dans les quatre états, backdrop compris"
 			R="$(val "${CLE}-repos")"
 			case "$R" in
-				"#000000:1.00") ok "$CLE : au repos, la vue reste noire" ;;
-				*) non "$CLE : au repos la vue vaut $R — le fond de fenêtre a bougé" ;;
+				"$FOND_FENETRE:1.00") ok "$CLE : au repos, la vue garde le fond du bureau ($FOND_FENETRE)" ;;
+				*) non "$CLE : au repos la vue vaut $R au lieu de $FOND_FENETRE — le gris a débordé sur le repos" ;;
 			esac
 		done
 		#  ET L'AUTRE MOITIÉ N'A PAS ÉTÉ EMPORTÉE. Le gris de la grille passe

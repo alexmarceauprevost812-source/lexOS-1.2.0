@@ -42,14 +42,23 @@
      ça ne va pas ensemble.
      Les six valeurs viennent maintenant du mode sombre de lexos-theme-gen,
      qui est aussi celui de web-demo/index.html. Un contrôle de CI vérifie que
-     les trois ne redivergent plus. */
-  --bg:#000000;        /* le fond de la fenêtre                              */
-  --bg-side:#0A0A0B;   /* la barre latérale, à peine détachée du fond        */
-  --bg-alt:#0A0A0B;    /* alias de --bg-side, pour les panneaux qui le nomment ainsi */
-  --bg-hi:#141416;     /* survol, champs, zones en relief                    */
+     les trois ne redivergent plus.
+
+     ═══ ET LA DIVERGENCE EST REVENUE UNE FOIS, EXACTEMENT COMME ANNONCÉ ═══
+     Alex a demandé que le fond des fenêtres passe du noir pur au gris
+     #121214 (commit « le fond des fenetres passe au gris #121214 »). Le
+     bureau a suivi, ces six valeurs-ci NON : les fenêtres GTK sont devenues
+     grises et les panneaux web sont restés NOIRS, côte à côte sur la même
+     machine — le défaut d'origine, dans l'autre sens. Le garde-fou de CI l'a
+     dit, personne ne l'a lu pendant trois ISO. Les quatre fonds suivent
+     maintenant lexos-theme-gen à la valeur près. */
+  --bg:#121214;        /* le fond de la fenêtre                              */
+  --bg-side:#191A1D;   /* la barre latérale, à peine détachée du fond        */
+  --bg-alt:#191A1D;    /* alias de --bg-side, pour les panneaux qui le nomment ainsi */
+  --bg-hi:#212226;     /* survol, champs, zones en relief                    */
   --fg:#FFFFFF;        /* le texte                                           */
   --fg-dim:#B8B8BC;    /* le texte secondaire — toujours lisible, jamais gris souris */
-  --bd:#232326;        /* les bordures                                       */
+  --bd:#2E2F34;        /* les bordures                                       */
 
   /* --- L'accent ----------------------------------------------------------
      #E8590C est l'orange de LexOS. Il vient de LEXOS_ACCENT_NAME dans

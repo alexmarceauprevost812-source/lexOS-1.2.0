@@ -185,12 +185,16 @@ fi
 #  personne ne regarde l'installateur deux fois.
 #  Le banc test_lexos_installateur_bandeau.sh compare ces valeurs à ui.css :
 #  si l'accent bouge là-bas, il rougit ici.
-LEX_BG="#000000"       # le fond des pages
-LEX_SIDE="#0A0A0B"     # le bandeau des étapes, à peine détaché du fond
-LEX_HI="#141416"       # champs, survols, zones en relief
+#  ET C'EST ARRIVÉ : Alex a demandé que le fond des fenêtres passe du noir
+#  pur au gris #121214. Le bureau a suivi, ui.css non, l'installateur non
+#  plus — trois ISO avec un installateur noir devant un bureau gris. Les
+#  quatre fonds sont remontés d'un cran, ensemble, comme dans ui.css.
+LEX_BG="#121214"       # le fond des pages
+LEX_SIDE="#191A1D"     # le bandeau des étapes, à peine détaché du fond
+LEX_HI="#212226"       # champs, survols, zones en relief
 LEX_FG="#FFFFFF"       # le texte
 LEX_DIM="#B8B8BC"      # le texte secondaire
-LEX_BD="#232326"       # les bordures
+LEX_BD="#2E2F34"       # les bordures
 LEX_AC="#E8590C"       # l'accent
 LEX_AC_HI="#FF7A33"    # l'accent au survol
 #  ═══ CE QU'ON ÉCRIT SUR L'ACCENT EST NOIR, PAS BLANC ═══
