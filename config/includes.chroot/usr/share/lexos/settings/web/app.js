@@ -738,10 +738,7 @@ async function setVolume(v){
     invisible : la langue changeait, le bouton sélectionné ne bougeait pas.
     Les deux doublons sont retirés ; un contrôle de la CI refuse désormais
     qu'une fonction de cette page soit déclarée deux fois. */
-async function setDock(d){
-  const r = await api("dock", d);
-  await rafraichir(r.ok ? "Dock : " + d : "Échec : " + (r.erreur || "commande refusée"));
-}
+async function setDock(d){ await choisir("dock", d, "dock", undefined, "Dock"); }
 async function basculeBarre(){
   const r = await api("barre-cachee", "toggle");
   await rafraichir(r.ok ? null : "Échec : " + (r.erreur || "commande refusée"));
@@ -1272,22 +1269,70 @@ async function setLum(n){
   const r = await api("lumiere", n);
   if(!r.ok){ await rafraichir("Luminosité : " + (r.erreur || "refusé")); }
 }
-async function setTheme(t){
-  const r = await api("theme", t);
-  //  appliqueApparence() manquait ICI, et seulement ici : setPolice et
-  //  setAccent l'appellent tous les deux depuis toujours. C'est ce qui rendait
-  //  le mode clair invisible dans cette fenêtre — le bureau changeait, les
-  //  Paramètres restaient noirs.
-  if(r.ok){ etat.theme = t; appliqueApparence(); rendSection(); toast("Thème : " + t); }
+/* ===========================================================================
+   L'AFFICHAGE OPTIMISTE — le bouton s'allume au CLIC, pas au retour
+   ===========================================================================
+   ALEX : « il faudrait au moins que les Paramètres soient fluides quand on
+   change les couleurs et qu'on prend des options — qu'elles soient bien
+   sélectionnées ».
+
+   ═══ CE QUI SE PASSAIT, ET POURQUOI CE N'EST PAS SA MACHINE ═══
+   Un clic partait dans api(), puis rafraichir(), qui relit TOUT l'état de la
+   machine avant de redessiner : le Wi-Fi, le Bluetooth, les imprimantes, les
+   sorties audio, les écrans, les comptes, les mises à jour — trente-huit
+   collecteurs, soixante-dix appels de commandes externes. Mesuré sur un
+   décor où chaque outil répond en 0,25 s : 14,55 s pour UN clic.
+   Le réglage prenait tout de suite ; c'est l'affichage qui attendait d'avoir
+   relu la machine entière avant de le montrer.
+
+   ═══ CE QU'ON FAIT ═══
+   On montre le choix TOUT DE SUITE, et la machine confirme ensuite.
+   « attente » porte ce que la page affiche en attendant la réponse ; vu()
+   le préfère à l'état réel tant qu'il est là.
+
+   ⚠ ET ON NE MENT JAMAIS. Si l'action échoue, la valeur optimiste est
+   JETÉE et la page redessine l'état RÉEL, visiblement, avec le motif. Un
+   bouton qui reste allumé sur un réglage qui n'a pas pris, c'est exactement
+   le mensonge du bogue du dock — la page qui affirmait « c'est à droite »
+   sans le savoir. On montre vite, on ne ment pas. */
+let attente = {};
+function vu(cle){
+  return Object.prototype.hasOwnProperty.call(attente, cle) ? attente[cle] : etat[cle];
 }
-async function setPolice(p){
-  const r = await api("police", p);
-  if(r.ok){ etat.police = p; appliqueApparence(); rendSection(); toast("Police : " + p); }
+function montre(cle, valeur){ attente[cle] = valeur; }
+/*  La machine a tranché : son mot remplace le nôtre, quel qu'il soit. */
+function tranche(cle){ delete attente[cle]; }
+
+/*  Le patron commun des réglages « je choisis une valeur parmi N ».
+    montre → agit → tranche → redessine. Trois lignes qui remplacent le
+    « if(r.ok) etat.X = … » recopié partout, lequel laissait justement le
+    bouton inchangé pendant tout le tour de machine. */
+async function choisir(cle, valeur, action, arg, motOk){
+  montre(cle, valeur);
+  appliqueApparence();
+  rendSection();
+  const r = await api(action, arg === undefined ? valeur : arg);
+  tranche(cle);
+  if(r.ok){
+    etat[cle] = valeur;
+    appliqueApparence();
+    rendSection();
+    if(motOk) toast(motOk + " : " + valeur);
+  } else {
+    /*  RETOUR EN ARRIÈRE VISIBLE. On ne se contente pas de retirer la valeur
+        optimiste : on relit la machine, parce que l'échec a pu la laisser
+        dans un troisième état — ni l'ancien, ni le demandé. */
+    await rafraichir("Échec : " + (r.erreur || "commande refusée"));
+  }
+  return r;
 }
-async function setAccent(a){
-  const r = await api("accent", a);
-  if(r.ok){ etat.accent = a; appliqueApparence(); rendSection(); toast("Accent : " + a); }
-}
+
+//  Les trois réglages d'apparence, par le patron commun. appliqueApparence()
+//  est appelée DANS choisir(), avant l'aller-retour : c'est ce qui fait que
+//  la couleur change sous le doigt au lieu d'attendre la machine.
+async function setTheme(t){ await choisir("theme", t, "theme", undefined, "Thème"); }
+async function setPolice(p){ await choisir("police", p, "police", undefined, "Police"); }
+async function setAccent(a){ await choisir("accent", a, "accent", undefined, "Accent"); }
 async function setFond(f){
   const r = await api("fond", f);
   await rafraichir(r.ok ? "Fond d'écran appliqué" : "Échec : " + (r.erreur || "commande refusée"));
@@ -1768,14 +1813,14 @@ function contenu(cle){
       <div class="srow" style="display:block">
         <div class="t" style="margin-bottom:8px">Thème du bureau</div>
         <div class="row">
-          <button class="btn ${etat.theme==="sombre"?"sel":"ghost"}" onclick="setTheme('sombre')">🌑 Sombre — LexOS Noir</button>
-          <button class="btn ${etat.theme==="clair"?"sel":"ghost"}" onclick="setTheme('clair')">☀ Clair — thème de jour</button>
+          <button class="btn ${vu("theme")==="sombre"?"sel":"ghost"}" onclick="setTheme('sombre')">🌑 Sombre — LexOS Noir</button>
+          <button class="btn ${vu("theme")==="clair"?"sel":"ghost"}" onclick="setTheme('clair')">☀ Clair — thème de jour</button>
         </div>
       </div>
       <div class="srow" style="display:block">
         <div class="t" style="margin-bottom:8px">Couleur de l'interface</div>
         <div class="row">${STYLES.map(([n,titre,desc])=>
-          `<button class="btn ${n===etat.accent?"sel":"ghost"}" onclick="setAccent('${n}')"
+          `<button class="btn ${n===vu("accent")?"sel":"ghost"}" onclick="setAccent('${n}')"
              title="${desc}"><span class="pastille" style="background:${ACCENTS[n]}"></span>${titre}</button>`
           ).join("")}</div>
         <div class="sub" style="margin-top:6px">${
@@ -1784,17 +1829,17 @@ function contenu(cle){
       <div class="srow" style="display:block">
         <div class="t" style="margin-bottom:8px">Autres couleurs</div>
         <div class="row">${Object.entries(ACCENTS).map(([n,c])=>
-          `<button class="swatch${n===etat.accent?" sel":""}" style="background:${c}"
+          `<button class="swatch${n===vu("accent")?" sel":""}" style="background:${c}"
              title="${n}" onclick="setAccent('${n}')"></button>`).join("")}</div>
       </div>
       <div class="srow" style="display:block">
         <div class="t" style="margin-bottom:8px">Police d'écriture</div>
         <div class="row">${POLICES.map(([n,titre,fam])=>
-          `<button class="btn ${n===etat.police?"sel":"ghost"}" style="font-family:${fam}"
+          `<button class="btn ${n===vu("police")?"sel":"ghost"}" style="font-family:${fam}"
              onclick="setPolice('${n}')">${titre}</button>`).join("")}</div>
         <div class="t" style="margin:16px 0 8px">Écritures à la main</div>
         <div class="row">${ECRITURES.map(([n,titre,fam])=>
-          `<button class="btn ${n===etat.police?"sel":"ghost"}"
+          `<button class="btn ${n===vu("police")?"sel":"ghost"}"
              style="font-family:'${fam}',cursive;font-size:16px"
              title="${fam}" onclick="setPolice('${n}')">${titre}</button>`).join("")}</div>
         <div class="sub" style="margin-top:8px">Douze écritures livrées avec LexOS —
@@ -1804,7 +1849,7 @@ function contenu(cle){
       <div class="srow" style="display:block">
         <div class="t" style="margin-bottom:8px">Position du dock</div>
         <div class="row">${["droite","gauche","bas","haut"].map(d=>
-          `<button class="btn ${d===etat.dock?"sel":"ghost"}" onclick="setDock('${d}')">${
+          `<button class="btn ${d===vu("dock")?"sel":"ghost"}" onclick="setDock('${d}')">${
             d.charAt(0).toUpperCase()+d.slice(1)}</button>`).join("")}</div>
         ${/*  ═══ « JE NE SAIS PAS » SE DIT, IL NE SE DEVINE PAS ═══
               ALEX, DEUXIÈME SIGNALEMENT sur ce bouton. Le moteur répondait
@@ -1814,7 +1859,7 @@ function contenu(cle){
               aucun bouton allumé, et la raison en une ligne. Un réglage qui
               n'affiche rien pousse à chercher ; un réglage qui affiche une
               valeur fausse fait perdre des heures. */""}
-        ${etat.dock == null ? `<div class="sub" style="margin-top:8px">
+        ${vu("dock") == null ? `<div class="sub" style="margin-top:8px">
           Position introuvable — Plank n'est pas installé, ou
           <code>gsettings</code> ne répond pas. Aucun bouton n'est allumé :
           la position réelle du dock n'est pas connue.</div>` : ""}
@@ -3225,7 +3270,10 @@ function rendSection(){
     changer TOUT DE SUITE, sans attendre une réouverture. */
 function appliqueApparence(){
   const r = document.documentElement.style;
-  const pol = TOUTES_POLICES.find(([n]) => n === etat.police);
+  //  vu() et pas etat : pendant l'aller-retour, c'est la valeur qu'on
+  //  vient de choisir qui doit s'appliquer. C'est ce qui fait que l'écriture
+  //  change sous le doigt au lieu d'attendre la machine.
+  const pol = TOUTES_POLICES.find(([n]) => n === vu("police"));
   //  Repli sur la famille par défaut si l'état nomme une police inconnue —
   //  mieux qu'une page sans police déclarée du tout.
   r.setProperty("--police", pol ? pol[2] : TOUTES_POLICES[0][2]);
@@ -3245,14 +3293,14 @@ function appliqueApparence(){
   //  avec la couleur de TEXTE qui va sur chaque fond (le noir en dur donnait
   //  3,34:1 sur le bleu — illisible). Poser l'attribut suffit, et les trois
   //  surfaces web de LexOS y puisent la même chose.
-  if(etat.accent) document.documentElement.dataset.accent = etat.accent;
+  if(vu("accent")) document.documentElement.dataset.accent = vu("accent");
   //  LE MODE, À CHAUD. La page reçoit déjà le mode par ?mode= au démarrage
   //  (le lanceur lit ~/.config/lexos/mode). Mais c'est ICI qu'on en change :
   //  cliquer « ☀ Clair » sans cette ligne repeignait tout le bureau et
   //  laissait CETTE fenêtre-là noire, la seule qu'Alex regardait à ce
   //  moment précis. etat.theme vient de /api/etat, qui l'expose depuis
   //  toujours sous cette clé — rien de nouveau à brancher.
-  if(etat.theme === "clair"){ document.documentElement.dataset.mode = "clair"; }
+  if(vu("theme") === "clair"){ document.documentElement.dataset.mode = "clair"; }
   else { delete document.documentElement.dataset.mode; }
 }
 /*  « eclaircir() » VIVAIT ICI ET N'A PLUS D'APPELANT.

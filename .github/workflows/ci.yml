@@ -2966,6 +2966,25 @@ jobs:
             || sudo apt-get install -y --no-install-recommends python3-gi >/dev/null
           bash tests/test_lexos_telechargements.sh
 
+      - name: Les Paramètres répondent tout de suite — et ne mentent jamais
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « il faudrait au moins que les Paramètres soient fluides
+          #  quand on change les couleurs et qu'on prend des options — qu'elles
+          #  soient bien sélectionnées ».
+          #
+          #  Ce n'est pas sa machine : chaque clic relisait TOUT l'état —
+          #  trente-huit collecteurs, soixante-dix commandes externes — avant
+          #  de redessiner. Le réglage prenait tout de suite ; c'est
+          #  l'affichage qui attendait.
+          #
+          #  Le banc charge la VRAIE page dans node, remplace le pont, et
+          #  vérifie les deux moitiés : le bouton s'allume au clic, ET il
+          #  revient à l'état réel si l'action échoue. La seconde compte le
+          #  plus — un bouton resté allumé sur un réglage qui n'a pas pris est
+          #  le mensonge du bogue du dock.
+          bash tests/test_lexos_fluidite.sh
+
       - name: La page « Formater un support » — la page demande, l'outil décide
         if: ${{ !cancelled() }}
         run: |
