@@ -2966,6 +2966,31 @@ jobs:
             || sudo apt-get install -y --no-install-recommends python3-gi >/dev/null
           bash tests/test_lexos_telechargements.sh
 
+      - name: Les boîtes de dialogue montrent tout ce qu'elles proposent
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « la page de formatage, on pourrait-tu la mettre un peu
+          #  plus gros pour bien voir tout le menu ? »
+          #
+          #  Le vrai défaut était pire que celui qu'il signalait : à 560x260
+          #  la liste n'avait la place que de DEUX rangées, alors que le code
+          #  en propose TROIS. « ext4 » était offert par le programme et
+          #  invisible à l'écran. Et le repli zenity du bouton rouge n'avait
+          #  AUCUNE taille : sur cinq gestes, trois s'affichaient —
+          #  « Éteindre » tombait sous le bord.
+          #
+          #  Ce banc refait la mesure pour LES QUINZE polices que LexOS sait
+          #  poser (douze écritures à la main, trois polices d'interface) :
+          #  une taille en pixels tient avec l'une et déborde avec l'autre,
+          #  et Alex change d'écriture quand il veut.
+          #  python3-gi + gir1.2-gtk-3.0 : sans eux la moitié qui MESURE est
+          #  sautée et le banc reste vert pour rien.
+          python3 -c 'import gi; gi.require_version("Gtk","3.0"); from gi.repository import Gtk' 2>/dev/null \
+            || sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 >/dev/null
+          dpkg -s xvfb >/dev/null 2>&1 \
+            || sudo apt-get install -y --no-install-recommends xvfb >/dev/null
+          bash tests/test_lexos_format_boites.sh
+
       - name: Ollama posé à la main — le panneau IA le voit, le terminal Pro aussi
         if: ${{ !cancelled() }}
         run: |
