@@ -2674,12 +2674,36 @@ jobs:
           #      npm : c'est la règle du dépôt, et c'est ce paquet-là que le
           #      hook 0455 pose sur l'ISO, donc celui qu'il faut éprouver ;
           #    · playwright + Chromium — le vrai navigateur.
+          #  ═══ ON CHOISIT OÙ VA CHROMIUM, ON NE LE CHERCHE PLUS ═══
+          #  Première tentative : poser playwright, lancer « playwright
+          #  install chromium », et chercher le binaire aux endroits connus.
+          #  L'installation a rendu 0 — et le banc a quand même dit
+          #  « absent : chromium ». Deviner l'emplacement par défaut d'un
+          #  outil qui peut le changer d'une version à l'autre, c'est
+          #  exactement ce que ce dépôt reproche aux contrôles qui lisent
+          #  au lieu de mesurer.
+          #  PLAYWRIGHT_BROWSERS_PATH FIXE l'endroit : playwright y pose
+          #  « chromium-XXXX/chrome-linux/chrome », disposition vérifiée sur
+          #  une installation réelle. Le banc regarde cette variable en
+          #  premier ; il ne peut donc plus le rater.
+          #  HORS DU DÉPÔT : « $RUNNER_TEMP », pas le répertoire de travail.
+          #  Des centaines de mégaoctets de binaires de navigateur déposés
+          #  dans le dépôt seraient relus par les étapes suivantes — celles
+          #  qui ratissent les fichiers du projet — et un banc finirait par
+          #  se plaindre d'un fichier qui n'est pas à nous.
+          export PLAYWRIGHT_BROWSERS_PATH="${RUNNER_TEMP:-$HOME/.cache}/lexos-navigateurs"
+          mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
           sudo apt-get install -y --no-install-recommends node-xterm >/dev/null \
             || { echo "::error::node-xterm n'a pas pu être posé — la grille du terminal ne peut pas être éprouvée"; exit 1; }
           npm i --no-save --no-audit --no-fund playwright >/dev/null 2>&1 \
             || { echo "::error::playwright n'a pas pu être posé"; exit 1; }
-          npx --yes playwright install chromium >/dev/null 2>&1 \
+          #  ET ON NE JETTE PLUS SA SORTIE. Un « >/dev/null 2>&1 » sur une
+          #  commande qui rend 0 sans avoir rien fait, c'est un échec muet —
+          #  celui qui vient de coûter une construction.
+          npx --yes playwright install chromium \
             || { echo "::error::Chromium n'a pas pu être posé par playwright"; exit 1; }
+          echo "navigateurs posés dans $PLAYWRIGHT_BROWSERS_PATH :"
+          ls -1 "$PLAYWRIGHT_BROWSERS_PATH" 2>/dev/null || echo "  (dossier vide)"
           LEXOS_EXIGER_NAVIGATEUR=1 bash tests/test_lexos_terminal_navigateur.sh
 
       - name: Mises à jour — la page suit le terminal au lieu de rester figée
