@@ -52,23 +52,46 @@ titre "LexOS Pro Terminal dans un vrai navigateur"
 #  forcément. Quand elles manquent on le DIT — « sauté » et non « réussi » :
 #  un banc qui s'annonce vert sans avoir rien éprouvé est pire que pas de banc.
 NODE="$(command -v node || echo /opt/node22/bin/node)"
-CHROME=""
-#  Playwright pose ses navigateurs dans ~/.cache/ms-playwright quand
-#  PLAYWRIGHT_BROWSERS_PATH n'est pas fixé — c'est le cas sur le coureur
-#  GitHub. Ne chercher que dans /opt revenait à ne jamais le trouver là-bas,
-#  donc à sauter ce banc à CHAQUE construction.
-for C in /opt/pw-browsers/chromium-*/chrome-linux/chrome \
-         /opt/pw-browsers/chromium/chrome-linux/chrome \
-         "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}"/chromium-*/chrome-linux/chrome \
-         "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux/chrome \
-         "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell; do
-	[ -x "$C" ] && { CHROME="$C"; break; }
-done
 PW=""
 for D in /opt/node22/lib/node_modules/playwright /usr/lib/node_modules/playwright \
          /usr/local/lib/node_modules/playwright "$RACINE/node_modules/playwright"; do
 	[ -f "$D/index.mjs" ] && { PW="$D/index.mjs"; break; }
 done
+
+#  ═══ ON DEMANDE À PLAYWRIGHT OÙ IL A MIS CHROMIUM ═══
+#  CE QUE ÇA FAISAIT AVANT : on devinait la disposition —
+#  « chromium-XXXX/chrome-linux/chrome » — et on cherchait à deux ou trois
+#  endroits connus. Ça a tenu jusqu'à ce que playwright change de version.
+#  Relevé sur le coureur, journal à l'appui : le navigateur ÉTAIT bien posé
+#
+#      navigateurs posés dans /home/runner/work/_temp/lexos-navigateurs :
+#      chromium-1243
+#      chromium_headless_shell-1243
+#
+#  et le banc disait quand même « absent : chromium », parce que le binaire
+#  n'était plus sous « chrome-linux/ ». Deviner la disposition interne d'un
+#  outil, c'est se condamner à la corriger à chaque version — le dépôt le
+#  dit déjà ailleurs à propos des noms de bibliothèques.
+#  playwright, lui, SAIT. « chromium.executablePath() » rend le chemin exact,
+#  quelle que soit la version et quel que soit PLAYWRIGHT_BROWSERS_PATH.
+CHROME=""
+if [ -n "$PW" ] && [ -x "$NODE" ]; then
+	CHROME="$("$NODE" --input-type=module -e "
+		import('$PW').then(p => console.log(p.chromium.executablePath()))
+		  .catch(() => process.exit(1));
+	" 2>/dev/null | tail -1)"
+	[ -n "$CHROME" ] && [ -x "$CHROME" ] || CHROME=""
+fi
+#  REPLI : une machine qui a un Chromium de playwright mais pas le paquet
+#  playwright lui-même (l'image de ce conteneur, par exemple).
+if [ -z "$CHROME" ]; then
+	for C in "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}"/chromium-*/chrome-linux*/chrome \
+	         /opt/pw-browsers/chromium-*/chrome-linux*/chrome \
+	         /opt/pw-browsers/chromium/chrome-linux*/chrome \
+	         "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome; do
+		[ -x "$C" ] && { CHROME="$C"; break; }
+	done
+fi
 XTERM_JS=""; XTERM_CSS=""; XTERM_FIT=""
 for R in /usr/share/nodejs /usr/lib/nodejs /tmp/faux/nodejs; do
 	[ -f "$R/xterm/lib/xterm.js" ] && XTERM_JS="$R/xterm/lib/xterm.js"
