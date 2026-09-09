@@ -636,7 +636,7 @@ Version=1.0
 Name=Formater une clé USB ou un téléphone
 Name[en]=Format a USB key or phone
 Comment=Effacer et reformater un support amovible — jamais le disque système, confirmation exigée
-Exec=xfce4-terminal --title="Formater — LexOS" --hold -e "lexos format"
+Exec=lexos-settings formatage
 Icon=lexos-usb
 Terminal=false
 Categories=System;Filesystem;
@@ -1002,8 +1002,8 @@ cat > /etc/skel/.config/Thunar/uca.xml <<'EOF'
     <name>Formater ce support…</name>
     <submenu></submenu>
     <unique-id>lexos-format-1</unique-id>
-    <command>lexos-format --gui %f</command>
-    <description>Formater une clé USB ou un téléphone (jamais le disque système)</description>
+    <command>lexos-settings formatage</command>
+    <description>Ouvrir la page Formatage des Paramètres (jamais le disque système)</description>
     <range></range>
     <patterns>*</patterns>
     <startup-notify/>
