@@ -47,11 +47,24 @@ PROG="${0##*/}"
 GUI=0
 TARGET=""
 FSTYPE=""
+JSON=0
+CONFIRME=0
 
 for a in "$@"; do
 	case "$a" in
 		--gui) GUI=1 ;;
 		--fs=*) FSTYPE="${a#--fs=}" ;;
+		#  « --json » : dis-moi ce que tu ACCEPTERAIS de formater, et tais-toi.
+		#  C'est la page « Formatage » des Paramètres qui le demande. Le mode
+		#  ne touche à rien : il lit et il sort.
+		--json) JSON=1 ;;
+		#  « --confirme » : la confirmation a déjà été donnée ailleurs (la
+		#  page l'a fait recopier le nom du support). Il REMPLACE la question
+		#  finale, il ne remplace AUCUNE vérification : toutes celles du
+		#  paragraphe « Choix de la cible » tournent avant, dans le même
+		#  ordre, et la moindre les fait sortir. Voir le commentaire au-dessus
+		#  de la confirmation.
+		--confirme|--oui) CONFIRME=1 ;;
 		-*) ;;
 		*) [[ -z "$TARGET" ]] && TARGET="$a" ;;
 	esac
@@ -111,20 +124,115 @@ need() {
 need lsblk
 need findmnt
 
+#  L'échappement JSON vit dans un fichier commun — deux copies de trois
+#  lignes finissent toujours par diverger. Le chemin est calculé depuis ce
+#  script-ci pour que les bancs puissent le faire tourner depuis le dépôt,
+#  sans rien installer.
+_lib_json="$(dirname "$(readlink -f "$0")")/../share/lexos/shell/json.sh"
+[[ -r $_lib_json ]] || _lib_json=/usr/share/lexos/shell/json.sh
+if [[ -r $_lib_json ]]; then
+	# shellcheck source=/dev/null
+	. "$_lib_json"
+else
+	json_texte() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+fi
+
 # =============================================================================
 #  Détection des supports amovibles (jamais le disque système)
 # =============================================================================
+#  ═══ « PAS DE PARENT » VEUT DIRE « C'EST DÉJÀ LE DISQUE » ═══
+#  Ces deux fonctions repliaient sur « basename | sed -E 's/p?[0-9]+$//' »
+#  quand lsblk ne rendait pas de parent. Or lsblk ne rend PAS de parent
+#  précisément quand on lui donne un disque ENTIER — et le repli rognait
+#  alors son nom :
+#      mmcblk0 -> mmcblk     (la carte SD d'un appareil photo, d'un téléphone)
+#      loop0   -> loo
+#  Le programme cherchait ensuite /dev/mmcblk et répondait « Support
+#  introuvable » sur une carte parfaitement présente. Choisir une carte SD
+#  dans la liste ne pouvait pas marcher.
+#  lsblk est exigé plus haut par need(), donc son absence n'est pas un cas :
+#  un parent vide signifie « disque entier », et on garde le nom tel quel.
+nom_de_disque() {   # <chemin /dev/xxx> -> nom du DISQUE qui le porte
+	local dev="$1" parent
+	parent="$(lsblk -no PKNAME "$dev" 2>/dev/null | grep -v '^$' | head -1)"
+	if [[ -n "$parent" ]]; then
+		printf '%s' "$parent"
+	else
+		basename "$dev"
+	fi
+}
+
 root_disk() {
 	local src
 	src="$(findmnt -no SOURCE / 2>/dev/null)"
 	[[ -n "$src" ]] || { printf ''; return; }
-	lsblk -no PKNAME "$src" 2>/dev/null || basename "$src" | sed -E 's/p?[0-9]+$//'
+	nom_de_disque "$src"
 }
 ROOT_DISK="$(root_disk)"
 
+#  ═══ UN SEUL JUGE, UNE SEULE LISTE ═══
+#  Ce qu'un disque doit être pour apparaître ici est exactement ce qu'il doit
+#  être pour être formaté : amovible, pas le disque système, et n'hébergeant
+#  aucun point de montage vital. La page des Paramètres ne redécide RIEN —
+#  elle affiche ce que cette fonction rend. Deux juges qui finiraient par ne
+#  plus dire la même chose, c'est un disque qui y passe.
+heberge_critique() {   # <nom de disque sans /dev/> -> 0 s'il héberge du vital
+	local mp src src_disk
+	for mp in / /home /boot /usr /var; do
+		src="$(findmnt -no SOURCE "$mp" 2>/dev/null)" || continue
+		[[ -n "$src" ]] || continue
+		src_disk="$(nom_de_disque "$src")"
+		[[ "$src_disk" == "$1" ]] && return 0
+	done
+	return 1
+}
+
+disques_eligibles() {   # un nom de disque par ligne, rien d'autre
+	local n
+	while read -r n; do
+		[[ -n "$n" ]] || continue
+		[[ "$n" == "$ROOT_DISK" ]] && continue
+		heberge_critique "$n" && continue
+		printf '%s\n' "$n"
+	done < <(lsblk -dno NAME,RM 2>/dev/null | awk '$2=="1" {print $1}')
+}
+
 list_removable() {
-	lsblk -dno NAME,SIZE,MODEL,RM 2>/dev/null | awk -v root="$ROOT_DISK" \
-		'$4=="1" && $1!=root {printf "%-10s %-9s %s\n",$1,$2,$3}'
+	local n
+	while read -r n; do
+		[[ -n "$n" ]] || continue
+		lsblk -dno NAME,SIZE,MODEL "/dev/$n" 2>/dev/null \
+			| awk '{printf "%-10s %-9s %s\n",$1,$2,$3}'
+	done < <(disques_eligibles)
+}
+
+#  Le même inventaire, pour la page. Les valeurs viennent du système (modèle
+#  du fabricant, étiquette choisie par quelqu'un) : elles passent par
+#  json_texte, sans quoi une apostrophe dans « Kingston DataTraveler 3.0 »
+#  laisserait la page blanche, sans message.
+liste_json() {
+	local n taille modele etiq montages premier=1
+	printf '{"supports":['
+	while read -r n; do
+		[[ -n "$n" ]] || continue
+		taille="$(lsblk -dno SIZE "/dev/$n" 2>/dev/null | tr -d ' ')"
+		modele="$(lsblk -dno MODEL "/dev/$n" 2>/dev/null | sed -E 's/[[:space:]]+$//')"
+		#  L'étiquette et les montages vivent sur les PARTITIONS, pas sur le
+		#  disque : on les rassemble, séparés par une virgule.
+		etiq="$(lsblk -no LABEL "/dev/$n" 2>/dev/null | grep -v '^$' | paste -sd ', ' -)"
+		montages="$(lsblk -no MOUNTPOINT "/dev/$n" 2>/dev/null | grep -v '^$' | paste -sd ', ' -)"
+		[[ "$premier" -eq 1 ]] || printf ','
+		premier=0
+		printf '{"nom":"%s","chemin":"%s","taille":"%s","modele":"%s","etiquette":"%s","montages":"%s"}' \
+			"$(json_texte "$n")" "$(json_texte "/dev/$n")" \
+			"$(json_texte "$taille")" "$(json_texte "$modele")" \
+			"$(json_texte "$etiq")" "$(json_texte "$montages")"
+	done < <(disques_eligibles)
+	printf '],"systemes":['
+	printf '{"cle":"vfat","titre":"FAT32","texte":"partout, même les téléphones (4 Go max par fichier)"},'
+	printf '{"cle":"exfat","titre":"exFAT","texte":"partout aussi, sans limite de taille"},'
+	printf '{"cle":"ext4","titre":"ext4","texte":"Linux seulement, sans limite"}'
+	printf ']}\n'
 }
 
 resolve_disk() { # <chemin ou /dev/x> -> nom de disque (sans /dev/)
@@ -135,8 +243,7 @@ resolve_disk() { # <chemin ou /dev/x> -> nom de disque (sans /dev/)
 		dev="$(findmnt -no SOURCE --target "$target" 2>/dev/null)"
 	fi
 	[[ -n "$dev" && -b "$dev" ]] || return 1
-	disk="$(lsblk -no PKNAME "$dev" 2>/dev/null)"
-	[[ -n "$disk" ]] || disk="$(basename "$dev" | sed -E 's/p?[0-9]+$//')"
+	disk="$(nom_de_disque "$dev")"
 	printf '%s' "$disk"
 }
 
@@ -144,6 +251,15 @@ is_removable() {
 	local rm; rm="$(lsblk -dno RM "/dev/$1" 2>/dev/null)"
 	[[ "$rm" == "1" ]]
 }
+
+# --- « --json » : on lit, on écrit, on sort ---------------------------------
+#  AVANT tout choix de cible et avant toute élévation de droits : ce mode ne
+#  touche à rien et n'a besoin d'aucun droit particulier. La page des
+#  Paramètres tourne sous le compte ordinaire.
+if [[ "$JSON" -eq 1 ]]; then
+	liste_json
+	exit 0
+fi
 
 # --- Choix de la cible -------------------------------------------------------
 if [[ -z "$TARGET" ]]; then
@@ -193,11 +309,13 @@ is_removable "$DISK" \
 	|| die "/dev/${DISK} n'est pas un support amovible. Par sécurité, seuls les supports amovibles peuvent être formatés ici."
 
 # --- Aucune partition de ce disque ne doit être un point de montage critique -
-for MP in / /home /boot /usr /var; do
-	SRC="$(findmnt -no SOURCE "$MP" 2>/dev/null)" || continue
-	SRC_DISK="$(lsblk -no PKNAME "$SRC" 2>/dev/null)"
-	[[ "$SRC_DISK" == "$DISK" ]] && die "/dev/${DISK} héberge ${MP} — refusé par sécurité."
-done
+#  LA MÊME FONCTION QUE LA LISTE. Elle était écrite deux fois : ici en clair,
+#  et nulle part pour la liste — qui ne faisait donc PAS ce test. Un disque
+#  amovible hébergeant /home serait apparu dans la liste et refusé au dernier
+#  moment. Maintenant les deux passent par heberge_critique().
+if heberge_critique "$DISK"; then
+	die "/dev/${DISK} héberge un dossier vital du système (/, /home, /boot, /usr ou /var) — refusé par sécurité."
+fi
 
 INFO="$(lsblk -no NAME,SIZE,LABEL,MOUNTPOINT "/dev/$DISK" 2>/dev/null)"
 
@@ -269,7 +387,29 @@ Système de fichiers choisi : ${FSTYPE}
 
 Cette opération est irréversible."
 
-if [[ "$GUI" -eq 1 ]] && command -v zenity >/dev/null 2>&1; then
+#  ═══ « --confirme » REMPLACE LA QUESTION, PAS LES VÉRIFICATIONS ═══
+#  C'est la pièce dangereuse du lot, alors voici exactement ce qu'elle peut
+#  et ce qu'elle ne peut pas.
+#
+#  TOUT CE QUI PRÉCÈDE A DÉJÀ TOURNÉ, dans l'ordre, et chaque point sort du
+#  programme s'il n'est pas satisfait :
+#    · /dev/$DISK existe et est un périphérique bloc ;
+#    · ce n'est pas le disque système ;
+#    · il est AMOVIBLE (is_removable) ;
+#    · il n'héberge ni /, ni /home, ni /boot, ni /usr, ni /var
+#      (heberge_critique, la même fonction que la liste) ;
+#    · le système de fichiers demandé est l'un des trois connus ;
+#    · les outils nécessaires sont là.
+#  Ce drapeau est lu ICI et NULLE PART AILLEURS : il ne peut pas court-
+#  circuiter une vérification, parce qu'il arrive après toutes.
+#
+#  CE QU'IL SERT : la page « Formatage » des Paramètres a déjà fait recopier
+#  le nom du support à la main. Reposer la question derrière est du bruit —
+#  et un bruit dangereux, parce qu'une question qu'on voit deux fois est une
+#  question qu'on cesse de lire.
+if [[ "$CONFIRME" -eq 1 ]]; then
+	say "Confirmation déjà donnée (--confirme) — on continue."
+elif [[ "$GUI" -eq 1 ]] && command -v zenity >/dev/null 2>&1; then
 	#  720 px : cette boîte affiche la sortie de « lsblk » telle quelle —
 	#  nom, taille, étiquette, point de montage sur une ligne. À 520 px ces
 	#  lignes se repliaient au milieu d'un chemin, et la question la plus
@@ -302,8 +442,14 @@ fi
 
 need_root() {
 	if [[ $EUID -ne 0 ]]; then
-		command -v pkexec >/dev/null 2>&1 && exec pkexec "$0" "/dev/${DISK}" "--fs=${FSTYPE}" ${GUI:+--gui}
-		command -v sudo >/dev/null 2>&1 && exec sudo -E "$0" "/dev/${DISK}" "--fs=${FSTYPE}" ${GUI:+--gui}
+		#  « --confirme » repart avec l'enfant : sans lui, la version root
+		#  reposerait la question — en mode texte, elle lirait une entrée
+		#  standard que personne ne tient, et resterait plantée là.
+		local -a SUITE=("/dev/${DISK}" "--fs=${FSTYPE}")
+		[[ "$GUI" -eq 1 ]] && SUITE+=(--gui)
+		[[ "$CONFIRME" -eq 1 ]] && SUITE+=(--confirme)
+		command -v pkexec >/dev/null 2>&1 && exec pkexec "$0" "${SUITE[@]}"
+		command -v sudo >/dev/null 2>&1 && exec sudo -E "$0" "${SUITE[@]}"
 		die "Droits administrateur requis pour formater /dev/${DISK}."
 	fi
 }
