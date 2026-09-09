@@ -212,8 +212,50 @@ cmd_demarrer() {
 
 	xfwm_compositing false
 	log "picom v${maj:-?} — $CONF_PICOM"
-	picom --config "$CONF_PICOM" >>"$LOG" 2>&1
-	log "picom s'est arrêté (code $?)"
+
+	#  ═══ ON LE RELANCE S'IL MEURT — TROIS FOIS, PAS PLUS ═══
+	#  Relevé dans le crt.log d'Alex, après une demi-heure de session :
+	#      [ … win_clear_flags WARN ] Flags 1 cleared on a destroyed window
+	#      [ … handle_x_events FATAL ERROR ] X11 server connection broke
+	#      [10:32:09] picom s'est arrêté (code 1)
+	#      [10:32:09] compositeur xfwm4 rendu
+	#  picom a touché une fenêtre déjà détruite et s'est arrêté. Le bureau
+	#  perdait ses animations pour le reste de la session, sans que personne
+	#  puisse relier ça à quoi que ce soit — l'effet « marchait ce matin ».
+	#  Maintenant que picom est le compositeur PAR DÉFAUT (lexos-wm), il doit
+	#  encaisser un accident.
+	#
+	#  TROIS FOIS ET PAS PLUS, et c'est un choix : une boucle sans plafond
+	#  relancerait un picom qui ne PEUT pas démarrer (pilote cassé, serveur X
+	#  parti) des centaines de fois par minute. Après trois, on rend le
+	#  compositeur de xfwm4 et on l'écrit — un bureau sans animation est
+	#  gênant, un bureau qui rame est pire.
+	#
+	#  ET UNE MORT IMMÉDIATE NE COMPTE PAS COMME UN ACCIDENT : si picom
+	#  s'arrête en moins de cinq secondes, c'est qu'il ne démarre pas du tout
+	#  (configuration refusée, backend indisponible). On ne réessaie pas —
+	#  sans cette garde, les trois essais partiraient en une seconde et
+	#  n'auraient servi qu'à noircir le journal.
+	local essai=0 code depart duree
+	while :; do
+		depart="$(date +%s)"
+		picom --config "$CONF_PICOM" >>"$LOG" 2>&1
+		code=$?
+		duree=$(( $(date +%s) - depart ))
+		log "picom s'est arrêté (code $code) après ${duree} s"
+		[[ "$code" -eq 0 ]] && break
+		if (( duree < 5 )); then
+			log "…arrêt immédiat : picom ne démarre pas, on ne réessaie pas"
+			break
+		fi
+		essai=$(( essai + 1 ))
+		if (( essai > 3 )); then
+			log "…trois relances déjà faites : on rend le compositeur de xfwm4"
+			break
+		fi
+		log "relance $essai/3 de picom"
+		sleep 1
+	done
 }
 
 # --- Commandes ---------------------------------------------------------------
