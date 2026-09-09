@@ -1,0 +1,40 @@
+#!/bin/bash
+# =============================================================================
+#  lexos-pro-terminal.wrapper — pont x-terminal-emulator → LexOS Pro Terminal
+# =============================================================================
+#  ALEX : « je voudrais juste que le terminal principal du système soit le
+#  terminal LexOS Pro ».
+#
+#  ═══ POURQUOI CE PONT EXISTE, ET POURQUOI ON NE BRANCHE PAS LE LANCEUR ═══
+#  L'alternative Debian « x-terminal-emulator » est appelée par des dizaines
+#  de programmes, et presque toujours sous la forme :
+#
+#      x-terminal-emulator -e une-commande
+#
+#  Or terminal-pro.py NE TRAITE AUCUN ARGUMENT : la seule occurrence de argv
+#  y est « QApplication(sys.argv) ». Brancher /usr/bin/lexos-pro-terminal
+#  directement sur l'alternative ferait donc ouvrir une fenêtre VIDE, sans
+#  rien lancer, EN SILENCE — à chaque fois qu'un programme du système demande
+#  un terminal pour exécuter quelque chose. C'est exactement le genre de
+#  panne muette que ce dépôt passe son temps à chasser.
+#
+#  ═══ CE QUE FAIT CE PONT, ET JUSQU'À QUAND ═══
+#  Tant que LexOS Pro Terminal n'a pas de vrai pty, tout ce qui demande
+#  d'EXÉCUTER une commande part vers le Terminal classique, qui sait le
+#  faire ; le reste — « ouvre-moi un terminal » — va à LexOS Pro Terminal.
+#  Une fois le pty en place, ce « case » disparaît et le pont traduira
+#  « -e », « -x » et « --working-directory » vers LexOS Pro Terminal lui-même.
+#
+#  ═══ RETOUR EN ARRIÈRE, À GARDER SOUS LA MAIN ═══
+#      sudo update-alternatives --set x-terminal-emulator \
+#           /usr/bin/xfce4-terminal.wrapper
+#      sed -i 's|^TerminalEmulator=.*|TerminalEmulator=xfce4-terminal|' \
+#           ~/.config/xfce4/helpers.rc
+# =============================================================================
+for a in "$@"; do
+	case "$a" in
+		-e|-x|--command|--command=*|-hold|--hold|--working-directory|--working-directory=*)
+			exec /usr/bin/xfce4-terminal.wrapper "$@" ;;
+	esac
+done
+exec /usr/bin/lexos-pro-terminal

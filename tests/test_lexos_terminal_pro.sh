@@ -403,5 +403,77 @@ grep -q 'VDIR=.*scalable' "$HOOK" && grep -q 'rm -f "\$VDIR' "$HOOK" \
 	&& ok "…et retire toute version scalable (le dock ne changerait pas de dessin au survol)" \
 	|| non "une version scalable pourrait rester et changer de dessin au survol du dock"
 
+# =============================================================================
+titre "LE TERMINAL PRINCIPAL DU SYSTÈME"
+# =============================================================================
+#  ALEX : « je voudrais juste que le terminal principal du système soit le
+#  terminal LexOS Pro ».
+#
+#  Trois branchements, et le troisième est un piège documenté : terminal-pro.py
+#  NE TRAITE AUCUN ARGUMENT. Brancher le lanceur directement sur l'alternative
+#  « x-terminal-emulator » ferait ouvrir une fenêtre VIDE, sans rien lancer, à
+#  chaque fois qu'un programme du système fait « x-terminal-emulator -e
+#  commande » — une panne muette, la pire espèce.
+PONT="$RACINE/config/includes.chroot/usr/bin/lexos-pro-terminal.wrapper"
+AIDE="$RACINE/config/includes.chroot/usr/share/xfce4/helpers/lexos-pro-terminal.desktop"
+
+if [ -r "$AIDE" ]; then
+	ok "l'assistant XFCE existe (sans lui, « Applications par défaut » ne le propose pas)"
+	grep -q '^X-XFCE-Category=TerminalEmulator' "$AIDE" \
+		&& ok "…et il se déclare bien comme émulateur de terminal" \
+		|| non "l'assistant ne porte pas X-XFCE-Category=TerminalEmulator"
+	grep -q '^X-XFCE-Binaries=lexos-pro-terminal;' "$AIDE" \
+		&& ok "…et il nomme le bon programme" \
+		|| non "l'assistant ne nomme pas lexos-pro-terminal"
+else
+	non "aucun assistant XFCE : la page « Applications par défaut » ne verra pas LexOS Pro Terminal"
+fi
+
+if [ -x "$PONT" ]; then
+	ok "le pont x-terminal-emulator existe et est exécutable"
+	#  ═══ ET IL AIGUILLE POUR DE VRAI ═══
+	#  On le fait tourner avec de faux terminaux, et on regarde où il va.
+	#  Lire le « case » ne suffirait pas : c'est le comportement qui compte.
+	PB="$(mktemp -d)"
+	printf '#!/bin/sh\necho CLASSIQUE\n' > "$PB/xfce4-terminal.wrapper"
+	printf '#!/bin/sh\necho PRO\n'       > "$PB/lexos-pro-terminal"
+	chmod +x "$PB"/*
+	sed -e "s|/usr/bin/xfce4-terminal.wrapper|$PB/xfce4-terminal.wrapper|" \
+	    -e "s|/usr/bin/lexos-pro-terminal\$|$PB/lexos-pro-terminal|" \
+	    "$PONT" > "$PB/pont"
+	chmod +x "$PB/pont"
+	MAUVAIS=0
+	#  Sans argument, et avec un argument qui ne demande PAS d'exécution :
+	#  c'est « ouvre-moi un terminal », et c'est pour LexOS Pro Terminal.
+	for A in "" "--title=Truc"; do
+		# shellcheck disable=SC2086
+		[ "$(bash "$PB/pont" $A 2>/dev/null)" = "PRO" ] \
+			|| { non "« $A » n'ouvre pas LexOS Pro Terminal"; MAUVAIS=1; }
+	done
+	[ "$MAUVAIS" = 0 ] && ok "« ouvre-moi un terminal » va bien à LexOS Pro Terminal"
+	#  Et tout ce qui demande d'EXÉCUTER part au Terminal classique, tant que
+	#  LexOS Pro Terminal n'a pas de pty. C'est la moitié qui évite la fenêtre
+	#  vide et muette.
+	MAUVAIS=0
+	for A in "-e ls" "-x htop" "--command=top" "--hold -e ls" "--working-directory=/tmp"; do
+		# shellcheck disable=SC2086
+		[ "$(bash "$PB/pont" $A 2>/dev/null)" = "CLASSIQUE" ] \
+			|| { non "« $A » n'est pas renvoyé au Terminal classique — fenêtre vide garantie"; MAUVAIS=1; }
+	done
+	[ "$MAUVAIS" = 0 ] && ok "tout ce qui demande d'EXÉCUTER part au Terminal classique (pas encore de pty)"
+	rm -rf "$PB"
+else
+	non "aucun pont x-terminal-emulator : brancher le lanceur nu ouvrirait des fenêtres vides"
+fi
+
+#  Le hook doit poser les deux, et ne PAS toucher au lanceur 11 du panneau,
+#  qui a besoin d'un vrai pty et de « --hold ».
+grep -q 'update-alternatives --install /usr/bin/x-terminal-emulator' "$HOOK" \
+	&& ok "le hook 0455 branche l'alternative Debian" \
+	|| non "le hook 0455 ne branche pas x-terminal-emulator"
+grep -q 'TerminalEmulator=lexos-pro-terminal' "$HOOK" \
+	&& ok "…et le helpers.rc du squelette dit le même choix" \
+	|| non "le squelette ne nomme pas LexOS Pro Terminal comme émulateur"
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]

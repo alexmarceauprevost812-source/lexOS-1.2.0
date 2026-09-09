@@ -63,4 +63,70 @@ if [ ! -r "${LEXOS_TERMINAL_PRO_WEB:-/usr/share/lexos/terminal-pro/web}/index.ht
 	echo "[lexos]   !! l'interface web de LexOS Pro Terminal est manquante"
 fi
 
+# =============================================================================
+#  LE TERMINAL PRINCIPAL DU SYSTÈME
+# =============================================================================
+#  ALEX : « je voudrais juste que le terminal principal du système soit le
+#  terminal LexOS Pro ».
+#
+#  Trois branchements, et ils ne font PAS la même chose :
+#    · l'assistant XFCE (helpers) sert à « Ouvrir un terminal ici » de Thunar,
+#      à Ctrl+Alt+T et à « exo-open --launch TerminalEmulator » ;
+#    · l'alternative Debian « x-terminal-emulator » sert à tout le reste du
+#      système — c'est elle qu'appellent les programmes qui ne connaissent
+#      pas XFCE ;
+#    · le canal xfce4-keyboard-shortcuts (Super+T, Super+Entrée) pointe déjà
+#      sur lexos-pro-terminal : rien à faire de ce côté.
+ALT_PONT="${LEXOS_BIN_DIR:-/usr/bin}/lexos-pro-terminal.wrapper"
+AIDE_SYS="${LEXOS_XFCE_HELPERS:-/usr/share/xfce4/helpers}/lexos-pro-terminal.desktop"
+
+if [ -r "$AIDE_SYS" ]; then
+	echo "[lexos]   assistant XFCE posé : LexOS Pro Terminal est proposé comme émulateur"
+	#  « Applications par défaut » de LexOS ne balaie QUE /usr/share/xfce4/
+	#  helpers : sans ce fichier-là, la page ne voit pas LexOS Pro Terminal,
+	#  même si helpers.rc le nomme. Vérifié dans lexos-defaut.
+else
+	echo "[lexos]   !! assistant XFCE manquant — la page « Applications par défaut » ne le proposera pas"
+fi
+
+#  ═══ L'ALTERNATIVE PASSE PAR UN PONT, JAMAIS PAR LE LANCEUR ═══
+#  terminal-pro.py ne traite AUCUN argument. Brancher le lanceur directement
+#  ferait ouvrir une fenêtre vide, sans rien lancer, chaque fois qu'un
+#  programme fait « x-terminal-emulator -e une-commande ». Le pont renvoie
+#  ces cas-là vers le Terminal classique, qui sait les traiter.
+#  PRIORITÉ 60 : au-dessus des 40 de xfce4-terminal.wrapper, pour gagner en
+#  mode automatique aussi, pas seulement après un --set.
+if [ -x "$ALT_PONT" ] && have update-alternatives; then
+	update-alternatives --install /usr/bin/x-terminal-emulator \
+		x-terminal-emulator "$ALT_PONT" 60 >/dev/null 2>&1 \
+		&& update-alternatives --set x-terminal-emulator "$ALT_PONT" >/dev/null 2>&1 \
+		&& echo "[lexos]   x-terminal-emulator → LexOS Pro Terminal (par le pont)" \
+		|| echo "[lexos]   !! update-alternatives a refusé — x-terminal-emulator reste sur l'ancien"
+elif [ ! -x "$ALT_PONT" ]; then
+	echo "[lexos]   !! $ALT_PONT manquant — x-terminal-emulator reste sur le Terminal classique"
+fi
+
+#  ═══ ET LE SQUELETTE DIT LE MÊME CHOIX ═══
+#  helpers.rc est le fichier qu'XFCE lit pour savoir quel émulateur ouvrir.
+#  Sans lui, le premier lancement retomberait sur le défaut du système.
+SKEL_XFCE="${LEXOS_SKEL:-/etc/skel}/.config/xfce4"
+mkdir -p "$SKEL_XFCE"
+if [ -f "$SKEL_XFCE/helpers.rc" ]; then
+	if grep -q '^TerminalEmulator=' "$SKEL_XFCE/helpers.rc"; then
+		sed -i 's|^TerminalEmulator=.*|TerminalEmulator=lexos-pro-terminal|' \
+			"$SKEL_XFCE/helpers.rc"
+	else
+		printf 'TerminalEmulator=lexos-pro-terminal\n' >> "$SKEL_XFCE/helpers.rc"
+	fi
+else
+	printf 'TerminalEmulator=lexos-pro-terminal\n' > "$SKEL_XFCE/helpers.rc"
+fi
+echo "[lexos]   helpers.rc du squelette : TerminalEmulator=lexos-pro-terminal"
+
+#  ═══ CE QU'ON NE TOUCHE PAS, ET POURQUOI ═══
+#  Le lanceur 11 du panneau fait « xfce4-terminal --hold -e "lexos capture
+#  video" » : il a besoin d'un VRAI pty et de « --hold », que LexOS Pro
+#  Terminal ne sait pas encore tenir. Il reste sur le Terminal classique
+#  jusqu'à ce que le pty existe.
+
 echo "[lexos] hook 0455 : ok"
