@@ -2212,6 +2212,14 @@ jobs:
           #  script.so.
           [ -r /usr/lib/x86_64-linux-gnu/libply.so.5 ] || [ -r /usr/lib/libply.so.5 ] \
             || sudo apt-get install -y --no-install-recommends libplymouth5 >/dev/null
+          #  ═══ ET ffmpeg, SANS QUOI LE BANC ROUGIT POUR RIEN ═══
+          #  Depuis que la vidéo d'ouverture est découpée en images à la
+          #  construction, le fragment du hook 0300 appelle ffmpeg. Sans lui,
+          #  le hook crie son repli « ffmpeg absent : pas d'entrée en matière »
+          #  et le contrôle « le cas nominal doit être MUET » tombe — un rouge
+          #  qui n'accuse rien du dépôt. Il est resté ainsi trois ISO.
+          command -v ffmpeg >/dev/null 2>&1 \
+            || sudo apt-get install -y --no-install-recommends ffmpeg >/dev/null
           bash tests/test_lexos_plymouth.sh
 
       - name: Le thème GRUB — plus de rectangle bleu sous « Loading Linux… »
