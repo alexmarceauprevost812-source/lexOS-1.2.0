@@ -438,10 +438,20 @@ for d in /usr/bin /bin /usr/sbin /sbin; do
 	done
 done
 CHEMIN_SANS_LDM="$BANC/bin:$RACINE/config/includes.chroot/usr/bin:$SANS_LDM"
+#  LES AFFECTATIONS VONT DANS LA SUBSTITUTION, PAS DEVANT « grep ». Une
+#  substitution de processus tourne dans un sous-shell de l'environnement
+#  COURANT : un préfixe « VAR=… » posé devant grep ne l'atteint JAMAIS.
+#
+#  Mesuré ici même, et le piège est double : la ligne 145 EXPORTE
+#  LEXOS_LIGHTDM_CONF vers le décor « avec LightDM », dont le répertoire
+#  existe. Préfixe mal placé → l'outil hérite de CET export, trouve le
+#  répertoire, et répond « lightdm: true ». Le contrôle rougissait donc en
+#  accusant la ferme de liens, qui n'y était pour rien.
 if command -v python3 >/dev/null 2>&1 \
-   && PATH="$CHEMIN_SANS_LDM" LEXOS_SANS_SBIN=1 \
-      LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \
-      bash "$OUTIL" --json 2>/dev/null | grep -q '"lightdm": true'; then
+   && grep -q '"lightdm": true' \
+      < <(PATH="$CHEMIN_SANS_LDM" LEXOS_SANS_SBIN=1 \
+          LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \
+          bash "$OUTIL" --json 2>/dev/null); then
 	non "l'absence de LightDM n'a pas pu être fabriquée : le contrôle suivant ne prouverait rien"
 elif command -v python3 >/dev/null 2>&1; then
 	MSG="$(cd "$RACINE" && PATH="$CHEMIN_SANS_LDM" LEXOS_SANS_SBIN=1 LEXOS_LIGHTDM_CONF="$BANC/sans-lightdm/lightdm.conf" \

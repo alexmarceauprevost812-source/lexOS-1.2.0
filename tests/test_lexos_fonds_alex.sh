@@ -83,7 +83,7 @@ else
 	prepare
 	SORTIE="$(lance PATH="$SANS_IM")"
 	POSES="$(find "$BANC/racine/bg" -type f 2>/dev/null | wc -l)"
-	if [ "$POSES" -eq 0 ] && printf '%s' "$SORTIE" | grep -q 'convert absent'; then
+	if [ "$POSES" -eq 0 ] && grep -q 'convert absent' <<< "$SORTIE"; then
 		ok "sans convert : AUCUN fond posé, et le journal le dit"
 	else
 		non "sans convert : $POSES fichier(s) posé(s), journal « $(printf '%s' "$SORTIE" | head -1) »"
@@ -106,8 +106,8 @@ if ! command -v convert >/dev/null 2>&1; then
 fi
 prepare --sans-sources
 SORTIE="$(lance)"
-if printf '%s' "$SORTIE" | grep -q 'fond-mascotte.jpg absent' \
-   && printf '%s' "$SORTIE" | grep -q 'fond-tilexal-banniere.jpg absent'; then
+if grep -q 'fond-mascotte.jpg absent' <<< "$SORTIE" \
+   && grep -q 'fond-tilexal-banniere.jpg absent' <<< "$SORTIE"; then
 	ok "sources absentes : les DEUX manques sont nommés par leur nom de fichier"
 else
 	non "sources absentes : le journal ne nomme pas les deux fichiers"

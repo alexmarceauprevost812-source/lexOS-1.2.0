@@ -376,7 +376,7 @@ done
 #  les sous-nœuds recouvrirait le border-radius de la fenêtre et le menu
 #  redeviendrait carré. Ce contrôle empêche qu'on « simplifie » ça un jour.
 if grep -qE '^#whiskermenu-window treeview\.view,' "$CSS_NU" \
-   && bloc_de "#whiskermenu-window iconview" | grep -q 'background-color: transparent'; then
+   && grep -q 'background-color: transparent' < <(bloc_de "#whiskermenu-window iconview"); then
 	ok "l'état de repos garde son fond transparent (le menu reste arrondi)"
 else
 	non "le fond transparent de l'état de repos a disparu : le menu redeviendrait carré"

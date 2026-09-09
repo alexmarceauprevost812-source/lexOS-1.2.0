@@ -350,8 +350,9 @@ else
 		non "poids : $(( POIDS / 1024 )) Ko — au-dessus des 2 Mo demandés"
 	fi
 	#  Le son doit être là : la consigne le garde pour cet écran-ci.
-	if ffprobe -v error -select_streams a -show_entries stream=codec_type \
-		-of csv=p=0 "$BRANDING/installation.mp4" 2>/dev/null | grep -q audio; then
+	if grep -q audio < <(ffprobe -v error -select_streams a \
+		-show_entries stream=codec_type -of csv=p=0 \
+		"$BRANDING/installation.mp4" 2>/dev/null); then
 		ok "la piste sonore est conservée dans le fichier livré"
 	else
 		non "le ré-encodage a perdu la piste sonore"
