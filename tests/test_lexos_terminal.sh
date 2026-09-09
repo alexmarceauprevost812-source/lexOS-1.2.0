@@ -328,31 +328,52 @@ PYVU
 			xfce4-terminal --disable-server --geometry=100x24 \
 				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
 			sleep 4
-			timeout 20 xdotool search --sync --class xfce4-terminal >/dev/null 2>&1
-			W="$(timeout 10 xdotool search --onlyvisible --class xfce4-terminal 2>/dev/null | head -1)"
-			#  Repli : la DERNIÈRE créée. Les identifiants X croissent, et la
-			#  fenêtre auxiliaire de GTK naît la première (2097153 avant
-			#  2097155, mesuré) — donc « tail -1 » désigne la vraie, si
+			W="$(timeout 25 xdotool search --sync --onlyvisible --class xfce4-terminal 2>/dev/null | head -1)"
+			#  Repli : la DERNIERE creee. Les identifiants X croissent, et la
+			#  fenetre auxiliaire de GTK nait la premiere (2097153 avant
+			#  2097155, mesure) — donc « tail -1 » designe la vraie, si
 			#  jamais --onlyvisible ne rendait rien.
 			[ -n "$W" ] || W="$(timeout 10 xdotool search --class xfce4-terminal 2>/dev/null | tail -1)"
 			if [ -n "$W" ]; then
 				timeout 10 xdotool windowfocus --sync "$W" 2>/dev/null
 				timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
+				#  Le pointeur DANS la fenetre : quand XSetInputFocus echoue,
+				#  X delivre les touches a la fenetre sous la souris.
+				timeout 10 xdotool mousemove --window "$W" 40 40 2>/dev/null
 			fi
-			#  AUCUNE APOSTROPHE DANS CE BLOC — pas même dans un
+			#  AUCUNE APOSTROPHE DANS CE BLOC — pas meme dans un
 			#  commentaire : tout ceci vit dans « bash -c » entre
-			#  apostrophes, et la première rencontrée ferme la commande.
+			#  apostrophes, et la premiere rencontree ferme la commande.
 			#  « tr » comprend seul la barre oblique inverse, donc les
 			#  guillemets doubles suffisent.
-			printf "fenetre=%s  focus=%s  %s\\n" "${W:-aucune}" \
-				"$(timeout 5 xdotool getwindowfocus 2>&1 | head -1)" \
-				"$(timeout 5 xdotool getwindowgeometry "${W:-0}" 2>&1 | tr "\\n" " ")" > "$3"
+			{
+				printf "fenetre=%s\\n" "${W:-aucune}"
+				printf "focus=%s\\n" "$(timeout 5 xdotool getwindowfocus 2>&1 | head -1)"
+				printf "geometrie=%s\\n" "$(timeout 5 xdotool getwindowgeometry "${W:-0}" 2>&1 | tr "\\n" " ")"
+				printf "souris=%s\\n" "$(timeout 5 xdotool getmouselocation 2>&1 | head -1)"
+				printf "clavier=%s\\n" "$(command -v xmodmap >/dev/null 2>&1 && xmodmap -pke 2>&1 | wc -l || echo xmodmap-absent)"
+			} > "$3"
 			sleep 0.5
-			timeout 10 xdotool type --delay 40 "echo BONJOUR"
-			for _ in 1 2 3 4 5 6 7 8 9 10; do
+			#  ── TROIS CHEMINS DE FRAPPE, ET ON DIT LEQUEL A PARLE ──
+			#  Sur le coureur, la fenetre est la BONNE et le focus est PRIS
+			#  (fenetre=2097155 focus=2097155, mesure) et pourtant la frappe
+			#  n-arrive pas. On essaie donc XTEST, puis XSendEvent, puis les
+			#  touches une a une — et le code de retour comme la sortie
+			#  d-erreur de chacun sont notes. Un echec muet ne se corrige pas.
+			SORTIE="$(timeout 10 xdotool type --clearmodifiers --delay 40 "echo BONJOUR" 2>&1)"; CODE=$?
+			printf "xtest: code=%s %s\\n" "$CODE" "$SORTIE" >> "$3"
+			for ESSAI in 1 2 3 4 5 6 7 8 9 10; do
 				sleep 0.4
 				timeout 20 import -window root "$1" 2>/dev/null || continue
 				python3 "$2" "$1" && break
+				if [ "$ESSAI" = 3 ] && [ -n "$W" ]; then
+					SORTIE="$(timeout 10 xdotool type --window "$W" --delay 40 "echo BONJOUR" 2>&1)"; CODE=$?
+					printf "sendevent: code=%s %s\\n" "$CODE" "$SORTIE" >> "$3"
+				fi
+				if [ "$ESSAI" = 6 ]; then
+					SORTIE="$(timeout 10 xdotool key --clearmodifiers e c h o space B O N J O U R 2>&1)"; CODE=$?
+					printf "touches: code=%s %s\\n" "$CODE" "$SORTIE" >> "$3"
+				fi
 			done
 		  ' _ "$BANC/frappe.png" "$BANC/vu.py" "$BANC/focus.txt" ) >/dev/null 2>&1
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
