@@ -270,8 +270,11 @@ import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert("RGB")
 w, h = im.size
+#  LA MÊME DÉFINITION DU CLAIR QUE LE COMPTEUR FINAL, sinon cette sonde
+#  attend un blanc que le compteur, lui, accepterait — et la boucle tourne
+#  dix fois pour rien avant de photographier quand même.
 n = sum(1 for y in range(min(30, h)) for x in range(w)
-        if im.getpixel((x, y)) == (255, 255, 255))
+        if all(c > 246 for c in im.getpixel((x, y))))
 sys.exit(0 if n >= 40 else 1)
 PYVU
 		xvfb_lancer 1100x700x24 || true
@@ -324,20 +327,26 @@ blanc = vert = 0
 for y in range(0, min(30, h)):
     for x in range(w):
         r, g, b = im.getpixel((x, y))
-        #  ═══ LA MÊME TOLÉRANCE DES DEUX CÔTÉS ═══
-        #  Le vert avait droit à ±8 « avec l'anticrénelage », et le blanc
-        #  devait être #FFFFFF EXACTEMENT. Cette asymétrie n'avait aucune
-        #  raison d'être : c'est le même écran, le même anticrénelage, les
-        #  mêmes bords adoucis. Sur une machine dont le rendu de police
-        #  diffère un peu — le coureur de la CI n'a ni les mêmes réglages de
-        #  hinting ni le même sous-pixel — le texte clair sort en #FEFEFE ou
-        #  en gris très clair : ZÉRO pixel exactement blanc, alors que le
-        #  vert, lui, continue de compter grâce à sa tolérance.
+        #  ═══ LE BLANC, AVEC LA MÊME TOLÉRANCE QUE LE VERT — ET PAS PLUS ═══
+        #  Le vert a droit à ±8 « avec l'anticrénelage » ; le blanc exigeait
+        #  #FFFFFF EXACTEMENT. On aligne les deux, et on s'arrête là.
         #
-        #  D'où « 0 px blancs et 896 px verts » sur le coureur : les 896
-        #  comptent l'invite ET la frappe, et aucun blanc n'est reconnu. Le
-        #  contrôle accusait la frappe de ne pas être arrivée alors qu'elle
-        #  était là, à un point de gris près.
+        #  UNE TROISIÈME VERSION A ÉTÉ ESSAYÉE PUIS JETÉE, et c'est elle qui
+        #  vaut d'être racontée : compter les pixels « clairs et neutres »
+        #  (somme des canaux > 360, aucun canal dominant), pour survivre à
+        #  n'importe quel rendu de police. Elle donnait 968 px au lieu de 94,
+        #  une marge magnifique — ET ELLE ÉTAIT ÉDENTÉE.
+        #
+        #  Mesuré en imprimant les couleurs vues, avec et sans mutation :
+        #      normal :  #8A8A90 ×556   #79797E ×66   #FFFFFF ×65
+        #      muté   :  #8A8A90 ×556   #79797E ×66   (plus de #FFFFFF)
+        #  Les deux gris sont RIGOUREUSEMENT IDENTIQUES dans les deux cas :
+        #  ce n'est pas la frappe, c'est le chrome de la fenêtre pris dans
+        #  les trente premières lignes. Une mesure qui les compte reste haute
+        #  même quand la frappe disparaît — elle ne peut plus rougir.
+        #
+        #  Le seul discriminant est le blanc franc : présent quand la frappe
+        #  est blanche, ABSENT dès qu'elle ne l'est plus. On le garde.
         if r > 246 and g > 246 and b > 246: blanc += 1
         elif abs(r) < 8 and abs(g - 215) < 8 and abs(b) < 8: vert += 1
 print(blanc, vert)
@@ -348,6 +357,30 @@ PYPX
 				ok "sur l'écran : l'invite est verte ($VERT_PX px) et « echo BONJOUR » est BLANC ($BLANC_PX px)"
 			else
 				non "sur l'écran : $BLANC_PX px blancs et $VERT_PX px verts — la frappe n'est pas blanche sur une invite verte"
+				#  ═══ UN ÉCHEC QUI NE DIT PAS CE QU'IL A VU NE SE CORRIGE PAS ═══
+				#  Ce contrôle est rouge sur le coureur GitHub et vert
+				#  partout ailleurs. Deux explications ont déjà été tentées
+				#  et démenties — le focus, puis la tolérance du blanc — la
+				#  seconde parce que les chiffres sont restés IDENTIQUES au
+				#  pixel près (0 et 896) après le correctif. Deviner une
+				#  troisième fois coûterait un aller-retour de plus.
+				#  On imprime donc les couleurs réellement présentes : la
+				#  prochaine exécution dira si la frappe est absente, ou
+				#  présente dans une couleur qu'on n'attendait pas.
+				python3 - "$BANC/frappe.png" <<'PYDIAG' | sed 's/^/       /'
+import sys
+from collections import Counter
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+w, h = im.size
+c = Counter(im.getpixel((x, y))
+            for y in range(min(30, h)) for x in range(w))
+print("couleurs vues dans la bande mesurée (%d px) :" % (w * min(30, h)))
+for coul, n in c.most_common(8):
+    print("   #%02X%02X%02X  ×%d" % (coul[0], coul[1], coul[2], n))
+clair = sum(n for coul, n in c.items() if sum(coul) > 360)
+print("   pixels « clairs » (somme RVB > 360) : %d" % clair)
+PYDIAG
 			fi
 		else
 			non "la capture de la frappe n'a pas été produite"
