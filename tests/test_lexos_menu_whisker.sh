@@ -400,6 +400,9 @@ if ! command -v gcc >/dev/null 2>&1 \
    || [[ ! -r "$SONDE_SRC" ]]; then
 	saute "gcc, gtk+-3.0 (dev), Xvfb ou la sonde manquent : la couleur résolue n'est pas mesurée"
 else
+	#  Le découpage en mots est VOULU ici : pkg-config rend plusieurs
+	#  drapeaux, et des guillemets en feraient un seul argument.
+	# shellcheck disable=SC2046
 	if ! gcc -o "$BANC/sonde" "$SONDE_SRC" $(pkg-config --cflags --libs gtk+-3.0) 2>"$BANC/gcc.log"; then
 		non "la sonde GTK ne compile pas :\n$(head -3 "$BANC/gcc.log")"
 	else
@@ -459,6 +462,121 @@ print('oui' if 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b) > 0.5 else 'non')" 2>/d
 			fi
 			kill "$XPID" 2>/dev/null; wait "$XPID" 2>/dev/null
 		fi
+	fi
+fi
+
+# =============================================================================
+titre "9. Le gris autour des outils de la barre — et les états qui doivent rester"
+# =============================================================================
+#  ═══ CE QUE CE CONTRÔLE EMPÊCHE DE REVENIR ═══
+#  ALEX : « la barre toute noire, enlever le gris autour des outils ». Le gris
+#  venait des greffons lancés dans des PROCESSUS À PART : leurs fenêtres ne
+#  sont pas descendantes de #XfcePanelWindow, donc aucune règle écrite sous ce
+#  préfixe ne pouvait les atteindre. Mesuré au pixel sur le vrai panneau :
+#  239 px de #292B34 avant, 0 après.
+#
+#  Le sélecteur qui porte le correctif est « .xfce4-panel.background ». Un
+#  nettoyage futur qui le raccourcirait en « .background » repeindrait TOUTES
+#  les fenêtres du système ; en « .xfce4-panel » seul, il ne ferait plus rien.
+#  Les deux classes ENSEMBLE sont le correctif.
+if ! grep -q '^\.xfce4-panel\.background' "$CSS_NU" 2>/dev/null; then
+	non "« .xfce4-panel.background » a disparu : le gris des greffons revient"
+else
+	CORPS="$(bloc_de '.xfce4-panel.background')"
+	if grep -q 'background-color: transparent' <<< "$CORPS" \
+	   && grep -q 'background-image: none' <<< "$CORPS"; then
+		ok "« .xfce4-panel.background » remet le fond des greffons à transparent"
+	else
+		non "« .xfce4-panel.background » ne pose plus les deux propriétés du fond"
+	fi
+fi
+
+#  ═══ ET LES ÉTATS NE PARTENT PAS AVEC LE GRIS ═══
+#  On enlève le fond AU REPOS. Le survol et le greffon ouvert doivent rester,
+#  sinon plus rien ne réagit sous la souris — et c'est le genre de ligne qu'un
+#  « nettoyage » emporte parce qu'elle ressemble aux autres.
+for ETAT in hover checked; do
+	CORPS="$(bloc_de ".xfce4-panel button:$ETAT")"
+	if [[ -z "$CORPS" ]]; then
+		if grep -qE "^\.xfce4-panel button:$ETAT," "$CSS_NU"; then
+			ok "l'état « :$ETAT » des boutons de greffon est présent (règle groupée)"
+			continue
+		fi
+		non "l'état « :$ETAT » des boutons de greffon a disparu : la barre ne réagirait plus"
+		continue
+	fi
+	if grep -q 'background-color:' <<< "$CORPS"; then
+		ok "l'état « :$ETAT » des boutons de greffon garde son fond"
+	else
+		non "« .xfce4-panel button:$ETAT » ne pose plus de fond"
+	fi
+done
+
+CORPS="$(bloc_de '.xfce4-panel button')"
+if grep -q 'background-color: transparent' <<< "$CORPS"; then
+	ok "…et au repos, le bouton de greffon reste transparent"
+else
+	non "le bouton de greffon a repris un fond au repos"
+fi
+
+#  Si quelqu'un « range » le fichier en remettant tout sous #XfcePanelWindow,
+#  le correctif redevient inopérant sans qu'aucune couleur ne change.
+if grep -qE '^\.xfce4-panel(\.background| button)' "$CSS_NU"; then
+	ok "les règles des greffons sont écrites HORS de #XfcePanelWindow (elles franchissent la frontière des processus)"
+else
+	non "toutes les règles des greffons sont sous #XfcePanelWindow : elles n'atteignent aucun greffon externe"
+fi
+
+# =============================================================================
+titre "10. LA MESURE : ce que GTK résout pour le fond d'un greffon de la barre"
+# =============================================================================
+#  ═══ LA SECTION 9 LIT DU TEXTE, CELLE-CI MESURE ═══
+#  Une règle posée sur un nœud IMAGINAIRE est écrite exactement pareil et ne
+#  fait rien : la section 9 resterait verte et le gris reviendrait chez Alex.
+#  C'est le piège nommé par la consigne, et il a été VÉRIFIÉ — en renommant
+#  « .background » en « .arriere-plan », la section 9 est restée verte et
+#  celle-ci est tombée. On rebâtit ici la fenêtre d'un greffon (les deux
+#  classes relevées sur le vrai xfce4-panel sous Xvfb) et on demande à GTK.
+PSONDE="$RACINE/tests/aide/panneau-sonde.c"
+#  Le découpage en mots de pkg-config est voulu (plusieurs drapeaux) ; la
+#  directive doit précéder le « if » entier, pas la branche « elif ».
+# shellcheck disable=SC2046
+if ! command -v gcc >/dev/null 2>&1 || ! pkg-config --exists gtk+-3.0 2>/dev/null \
+   || ! command -v Xvfb >/dev/null 2>&1 || [[ ! -r "$PSONDE" ]]; then
+	saute "gcc, gtk+-3.0 (dev), Xvfb ou la sonde manquent : le fond du greffon n'est pas mesuré"
+elif ! gcc -o "$BANC/psonde" "$PSONDE" $(pkg-config --cflags --libs gtk+-3.0) 2>"$BANC/pgcc.log"; then
+	non "la sonde du panneau ne compile pas :\n$(head -3 "$BANC/pgcc.log")"
+else
+	HOME="$BANC" LEXOS_PANNEAU_CSS="$CSS" bash "$GEN" orange --target "$BANC" >/dev/null 2>&1
+	THEME_P="$BANC/.themes/LexOS-Noir/gtk-3.0/gtk.css"
+	if [[ ! -r "$THEME_P" ]]; then
+		saute "lexos-theme-gen n'a pas produit de thème ici : fond du greffon non mesuré"
+	else
+		: > "$BANC/xnum2"
+		Xvfb -displayfd 3 -screen 0 800x600x24 3>"$BANC/xnum2" >/dev/null 2>&1 &
+		XPID2=$!
+		for _ in $(seq 1 100); do [[ -s "$BANC/xnum2" ]] && break; sleep 0.1; done
+		if [[ ! -s "$BANC/xnum2" ]]; then
+			non "Xvfb n'a pas démarré : le fond du greffon n'est pas mesuré"
+		else
+			AFF2=":$(tr -dc 0-9 < "$BANC/xnum2")"
+			SORTIE_P="$(DISPLAY="$AFF2" "$BANC/psonde" "$THEME_P" 2>/dev/null)"
+			ALPHA_G="$(grep -oE 'greffon: fond #[0-9A-F]{6} alpha=[0-9.]+' <<< "$SORTIE_P" | grep -oE 'alpha=[0-9.]+' | cut -d= -f2)"
+			if [[ -z "$ALPHA_G" ]]; then
+				non "la sonde du panneau n'a rien mesuré :\n$(head -3 <<< "$SORTIE_P")"
+			elif awk "BEGIN{exit !($ALPHA_G < 0.02)}"; then
+				ok "le fond de la fenêtre d'un greffon est TRANSPARENT (alpha $ALPHA_G) — le noir de la barre passe"
+			else
+				non "le fond d'un greffon est OPAQUE (alpha $ALPHA_G) : le gris du thème de socle est de retour"
+			fi
+			ALPHA_S="$(grep -oE 'survol alpha=[0-9.]+' <<< "$SORTIE_P" | cut -d= -f2)"
+			if [[ -n "$ALPHA_S" ]] && awk "BEGIN{exit !($ALPHA_S > 0.02)}"; then
+				ok "…et le survol d'un bouton de greffon se peint toujours (alpha $ALPHA_S)"
+			else
+				non "le survol ne se peint plus (alpha ${ALPHA_S:-?}) : plus rien ne réagit sous la souris"
+			fi
+		fi
+		kill "$XPID2" 2>/dev/null; wait "$XPID2" 2>/dev/null
 	fi
 fi
 

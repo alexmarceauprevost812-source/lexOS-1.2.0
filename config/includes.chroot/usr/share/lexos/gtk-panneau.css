@@ -74,6 +74,83 @@
 	color: #ffffff;
 }
 
+/* --- LE GRIS AUTOUR DES OUTILS -------------------------------------------- */
+/*  ALEX : « j'aimerais que la barre d'outils en haut soit toute noire, et
+    enlever le gris autour des outils. » Trois gris sur sa capture : un pavé
+    autour de l'horloge, une bande à droite derrière les icônes d'état, des
+    encadrés autour des boutons de capture.
+
+    ═══ POURQUOI LES RÈGLES CI-DESSUS NE LES ATTEIGNAIENT PAS ═══
+    Ce n'est pas « le sélecteur ne parle que de button ». C'est plus profond,
+    et c'est MESURÉ : la barre lance ses greffons DANS DES PROCESSUS À PART
+    (« wrapper-2.0 »), chacun avec SA PROPRE FENÊTRE X. Relevé en faisant
+    tourner le vrai xfce4-panel avec la vraie configuration de LexOS sous
+    Xvfb : six fenêtres « wrapper-2.0 » à côté de la fenêtre « xfce4-panel ».
+
+    Ces greffons ne sont donc PAS des descendants CSS de #XfcePanelWindow.
+    Toute règle écrite « #XfcePanelWindow … » — y compris
+    « #XfcePanelWindow .xfce4-panel button » juste au-dessus — s'arrête à la
+    frontière du processus. Elle n'a jamais rien pu faire pour eux.
+
+    ═══ LE NŒUD, TROUVÉ À LA COULEUR VIVE — PAS DEVINÉ ═══
+    Méthode déjà employée dans ce dépôt pour Thunar : on peint un candidat en
+    couleur vive, on relance le panneau, on compte les pixels de la ligne
+    médiane de la barre. Le gris à trouver : 239 px de #292B34.
+
+        #XfcePanelWindow *  ........ 0 px    (la frontière ci-dessus)
+        WrapperPlug ................ 0 px
+        window ..................... 0 px
+        .xfce4-panel ............... 0 px
+        #genmon_plugin + 7 frères .. 0 px    (ce sont des clés de config,
+                                              pas des noms de widgets)
+        * .......................... 204 px  — donc ATTEIGNABLE
+        box ........................ 285 px  — mais trop large
+        .xfce4-panel.background .... 239 px  — EXACTEMENT le gris
+
+    Le dernier ne déborde pas d'un pixel : c'est la fenêtre de premier niveau
+    du greffon. GTK pose « .background » sur tout toplevel, et Arc-Dark y
+    peint son gris (sa règle no 3, « .background { background-color: … } »).
+    La classe « .xfce4-panel », elle, est posée par le panneau DANS le
+    processus du greffon — c'est ce qui donne une portée sûre : les deux
+    classes ensemble ne désignent que les fenêtres des greffons de la barre,
+    jamais une fenêtre d'application.
+
+    ET CE N'EST PAS « box ». Le thème rend déjà toutes les boîtes
+    transparentes (« box, grid, viewport… { background-color: transparent } »)
+    — les repeindre en transparent ne changeait donc rien, et c'est ce que
+    mon premier correctif faisait : mesuré APRÈS coup, 239 px de gris
+    toujours là. Le gris venait de DERRIÈRE la boîte.
+
+    ═══ CE QU'ON NE TOUCHE PAS ═══
+    Les états gardent leur rôle : le survol blanc à 10 %, l'orange du greffon
+    ouvert. Ils vivent sur « button », pas sur le fond de la fenêtre — les
+    enlever ferait une barre où plus rien ne réagit sous la souris. On retire
+    le gris AU REPOS, pas les états. Ils sont repris ci-dessous à la portée
+    « .xfce4-panel », qui franchit la frontière des processus. */
+.xfce4-panel.background {
+	background-image: none;
+	background-color: transparent;
+}
+/*  Les boutons des greffons EXTERNES — les lanceurs de capture d'Alex, le son,
+    le réseau. Mêmes valeurs que le bloc #XfcePanelWindow plus haut, à une
+    portée qui les atteint vraiment. */
+.xfce4-panel button {
+	border-radius: 9px;
+	border: none;
+	background-image: none;
+	background-color: transparent;
+	padding: 0 6px;
+	min-height: 22px;
+}
+.xfce4-panel button:hover {
+	background-color: rgba(255, 255, 255, 0.10);
+}
+.xfce4-panel button:checked,
+.xfce4-panel button:active {
+	background-color: rgba(232, 89, 12, 0.85);
+	color: #ffffff;
+}
+
 /* --- Les notifications ----------------------------------------------------- */
 /*  Même dessin que la barre, en plus rond : une notification est une petite
     carte posée sur le bureau, pas une fenêtre. C'est exactement la forme de
