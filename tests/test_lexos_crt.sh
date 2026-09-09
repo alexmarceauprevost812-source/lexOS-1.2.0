@@ -565,6 +565,92 @@ for C in '"crt": act_crt,' '"crt": _crt_etat,'; do
 done
 
 # =============================================================================
+titre "7bis. LES « rules » N'AVALENT PAS LES FENÊTRES ORDINAIRES"
+# =============================================================================
+#  ═══ CE QUE PERSONNE NE VÉRIFIAIT ═══
+#  picom applique la PREMIÈRE règle qui correspond et s'arrête là (manuel,
+#  section RULES). Une règle dont la condition est trop large avale donc les
+#  fenêtres normales — et comme les deux règles de ce fichier remplacent
+#  l'animation par un simple fondu de 80 ms, l'extinction « téléviseur » ne
+#  jouerait plus JAMAIS. Le fichier resterait valide, picom démarrerait sans
+#  se plaindre, et l'effet aurait disparu sans un mot.
+#  L'ordre de la règle Whisker est déjà tenu par test_lexos_menu_whisker.sh ;
+#  ce qui manquait, c'est de savoir CE QUE LES CONDITIONS ATTRAPENT.
+#
+#  ON LES ÉVALUE, ON NE LES LIT PAS. Un « grep window_type » dirait seulement
+#  que le mot est là. On rejoue donc les opérateurs de picom employés ici
+#  — « = » (égalité), « *= » (sous-chaîne), « || » — sur des fenêtres
+#  représentatives, et on regarde laquelle attrape quoi.
+#  ET SI UNE CONDITION EMPLOIE UN OPÉRATEUR QUE CE CONTRÔLE NE CONNAÎT PAS,
+#  IL ROUGIT au lieu de conclure : un évaluateur qui ignore ce qu'il ne
+#  comprend pas rendrait un vert qui ne prouve rien.
+VERDICT="$(python3 - "$CONF" <<'PYEOF'
+import re, sys
+
+texte = open(sys.argv[1], encoding='utf-8').read()
+#  Les conditions, DANS L'ORDRE du fichier : c'est l'ordre qui décide.
+conditions = re.findall(r'match\s*=\s*"([^"]*)"', texte)
+if not conditions:
+    print("AUCUNE|aucune condition « match » trouvée dans le fichier")
+    raise SystemExit
+
+TERME = re.compile(r"^\s*(\w+)\s*(\*=|=)\s*'([^']*)'\s*$")
+
+def attrape(cond, fen):
+    for morceau in cond.split('||'):
+        m = TERME.match(morceau)
+        if not m:
+            raise ValueError(morceau.strip())
+        champ, op, val = m.group(1), m.group(2), m.group(3)
+        vu = fen.get(champ)
+        if vu is None:
+            continue
+        if (op == '=' and vu == val) or (op == '*=' and val in vu):
+            return True
+    return False
+
+#  Quatre fenêtres, et ce qu'on attend de chacune.
+CAS = [
+    ("une fenêtre ordinaire (un terminal, un navigateur)",
+     {"window_type": "normal", "name": "Terminal", "class_g": "Xfce4-terminal"}, None),
+    ("une boîte de dialogue",
+     {"window_type": "dialog", "name": "Enregistrer sous", "class_g": "Thunar"}, None),
+    ("le menu Whisker",
+     {"window_type": "menu", "name": "Whisker Menu", "class_g": "wrapper-2.0"}, 0),
+    ("un menu contextuel (clic droit)",
+     {"window_type": "popup_menu", "name": "", "class_g": "Thunar"}, 1),
+]
+
+for libelle, fen, attendu in CAS:
+    try:
+        touchee = next((i for i, c in enumerate(conditions) if attrape(c, fen)), None)
+    except ValueError as e:
+        print("INCONNU|opérateur non reconnu dans une condition : %s" % e)
+        raise SystemExit
+    if touchee == attendu:
+        if attendu is None:
+            print("OK|%s : aucune règle ne l'attrape → elle garde l'extinction « téléviseur »" % libelle)
+        else:
+            print("OK|%s : attrapée par la règle n° %d, celle qui lui est destinée" % (libelle, attendu + 1))
+    elif attendu is None:
+        print("NON|%s est AVALÉE par la règle n° %d : elle perdrait l'extinction « téléviseur »"
+              % (libelle, touchee + 1))
+    elif touchee is None:
+        print("NON|%s n'est attrapée par AUCUNE règle : elle s'éteindrait comme un téléviseur, ce qui est trop lent pour elle" % libelle)
+    else:
+        print("NON|%s est attrapée par la règle n° %d au lieu de la n° %d"
+              % (libelle, touchee + 1, attendu + 1))
+PYEOF
+)"
+while IFS='|' read -r VERD MSG; do
+	case "$VERD" in
+		OK)  ok "$MSG" ;;
+		NON) non "$MSG" ;;
+		*)   non "les règles n'ont pas pu être évaluées : $MSG" ;;
+	esac
+done <<< "$VERDICT"
+
+# =============================================================================
 titre "8. L'EFFET EST-IL ALLUMÉ DANS CE QU'ON LIVRE ?"
 # =============================================================================
 #  ═══ LE TROU QUE CES QUARANTE CONTRÔLES LAISSAIENT ═══
