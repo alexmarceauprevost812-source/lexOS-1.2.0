@@ -1274,9 +1274,63 @@ jobs:
             echo "::error::les paquets de ce banc (xvfb yad zenity xdotool) n'ont pas pu être posés — ce n'est pas le banc qui a échoué"
             exit 1
           fi
-          echo "yad    : $(yad --version 2>&1 | head -1)"
-          echo "zenity : $(zenity --version 2>&1 | head -1)"
-          echo "Xvfb   : $(Xvfb -help 2>&1 | head -1)"
+          #  ═══ LES SONDES DISENT LA VÉRITÉ, OU L'ÉTAPE S'ARRÊTE ═══
+          #  CE QU'ELLES DISAIENT AVANT, dans le journal du coureur :
+          #      yad    :
+          #      zenity : 4.0.1
+          #      Xvfb   : use: X [:<display>] [option]
+          #  Deux sondes sur trois mentaient, et on a lu « yad est cassé ».
+          #
+          #  MESURÉ ICI, sur le MÊME système que le coureur — ce conteneur est
+          #  Ubuntu 24.04 avec yad 0.40.0-1build3, zenity 4.0.1-1build3,
+          #  xvfb 2:21.1.12-1ubuntu1.6, les versions exactes du journal :
+          #    · « yad --version » SANS DISPLAY n'écrit RIEN sur sa sortie
+          #      standard : cette compilation initialise GTK avant de répondre
+          #      et se plaint « cannot open display ». Et GLib fait précéder
+          #      ses avertissements d'une LIGNE VIDE — que « 2>&1 | head -1 »
+          #      rendait fidèlement. D'où « yad    : » suivi de rien.
+          #      AVEC un écran : « 0.40.0 (GTK+ 3.24.41) ». Le drapeau était
+          #      le bon ; c'est l'écran qui manquait.
+          #    · Xvfb n'a AUCUN drapeau de version : « -version », « --version »
+          #      et « -showconfig » rendent tous « Unrecognized option ». La
+          #      sonde imprimait son mode d'emploi. dpkg, lui, la connaît.
+          #  Les sondes tournent donc APRÈS un serveur X, et une réponse vide
+          #  arrête l'étape au lieu de passer inaperçue.
+          Xvfb -displayfd 3 -screen 0 1024x768x24 3>/tmp/lexos-sonde.aff >/dev/null 2>&1 &
+          SONDE_PID=$!
+          for _ in $(seq 1 100); do [ -s /tmp/lexos-sonde.aff ] && break; sleep 0.1; done
+          if [ ! -s /tmp/lexos-sonde.aff ]; then
+            echo "::error::Xvfb n'a pas démarré — aucune sonde ne peut répondre, et le banc mesurerait dans le vide"
+            exit 1
+          fi
+          export DISPLAY=":$(tr -dc 0-9 < /tmp/lexos-sonde.aff)"
+          MUETTES=0
+          sonder() {   # $1 = nom affiché ; $2… = la commande qui doit répondre
+            local nom="$1"; shift
+            local rep
+            rep="$("$@" 2>/dev/null | grep -m1 . || true)"
+            if [ -z "$rep" ]; then
+              echo "::error::$nom n'a rien répondu — un outil muet fausse tout ce qui suit"
+              MUETTES=1
+              return 0
+            fi
+            printf '%-12s : %s\n' "$nom" "$rep"
+          }
+          sonder yad     yad --version
+          sonder zenity  zenity --version
+          sonder xdotool xdotool --version
+          sonder Xvfb    dpkg-query -W -f='${Version}\n' xvfb
+          #  ET LA GÉNÉRATION DE GTK DE CHACUN. Ce banc mesure une géométrie
+          #  que GTK décide, et les deux outils ne sont PAS sur la même :
+          #  mesuré ici, yad est en GTK 3, zenity en GTK 4. La fenêtre que la
+          #  section 6 ouvre est celle de yad.
+          for O in yad zenity; do
+            printf '%-12s : %s\n' "$O (GTK)" \
+              "$(ldd "$(command -v "$O")" | grep -o 'libgtk-[0-9-]*\.so\.[0-9]*' | sort -u | tr '\n' ' ')"
+          done
+          kill "$SONDE_PID" 2>/dev/null || true
+          unset DISPLAY
+          [ "$MUETTES" -eq 0 ] || exit 1
           bash tests/test_lexos_install_avertissement.sh
 
       - name: Profils de performance — tous chargeables
