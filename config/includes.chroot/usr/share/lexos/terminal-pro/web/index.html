@@ -533,23 +533,77 @@ class Fenetre {
     //  volet change aussi de taille quand on DÉPLACE UN SÉPARATEUR ou qu'on
     //  zoome un autre volet, sans que la fenêtre bouge d'un pixel. Sans ça,
     //  htop dessinerait à l'ancienne largeur (validation n° 7).
-    this._ro = new ResizeObserver(() => this.ajuster());
+    //  insister() plutôt qu'ajuster() : quand un volet réapparaît (onglet
+    //  d'arrière-plan, séparateur déplacé), xterm.js n'a pas encore
+    //  remesuré au moment où l'observateur nous prévient — un seul essai
+    //  laisserait la grille à 80×24. Voir ajuster().
+    this._ro = new ResizeObserver(() => this.insister());
     this._ro.observe(this.corps);
+    //  La police peut arriver après le premier dessin : une dernière passe
+    //  quand le navigateur dit qu'elles sont toutes chargées.
+    if(document.fonts && document.fonts.ready) document.fonts.ready.then(() => this.insister());
 
     this.ouvrirFlux();
   }
 
+  /*  ═══ AJUSTER, ET SAVOIR SI ÇA A PRIS ═══
+      MESURÉ, et c'est un vrai défaut trouvé par la CI : sur le coureur
+      GitHub, le terminal s'ouvrait en 80×24 — la grille PAR DÉFAUT de
+      xterm.js — dans une fenêtre de 1200×760. Le shell y voyait 80
+      colonnes, donc bash repliait ses lignes à 80 caractères alors qu'il
+      restait la moitié de la fenêtre à droite. Et ça ne se corrigeait
+      JAMAIS tout seul : il fallait redimensionner la fenêtre.
+
+      LA CAUSE, reproduite ici à l'identique (page cachée au démarrage,
+      puis révélée) :
+          cachée au démarrage : 80x24
+          après révélation    : grille 80x24, corps 1198x670,
+                                cellule 7,5375x18, proposé 154x36
+      xterm.js ne peut pas mesurer la largeur d'un caractère tant que rien
+      n'est dessiné. fit() appelle proposeDimensions(), qui rend « rien »
+      dans ce cas — et fit() NE FAIT RIEN, sans le dire. Quand la mesure
+      devient possible, plus personne ne rappelle fit() : proposeDimensions
+      annonce 154×36 et la grille reste à 80×24.
+
+      C'est exactement l'échec muet que ce dépôt traque : une fonction qui
+      rend la main comme si elle avait travaillé. ajuster() dit maintenant
+      si la mesure a PRIS, et insister() réessaie tant qu'elle n'a pas pris.  */
   ajuster(){
-    if(!this.term || !this.ajust || this.fermee) return;
-    if(this.corps.clientWidth < 20 || this.corps.clientHeight < 20) return;
-    try{ this.ajust.fit(); }catch(e){ return; }
+    if(!this.term || !this.ajust || this.fermee) return false;
+    if(this.corps.clientWidth < 20 || this.corps.clientHeight < 20) return false;
+    //  proposeDimensions() rend « rien » tant que la largeur d'un caractère
+    //  n'est pas mesurable. C'est la SEULE façon de distinguer « ajusté »
+    //  de « fit() n'a rien fait » : fit() ne rend rien et ne lève rien.
+    let p;
+    try{ p = this.ajust.proposeDimensions(); }catch(e){ return false; }
+    if(!p || !p.cols || !p.rows) return false;
+    try{ this.ajust.fit(); }catch(e){ return false; }
     const c = this.term.cols, l = this.term.rows;
-    if(c === this._c && l === this._l) return;
+    if(c === this._c && l === this._l) return true;
     this._c = c; this._l = l;
     //  Avant que le flux réponde, il n'y a pas encore de session à
     //  redimensionner : c'est le paramètre « colonnes » de /api/flux qui
     //  porte la taille de départ. Poster ici donnerait un 404 silencieux.
     if(this.pret) poste("/api/taille", {fen:String(this.id), colonnes:c, lignes:l});
+    return true;
+  }
+
+  /*  ═══ ET ON INSISTE JUSQU'À CE QUE LA MESURE PRENNE ═══
+      Une seule chaîne à la fois, elle s'arrête dès qu'ajuster() rend vrai —
+      donc sur une machine où la mesure est possible tout de suite (le cas
+      normal), c'est UN appel et rien de plus. Deux secondes de plafond :
+      passé ce délai, la fenêtre est cachée pour de bon (un onglet en
+      arrière-plan ne dessine pas), et le ResizeObserver relancera une
+      chaîne quand elle réapparaîtra.  */
+  insister(){
+    if(this.fermee || this.ajuster() || this._insiste) return;
+    this._insiste = true;
+    let n = 0;
+    const tour = () => {
+      if(this.fermee || this.ajuster() || ++n > 120){ this._insiste = false; return; }
+      requestAnimationFrame(tour);
+    };
+    requestAnimationFrame(tour);
   }
 
   /* --- Les frappes ------------------------------------------------------
@@ -633,7 +687,11 @@ class Fenetre {
     //  On ajuste AVANT d'ouvrir : le shell doit naître à la bonne taille,
     //  sinon sa première invite et sa bannière sont dessinées à 80 colonnes
     //  puis reflowées de travers.
-    try{ if(this.ajust) this.ajust.fit(); }catch(e){}
+    //  ajuster() plutôt que fit() nu : fit() ne dit pas s'il a travaillé, et
+    //  un shell né à 80×24 dans une grande fenêtre reste de travers tant
+    //  qu'on ne redimensionne pas. Si la mesure n'est pas encore possible,
+    //  insister() (armé plus haut) rattrapera et postera /api/taille.
+    this.ajuster();
     let r;
     try{
       r = await poste("/api/ouvrir", {
