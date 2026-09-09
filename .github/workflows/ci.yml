@@ -2560,16 +2560,64 @@ jobs:
           #     hasard exigé dans un EN-TÊTE (jamais l'URL seule — une
           #     requête simple part avant toute vérification CORS), et
           #     l'Origine quand le navigateur en pose une.
-          #   · CE QUI NE PEUT PAS S'AFFICHER EST DIT, PAS CACHÉ. Les
-          #     programmes plein écran (vim, nano, htop, less, man…) sont
-          #     reconnus AVANT d'être lancés et renvoient au Terminal
-          #     classique, plutôt qu'un carnage de codes d'échappement.
           #   · AUCUNE COMMANDE FICTIVE NE MASQUE PLUS UNE VRAIE COMMANDE.
           #     La page reçue réimplémentait ls/cd/cat/mkdir/whoami/ps…
           #     contre un système de fichiers en mémoire ; si un seul de ces
           #     noms redevenait un built-in local, taper « ls » ne
           #     montrerait plus jamais le vrai dossier.
+          #   · TOUTES LES FORMES D'APPEL ARRIVENT AU BON TERMINAL. « -e »,
+          #     « -x », « --working-directory », « --hold » : le pont
+          #     x-terminal-emulator les transmet, et terminal-pro.py les
+          #     comprend — dans les DEUX conventions (celle de
+          #     xfce4-terminal et celle de Debian).
           bash tests/test_lexos_terminal_pro.sh
+
+      - name: Le terminal a un VRAI pseudo-terminal — « je suis même pas capable de lancer claude »
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « j'ai beau essayer le terminal LexOS Pro, je suis même
+          #  pas capable de lancer claude ». Ce n'était pas un bogue mais
+          #  l'architecture : chaque commande partait dans un bash JETABLE,
+          #  entrée fermée, sortie ramassée à la fin, tué au bout de 25 s —
+          #  et sans pseudo-terminal, donc « isatty() » faux, donc claude
+          #  refusait de démarrer, comme sudo, nano, htop et less.
+          #
+          #  Ce banc éprouve le remplacement avec de VRAIS programmes, jamais
+          #  en relisant le code :
+          #   · « test -t 0 » est vrai — le verrou qui bloquait claude ;
+          #   · une invite de mot de passe s'affiche, reçoit ce qu'on tape,
+          #     et l'écho est coupé (le mécanisme exact de sudo) ;
+          #   · Ctrl+C interrompt sans tuer la session ;
+          #   · une commande de plus de 25 s n'est plus tuée ;
+          #   · redimensionner atteint le programme EN COURS (SIGWINCH) ;
+          #   · fermer un volet ne laisse aucun orphelin, ni au premier plan
+          #     ni en fond ;
+          #   · LA MATRICE COMPLÈTE des quatre routes contre les trois refus
+          #     — c'est elle qui a trouvé que /api/flux, la route qui OUVRE
+          #     le shell, ne vérifiait ni le jeton ni l'origine.
+          bash tests/test_lexos_terminal_pty.sh
+
+      - name: Le terminal s'affiche pour de vrai — la vraie page dans un vrai navigateur
+        if: ${{ !cancelled() }}
+        run: |
+          #  Le banc ci-dessus éprouve le pont ; celui-ci éprouve L'ÉCRAN.
+          #  Un pseudo-terminal parle en grille de caractères — place le
+          #  curseur ici, efface de là — et c'est xterm.js qui tient cette
+          #  grille. Rien de tout ça ne se voit dans un bac à sable au
+          #  « fetch » simulé : on charge donc la VRAIE page dans Chromium,
+          #  contre le VRAI pont, on TAPE au clavier, et on lit ce que le
+          #  terminal affiche.
+          #
+          #  CE QUE CE BANC A TROUVÉ EN ÉTANT ÉCRIT, et qu'aucune relecture
+          #  n'avait vu : la page ne s'ouvrait pas du tout (« ACCUEIL is not
+          #  defined »), et elle allait chercher ses polices chez Google à
+          #  chaque ouverture — sur un portable sans réseau, le terminal
+          #  principal du système attendait une réponse qui ne vient jamais.
+          #
+          #  Si Chromium ou node-xterm manquent sur le coureur, ce banc le
+          #  DIT et se saute : un vert obtenu sans avoir rien éprouvé serait
+          #  pire que pas de banc du tout.
+          bash tests/test_lexos_terminal_navigateur.sh
 
       - name: Mises à jour — la page suit le terminal au lieu de rester figée
         if: ${{ !cancelled() }}

@@ -128,110 +128,112 @@ else
 fi
 
 # =============================================================================
-titre "2. Ctrl+C ne mange plus la copie"
+titre "2. Ctrl+C ne mange plus la copie — et interrompt POUR DE VRAI"
 # =============================================================================
-if grep -q '!this.champ.selectionEnd' "$HTML"; then
-	non "« !this.champ.selectionEnd » est encore là : la copie serait toujours avalée"
-else
-	ok "l'ancienne condition « !this.champ.selectionEnd » a disparu"
-fi
-
-if grep -q 'window.getSelection()' "$HTML"; then
-	ok "la sélection de la PAGE est consultée, pas seulement celle du champ"
-else
-	non "window.getSelection() n'est pas consulté : sélectionner dans la sortie ne changerait rien"
-fi
-
-#  ═══ LE COMPORTEMENT « ANNULER LA LIGNE » DOIT SURVIVRE ═══
-#  C'est un terminal : Ctrl+C sans sélection DOIT interrompre. Un correctif
-#  qui aurait simplement supprimé la branche aurait « réparé » la copie en
-#  cassant l'interruption — et personne ne s'en serait aperçu avant d'avoir
-#  besoin d'arrêter quelque chose.
-#  ON CHERCHE LA FORME DU CODE, PAS LE SIGNE. Une première version greppait
-#  « ^C » dans tout le fichier : le motif survit dans les COMMENTAIRES qui
-#  expliquent le correctif, et une mutation qui effaçait le vrai « ^C »
-#  restait verte. C'est la troisième fois dans ce chantier qu'un contrôle
-#  lit un commentaire en croyant lire du code — on exige donc la balise
-#  complète, qui n'existe que dans la branche qui l'écrit.
-if grep -qF '<span class="r">^C</span>' "$HTML"; then
-	ok "l'annulation de ligne (« ^C ») existe toujours"
-else
-	non "le « ^C » a disparu : Ctrl+C n'interromprait plus rien"
-fi
-
-#  ═══ ET ON EXÉCUTE LA LOGIQUE, ON NE LA LIT PAS ═══
-#  Un grep dit que la fonction est là ; il ne dit pas qu'elle répond juste.
-#  On extrait aSelection() du fichier et on la fait tourner sur les quatre
-#  cas qui comptent — dont celui qui a produit la panne (sélection dans la
-#  sortie) et celui où l'ancienne condition se trompait déjà (curseur au
-#  début du champ).
+#  ══ CE QUE CE CONTRÔLE PROTÈGE, ET CE QUI A CHANGÉ SOUS LUI ══
+#
+#  ALEX : le copier-coller ne fonctionnait pas. La cause n'était pas le
+#  presse-papier mais une question mal posée : le gestionnaire de Ctrl+C ne
+#  regardait que la sélection DANS LE CHAMP DE SAISIE. Quand on sélectionne
+#  dans la SORTIE — le cas normal, on veut copier le résultat d'une commande
+#  — la copie était avalée et on obtenait « ^C » à la place du texte.
+#
+#  IL N'Y A PLUS DE CHAMP DE SAISIE. Le volet est un vrai terminal : c'est
+#  xterm.js qui tient la sélection, et lui seul. La question devient donc
+#  « y a-t-il une sélection DANS LE TERMINAL », ce qui est exactement la
+#  bonne question — celle qu'on essayait d'approcher avec deux mesures
+#  séparées, dont l'une se trompait.
+#
+#  ET LE « ^C » N'EST PLUS UNE IMITATION. L'ancienne page ÉCRIVAIT le texte
+#  « ^C » à l'écran et vidait sa ligne : une mise en scène, rien n'était
+#  interrompu, puisqu'il n'y avait aucun programme en cours à interrompre.
+#  Maintenant, Ctrl+C sans sélection descend au pty comme n'importe quelle
+#  frappe, et c'est la discipline de ligne du noyau qui envoie un VRAI
+#  SIGINT au groupe de processus au premier plan. C'est éprouvé par
+#  tests/test_lexos_terminal_pty.sh (« Ctrl+C interrompt la commande et la
+#  session survit »), avec un vrai « sleep 40 ».
+#
+#  ══ ET ON EXÉCUTE LA LOGIQUE, ON NE LA LIT PAS ══
+#  Un grep dit que le gestionnaire est là ; il ne dit pas qu'il répond juste.
+#  On extrait le vrai gestionnaire du fichier et on le fait tourner sur les
+#  quatre cas qui comptent.
 if ! command -v node >/dev/null 2>&1; then
-	saut "node absent : la logique de sélection n'a PAS été exécutée"
+	saut "node absent : la logique du presse-papier n'a PAS été exécutée"
 else
-	CORPS="$(awk '/^  aSelection\(\)\{/{d=1} d{print} d&&/^  \}$/{exit}' "$HTML")"
+	CORPS="$(awk '
+		/attachCustomKeyEventHandler\(e => \{/ { d = 1 }
+		d { print }
+		d && /^    \}\);$/ { exit }
+	' "$HTML")"
 	if [ -z "$CORPS" ]; then
-		non "aSelection() introuvable dans le fichier — rien à exécuter"
+		non "le gestionnaire de touches est introuvable — rien à exécuter"
 	else
 		{
-			printf 'class T {\n'
-			printf '  constructor(sel, champ){ this._sel = sel; this.champ = champ; }\n'
-			printf '  get _w(){ return this._sel; }\n'
+			printf 'let COPIES = 0, COLLES = 0;\n'
+			printf 'let SELECTION = false, PREFIXE = false;\n'
+			printf 'const Terminal = { get prefixe(){ return PREFIXE; } };\n'
+			printf 'const objet = {\n'
+			printf '  term: { hasSelection: () => SELECTION,\n'
+			printf '          attachCustomKeyEventHandler(f){ this.h = f; } },\n'
+			printf '  copier(){ COPIES++; }, coller(){ COLLES++; },\n'
+			printf '  poser(){\n'
 			printf '%s\n' "$CORPS"
-			printf '}\n'
-			#  On fabrique un window.getSelection() qui rend ce que le cas
-			#  décrit, exactement comme le navigateur le ferait.
+			printf '  }\n'
+			printf '};\n'
 			cat <<'JS'
-let SEL = null;
-global.window = { getSelection: () => SEL };
-function cas(nom, sel, champ, attendu){
-  SEL = sel;
-  const t = new T(sel, champ);
-  const vu = t.aSelection();
-  console.log((vu === attendu ? "OK   " : "RATE ") + nom + " -> " + vu);
+let handler = null;
+objet.term.attachCustomKeyEventHandler = f => { handler = f; };
+objet.poser.call(objet);
+function cas(nom, e, sel, prefixe, attenduRendu, attenduCopies, attenduColles){
+  SELECTION = sel; PREFIXE = prefixe;
+  const c0 = COPIES, v0 = COLLES;
+  const rendu = handler(Object.assign({type:"keydown", ctrlKey:false, shiftKey:false, altKey:false}, e));
+  const ok = rendu === attenduRendu && (COPIES - c0) === attenduCopies && (COLLES - v0) === attenduColles;
+  console.log((ok ? "OK   " : "RATE ") + nom +
+    " -> rendu=" + rendu + " copies=+" + (COPIES-c0) + " colles=+" + (COLLES-v0));
 }
-const vide = { isCollapsed: true, toString: () => "" };
-const plein = { isCollapsed: false, toString: () => "resultat de ls" };
-cas("selection dans la SORTIE (la panne d'Alex)", plein, {selectionStart:0, selectionEnd:0}, true);
-cas("rien de selectionne, curseur au DEBUT",      vide,  {selectionStart:0, selectionEnd:0}, false);
-cas("rien de selectionne, curseur au milieu",     vide,  {selectionStart:3, selectionEnd:3}, false);
-cas("selection dans le CHAMP",                    vide,  {selectionStart:1, selectionEnd:5}, true);
+//  rendu=false : xterm N'ENVOIE PAS la touche au pty (on l'a traitée).
+//  rendu=true  : xterm l'envoie — c'est ce qu'on veut pour un vrai Ctrl+C.
+cas("Ctrl+C AVEC selection (la panne d'Alex) : copie, rien au shell",
+    {ctrlKey:true, key:"c"}, true,  false, false, 1, 0);
+cas("Ctrl+C SANS selection : descend au pty, donc VRAI SIGINT",
+    {ctrlKey:true, key:"c"}, false, false, true,  0, 0);
+cas("Ctrl+Maj+C : copie toujours, meme sans selection",
+    {ctrlKey:true, shiftKey:true, key:"C"}, false, false, false, 1, 0);
+cas("Ctrl+Maj+V : colle",
+    {ctrlKey:true, shiftKey:true, key:"V"}, false, false, false, 0, 1);
+cas("une frappe ordinaire descend au pty",
+    {key:"a"}, false, false, true, 0, 0);
+//  Le mode prefixe (Ctrl+B) doit garder la main : sinon « Ctrl+B puis D »
+//  taperait un « d » dans le shell en plus de diviser le volet.
+cas("en mode prefixe, rien ne descend au shell",
+    {key:"d"}, false, true, false, 0, 0);
 JS
-		} > "$BANC/sel.js"
-		SORTIE="$(node "$BANC/sel.js" 2>&1)"
-		if grep -q 'RATE' <<< "$SORTIE" ; then
-			non "aSelection() se trompe :"
+		} > "$BANC/touches.js"
+		SORTIE="$(node "$BANC/touches.js" 2>&1)"
+		if grep -q 'RATE' <<< "$SORTIE"; then
+			non "le gestionnaire de touches se trompe :"
 			printf '%s\n' "$SORTIE" | sed 's/^/       /'
 		else
-			ok "aSelection() répond juste sur les quatre cas (dont la panne d'Alex)"
+			ok "le gestionnaire de touches répond juste sur les six cas (dont la panne d'Alex)"
 			printf '%s\n' "$SORTIE" | sed 's/^/       /'
 		fi
 	fi
 fi
 
+#  ═══ LA SÉLECTION VIENT DU TERMINAL, PAS D'AILLEURS ═══
+#  Si la copie retournait lire window.getSelection(), elle rendrait « rien »
+#  dans un terminal : xterm.js dessine son texte sur une toile, la sélection
+#  du navigateur n'y voit pas grand-chose.
+if grep -q 'this.term.getSelection()' "$HTML"; then
+	ok "la copie prend le texte sélectionné DANS le terminal (term.getSelection)"
+else
+	non "la copie ne lit pas la sélection du terminal : elle copierait du vide"
+fi
+
 # =============================================================================
 titre "3. Les autres chemins vers le presse-papier"
 # =============================================================================
-#  Ctrl+Maj+C et Ctrl+Maj+V, les raccourcis habituels des terminaux sous
-#  Linux. Ils ne peuvent pas se contenter de « laisser faire le navigateur » :
-#  dans une vue QtWebEngine, Ctrl+Maj+C n'a aucune action par défaut.
-if grep -q 'e.shiftKey && e.key.toLowerCase() === "c"' "$HTML"; then
-	ok "Ctrl+Maj+C copie la sélection"
-else
-	non "Ctrl+Maj+C n'est pas branché"
-fi
-if grep -q 'e.shiftKey && e.key.toLowerCase() === "v"' "$HTML"; then
-	ok "Ctrl+Maj+V colle"
-else
-	non "Ctrl+Maj+V n'est pas branché"
-fi
-
-#  Ctrl+C (sans Maj) ne doit pas attraper Ctrl+Maj+C au passage.
-if grep -q 'e.ctrlKey && !e.shiftKey && !this.aSelection()' "$HTML"; then
-	ok "la branche « annuler la ligne » exclut explicitement Maj"
-else
-	non "Ctrl+C ne distingue pas Maj : les deux raccourcis se marcheraient dessus"
-fi
-
 #  ═══ LE MENU DU CLIC DROIT RESTE ═══
 #  C'est le chemin qu'utilisent les gens qui ne connaissent pas les
 #  raccourcis — et le seul qui reste si les deux autres tombent.
@@ -241,25 +243,42 @@ else
 	ok "rien ne désactive le menu contextuel — le clic droit garde Copier/Coller"
 fi
 
-#  ═══ LA SORTIE DOIT RESTER SÉLECTIONNABLE ═══
-#  Trois « user-select:none » existent dans le fichier. Ils visent la barre
+#  ═══ LE CLIC DU MILIEU COLLE, COMME PARTOUT SOUS X ═══
+if grep -q 'auxclick' "$HTML" && grep -q 'e.button === 1' "$HTML"; then
+	ok "le clic du milieu colle, comme dans tous les terminaux X"
+else
+	non "le clic du milieu ne colle pas — un geste que tout le monde a dans les doigts"
+fi
+
+#  ═══ L'ÉCRAN DOIT RESTER SÉLECTIONNABLE ═══
+#  Des « user-select:none » existent dans le fichier : ils visent la barre
 #  d'onglets, l'en-tête de fenêtre et la barre d'état — c'est voulu. Aucun ne
-#  doit atteindre .sortie : une sortie non sélectionnable rendrait tout le
-#  reste inutile. MESURÉ : .sortie vit dans .fen-corps, qui est le FRÈRE de
-#  .fen-tete, donc rien n'est hérité.
-MAUVAIS=0
-for SEL in '.sortie' '.fen-corps'; do
-	if awk -v s="$SEL" '
-		$0 ~ "^"s"\\{" { dans = 1 }
-		dans && /user-select[[:space:]]*:[[:space:]]*none/ { trouve = 1 }
-		dans && /^}/ { dans = 0 }
-		END { exit !trouve }
-	' "$HTML"; then
-		non "« user-select: none » s'applique à $SEL — la sortie ne serait pas sélectionnable"
-		MAUVAIS=1
-	fi
-done
-[ "$MAUVAIS" = 0 ] && ok "aucun « user-select: none » n'atteint la sortie"
+#  doit atteindre le corps du volet, sinon on ne pourrait plus rien copier.
+#  ON DÉCOUPE LA RÈGLE SUR SES ACCOLADES, PAS SUR LES FINS DE LIGNE. Une
+#  première version cherchait la fin d'une règle sur une ligne « } » toute
+#  seule — mais « .ecran{position:absolute;inset:0} » tient sur UNE ligne :
+#  le balayage ne s'arrêtait jamais et ramassait les règles suivantes, dont
+#  la barre d'onglets qui a bel et bien un « user-select:none » voulu. Le
+#  contrôle accusait donc un correctif parfaitement correct.
+MAUVAIS="$(python3 - "$HTML" <<'PY'
+import re, sys
+s = open(sys.argv[1], encoding="utf-8").read()
+css = "\n".join(re.findall(r"<style>(.*?)</style>", s, re.S))
+mauvais = []
+for sel in (".ecran", ".fen-corps"):
+    #  Toutes les règles dont le sélecteur EST exactement celui-ci (pas
+    #  « .fen:not(.actif) .ecran », qui est une autre règle).
+    for m in re.finditer(r"(?m)^\s*" + re.escape(sel) + r"\s*\{([^}]*)\}", css):
+        if re.search(r"user-select\s*:\s*none", m.group(1)):
+            mauvais.append(sel)
+print(" ".join(sorted(set(mauvais))))
+PY
+)"
+if [ -n "$MAUVAIS" ]; then
+	non "« user-select: none » s'applique à $MAUVAIS — on ne pourrait plus copier"
+else
+	ok "aucun « user-select: none » n'atteint l'écran du terminal"
+fi
 
 # =============================================================================
 titre "4. L'aide ne ment pas"
@@ -270,13 +289,13 @@ titre "4. L'aide ne ment pas"
 #  de ce contrôle refusait la chaîne « annuler la ligne » — mais la bonne
 #  description la contient (« copier si… sinon annuler la ligne »). On exige
 #  donc ce qui manquait : le mot « copier » dans la ligne de Ctrl+C.
-LIGNE_CTRLC="$(grep -o '\["Ctrl+C","[^"]*"\]' "$HTML" | head -1)"
+LIGNE_CTRLC="$(grep -o '\["Ctrl+C[^"]*", *"[^"]*"\]' "$HTML" | head -1)"
 if [ -z "$LIGNE_CTRLC" ]; then
 	non "aucune entrée « Ctrl+C » dans l'aide"
-elif grep -qi 'copier' <<< "$LIGNE_CTRLC" ; then
-	ok "l'aide dit les deux comportements de Ctrl+C"
+elif grep -qi 'copie' <<< "$LIGNE_CTRLC" && grep -qi 'interrom' <<< "$LIGNE_CTRLC"; then
+	ok "l'aide dit les DEUX comportements de Ctrl+C (copier, et interrompre)"
 else
-	non "l'aide réduit Ctrl+C à $LIGNE_CTRLC — elle ne dit pas qu'il copie"
+	non "l'aide réduit Ctrl+C à $LIGNE_CTRLC — elle doit dire les deux"
 fi
 for R in 'Ctrl+Maj+C' 'Ctrl+Maj+V'; do
 	if grep -q "$R" "$HTML"; then

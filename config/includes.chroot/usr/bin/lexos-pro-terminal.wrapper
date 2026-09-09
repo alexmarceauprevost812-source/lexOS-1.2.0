@@ -5,25 +5,25 @@
 #  ALEX : « je voudrais juste que le terminal principal du système soit le
 #  terminal LexOS Pro ».
 #
-#  ═══ POURQUOI CE PONT EXISTE, ET POURQUOI ON NE BRANCHE PAS LE LANCEUR ═══
-#  L'alternative Debian « x-terminal-emulator » est appelée par des dizaines
-#  de programmes, et presque toujours sous la forme :
+#  ═══ CE PONT NE DÉTOURNE PLUS RIEN ═══
+#  Il a longtemps renvoyé vers le Terminal classique tout ce qui demandait
+#  d'EXÉCUTER une commande (« x-terminal-emulator -e … »), parce que
+#  terminal-pro.py ne lisait aucun argument : brancher l'alternative Debian
+#  dessus aurait ouvert une fenêtre VIDE, en silence, chaque fois qu'un
+#  programme du système demande un terminal pour lancer quelque chose.
 #
-#      x-terminal-emulator -e une-commande
+#  LexOS Pro Terminal a maintenant un vrai pseudo-terminal ET lit ses
+#  arguments — « -e », « -x », « --command », « --working-directory » et
+#  « --hold » (voir lire_arguments() dans /usr/lib/lexos/terminal-pro.py,
+#  qui distingue le « -e "ls -la" » de xfce4-terminal du « -e ls -la » de
+#  la convention Debian). Le détournement n'a donc plus lieu d'être.
 #
-#  Or terminal-pro.py NE TRAITE AUCUN ARGUMENT : la seule occurrence de argv
-#  y est « QApplication(sys.argv) ». Brancher /usr/bin/lexos-pro-terminal
-#  directement sur l'alternative ferait donc ouvrir une fenêtre VIDE, sans
-#  rien lancer, EN SILENCE — à chaque fois qu'un programme du système demande
-#  un terminal pour exécuter quelque chose. C'est exactement le genre de
-#  panne muette que ce dépôt passe son temps à chasser.
-#
-#  ═══ CE QUE FAIT CE PONT, ET JUSQU'À QUAND ═══
-#  Tant que LexOS Pro Terminal n'a pas de vrai pty, tout ce qui demande
-#  d'EXÉCUTER une commande part vers le Terminal classique, qui sait le
-#  faire ; le reste — « ouvre-moi un terminal » — va à LexOS Pro Terminal.
-#  Une fois le pty en place, ce « case » disparaît et le pont traduira
-#  « -e », « -x » et « --working-directory » vers LexOS Pro Terminal lui-même.
+#  ═══ POURQUOI CE FICHIER RESTE, PLUTÔT QUE DE BRANCHER LE LANCEUR ═══
+#  update-alternatives pointe sur CE chemin. Le supprimer pour brancher
+#  /usr/bin/lexos-pro-terminal à sa place obligerait à défaire puis refaire
+#  l'alternative sur toutes les machines déjà installées — et une alternative
+#  cassée, c'est plus aucun terminal pour personne. Un exec d'une ligne coûte
+#  moins cher que ce risque.
 #
 #  ═══ RETOUR EN ARRIÈRE, À GARDER SOUS LA MAIN ═══
 #      sudo update-alternatives --set x-terminal-emulator \
@@ -31,10 +31,4 @@
 #      sed -i 's|^TerminalEmulator=.*|TerminalEmulator=xfce4-terminal|' \
 #           ~/.config/xfce4/helpers.rc
 # =============================================================================
-for a in "$@"; do
-	case "$a" in
-		-e|-x|--command|--command=*|-hold|--hold|--working-directory|--working-directory=*)
-			exec /usr/bin/xfce4-terminal.wrapper "$@" ;;
-	esac
-done
-exec /usr/bin/lexos-pro-terminal
+exec /usr/bin/lexos-pro-terminal "$@"

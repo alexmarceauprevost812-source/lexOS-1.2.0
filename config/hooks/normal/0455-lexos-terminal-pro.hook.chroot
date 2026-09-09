@@ -123,10 +123,69 @@ else
 fi
 echo "[lexos]   helpers.rc du squelette : TerminalEmulator=lexos-pro-terminal"
 
-#  ═══ CE QU'ON NE TOUCHE PAS, ET POURQUOI ═══
-#  Le lanceur 11 du panneau fait « xfce4-terminal --hold -e "lexos capture
-#  video" » : il a besoin d'un VRAI pty et de « --hold », que LexOS Pro
-#  Terminal ne sait pas encore tenir. Il reste sur le Terminal classique
-#  jusqu'à ce que le pty existe.
+#  ═══ xterm.js : LA GRILLE DE CARACTÈRES DU TERMINAL ═══
+#  LexOS Pro Terminal ouvre un VRAI pseudo-terminal. Ce qui en sort n'est
+#  plus une suite de lignes mais un flot d'ordres — place le curseur ici,
+#  efface de là — et il faut une grille de caractères pour les interpréter.
+#  C'est xterm.js, livré par le paquet Debian « node-xterm » (liste
+#  obligatoire lexos-core), JAMAIS par npm : même règle que PySide6 pour le
+#  pont, écrite en toutes lettres dans lexos-pro-terminal.
+#
+#  DES LIENS, PAS DES COPIES : une mise à jour du paquet profite alors
+#  directement à la page, et l'ISO ne porte pas deux fois 300 Ko.
+#
+#  ET ON CHERCHE LES CHEMINS, ON NE LES ÉCRIT PAS EN DUR. « dpkg -L » dit où
+#  le paquet a VRAIMENT posé ses fichiers ; si un jour Debian déplace
+#  /usr/share/nodejs, le hook suit au lieu de poser un lien mort — et un lien
+#  mort ici, c'est un terminal principal qui s'ouvre sur du noir, sans un mot.
+WEB="${LEXOS_TERMINAL_PRO_WEB:-/usr/share/lexos/terminal-pro/web}"
+VENDOR="$WEB/vendor"
+
+trouver_js() {
+	#  1) ce que dpkg dit du paquet ; 2) à défaut, les emplacements connus.
+	for chemin in $(dpkg -L node-xterm 2>/dev/null | grep -E "/$1\$"); do
+		[ -f "$chemin" ] && { printf '%s' "$chemin"; return 0; }
+	done
+	for chemin in /usr/share/nodejs/*/lib/"$1" /usr/share/nodejs/*/css/"$1" \
+	              /usr/lib/nodejs/*/lib/"$1"; do
+		[ -f "$chemin" ] && { printf '%s' "$chemin"; return 0; }
+	done
+	return 1
+}
+
+if [ -d "$WEB" ]; then
+	mkdir -p "$VENDOR"
+	MANQUE=""
+	for FICHIER in xterm.js xterm.css xterm-addon-fit.js; do
+		SRC="$(trouver_js "$FICHIER" || true)"
+		if [ -n "$SRC" ]; then
+			ln -sf "$SRC" "$VENDOR/$FICHIER"
+			echo "[lexos]   vendor/$FICHIER → $SRC"
+		else
+			MANQUE="$MANQUE $FICHIER"
+		fi
+	done
+	if [ -n "$MANQUE" ]; then
+		#  ON ARRÊTE LA CONSTRUCTION. Ce n'est pas une fonction en moins :
+		#  c'est le terminal qui remplace Super+T et l'icône du dock qui
+		#  s'ouvrirait sur un rectangle noir. Une ISO qui a l'air correcte et
+		#  dont le terminal n'affiche rien est pire qu'une construction qui
+		#  échoue en le disant — c'est la leçon des dossiers blancs de
+		#  l'ISO 72 et de l'écran de démarrage disparu.
+		echo "[lexos]   !! introuvable :$MANQUE"
+		echo "[lexos]   !! le paquet node-xterm est-il bien installé ? (liste lexos-core)"
+		exit 1
+	fi
+else
+	echo "[lexos]   !! $WEB absent — vendor/ non posé"
+	exit 1
+fi
+
+#  ═══ LE LANCEUR 11 EST REVENU À LEXOS PRO TERMINAL ═══
+#  Il faisait « xfce4-terminal --hold -e "lexos capture video" », parce qu'il
+#  a besoin d'un VRAI pty et de « --hold ». Les deux existent maintenant :
+#  le pty (pty.fork, une session par volet) et lire_arguments() dans
+#  terminal-pro.py, qui garde le volet ouvert après la commande. Le fichier
+#  .desktop du squelette pointe donc sur lexos-pro-terminal.
 
 echo "[lexos] hook 0455 : ok"

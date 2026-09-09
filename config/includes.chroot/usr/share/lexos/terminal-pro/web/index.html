@@ -3,11 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!--  Une icône vide, exprès : sans elle le moteur réclame /favicon.ico à
+      chaque ouverture et le pont répond 404. La fenêtre est une fenêtre Qt,
+      pas un onglet de navigateur — il n'y a aucune icône à montrer ici, et
+      une erreur dans le journal à chaque lancement du terminal principal
+      finit par masquer les vraies. -->
+<link rel="icon" href="data:,">
 </head>
 <body>
 <title>LexOS Pro Terminal</title>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<!--  ═══ AUCUNE POLICE DISTANTE, ET CE N'EST PAS UN DÉTAIL ═══
+      Cette page allait chercher JetBrains Mono et IBM Plex Sans chez Google
+      à CHAQUE ouverture. Vérifié dans un vrai navigateur, contre ce vrai
+      pont : la requête échoue (ERR_CONNECTION_RESET) — un système installé
+      sur un portable n'a pas toujours le réseau, et l'ISO doit fonctionner
+      hors ligne par principe. Trois conséquences, toutes mauvaises :
+        · le terminal principal du système attend une réponse qui ne vient
+          pas avant de peindre son premier caractère ;
+        · xterm.js MESURE la largeur d'un caractère pour calculer le nombre
+          de colonnes : si la police change en cours de route, la grille est
+          mesurée deux fois et le shell reçoit deux tailles différentes ;
+        · ouvrir un terminal ne devrait rien annoncer à personne.
+      La police vient donc du paquet Debian « fonts-jetbrains-mono » (liste
+      obligatoire lexos-core), comme tout le reste. -->
+
+<!--  ═══ xterm.js — LA GRILLE DE CARACTÈRES, ET D'OÙ ELLE VIENT ═══
+      Le pont ouvre maintenant un VRAI pseudo-terminal : ce qui en sort n'est
+      plus un journal de lignes, c'est un flot d'ordres — place le curseur
+      ici, efface de là à la fin, inverse ces couleurs. Interpréter ça
+      demande une grille de caractères ; l'écrire à la main reviendrait à
+      réécrire xterm.js.
+
+      CES DEUX FICHIERS NE SONT PAS DANS LE DÉPÔT : ce sont des liens posés
+      au moment de construire l'ISO (hook 0455) vers /usr/share/nodejs, que
+      le paquet Debian « node-xterm » installe. Même règle que PySide6 pour
+      le pont : les bibliothèques viennent des paquets de la distribution,
+      jamais de npm ni de « pip --break-system-packages ». -->
+<link rel="stylesheet" href="vendor/xterm.css">
+<script src="vendor/xterm.js"></script>
+<script src="vendor/xterm-addon-fit.js"></script>
 <style>
 :root{
   color-scheme: dark;
@@ -157,71 +191,29 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--orange);ou
 .fen-outils button.danger:hover{background:#3a1414;color:var(--rouge)}
 .fen-outils svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.6}
 
+/*  Le corps ne défile plus lui-même : c'est xterm.js qui gère le
+    défilement, l'historique et la molette, à l'intérieur. « position
+    relative » + « overflow hidden » lui donnent un cadre exact à remplir. */
 .fen-corps{
-  flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
-  padding:8px 10px 12px;
-  font-family:var(--mono);
-  font-size:12.5px;
-  line-height:1.55;
+  flex:1;min-height:0;position:relative;overflow:hidden;
   cursor:text;
 }
-.fen-corps::-webkit-scrollbar{width:9px}
-.fen-corps::-webkit-scrollbar-thumb{background:var(--ligne-vive);border-radius:9px}
-.fen-corps::-webkit-scrollbar-track{background:transparent}
-.fen-corps{scrollbar-width:thin;scrollbar-color:var(--ligne-vive) transparent}
 
-.ligne{white-space:pre-wrap;word-break:break-word}
-.ligne.vide{height:.55em}
-.d{color:var(--orange-clair);font-weight:500}      /* dossier */
-.g{color:var(--vert)}
-.j{color:var(--jaune)}
-.r{color:var(--rouge)}
-.m{color:var(--mauve)}
-.m34{color:#7aa2ff}
-.m35{color:#d68aff}
-.m36{color:#5fd1d6}
-.s0{color:var(--texte-3)}
-.s{color:var(--texte-3)}
-.t2{color:var(--texte-2)}
-.gras{font-weight:700}
-
-.invite{display:flex;align-items:baseline;position:relative}
-.invite .ps1{flex:none;white-space:pre}
-.ps1 .u{color:var(--vert)}
-.ps1 .h{color:var(--orange)}
-.ps1 .p{color:var(--orange-clair)}
-.ps1 .f{color:var(--texte-3)}
-.champ{
-  flex:1;min-width:0;
-  background:transparent;border:0;outline:0;padding:0;margin:0;
-  font:inherit;color:var(--texte);
-  caret-color:transparent;
-}
-.curseur{
-  position:absolute;top:.14em;
-  width:.62em;height:1.15em;
-  background:var(--texte);
-  mix-blend-mode:difference;
-  pointer-events:none;
-}
-.fen:not(.actif) .curseur{background:var(--texte-3);animation:none}
-.curseur.clignote{animation:clign 1.1s steps(1) infinite}
-@keyframes clign{0%,50%{opacity:1}50.01%,100%{opacity:0}}
-.occupe .invite{display:none}
-.travaille{color:var(--texte-3)}
-.travaille::after{content:"▂";animation:pouls .8s steps(1) infinite}
-@keyframes pouls{0%,50%{opacity:1}50.01%,100%{opacity:.2}}
-
-/* bannière */
-.banniere{color:var(--orange);font-weight:500;line-height:1.15;white-space:pre;font-size:11.5px}
-@media (max-width:560px){.banniere{font-size:8px}}
-
-table.tb{border-collapse:collapse;font:inherit}
-table.tb td{padding:0 16px 0 0;vertical-align:top}
-.pill{
-  display:inline-block;padding:0 6px;border-radius:3px;font-size:11px;
-  border:1px solid currentColor;line-height:16px;
-}
+/*  ═══ L'ÉCRAN : xterm.js occupe tout le corps du volet ═══
+    Ce qui a disparu ici, et pourquoi : « .sortie » (le journal de lignes),
+    « .invite », « .champ » (la ligne de saisie maison) et « .curseur »
+    (un rectangle qu'on repositionnait à la main). C'est bash qui tient
+    l'invite et l'historique, et xterm.js qui tient le curseur — les avoir
+    en double donnerait deux curseurs et deux historiques désaccordés. */
+.ecran{position:absolute;inset:0}
+.ecran .xterm{height:100%;padding:6px 8px}
+.ecran .xterm-viewport{background:transparent!important;scrollbar-width:thin;scrollbar-color:var(--ligne-vive) transparent}
+.ecran .xterm-viewport::-webkit-scrollbar{width:9px}
+.ecran .xterm-viewport::-webkit-scrollbar-thumb{background:var(--ligne-vive);border-radius:9px}
+.ecran .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+/*  Le volet qui n'a pas le focus garde un curseur visible mais éteint :
+    sans ça, on ne sait plus lequel des quatre volets reçoit les frappes. */
+.fen:not(.actif) .ecran{opacity:.82}
 
 /* ---------- barre d'état ---------- */
 #etat{
@@ -266,7 +258,7 @@ table.tb td{padding:0 16px 0 0;vertical-align:top}
     <span class="bloc"><span id="backend-ind" class="absent">démo — sans backend</span></span>
     <span class="bloc pousse cacher-mobile"><kbd>Ctrl+B</kbd> <span>D</span> diviser à droite</span>
     <span class="bloc cacher-mobile"><kbd>Ctrl+B</kbd> <span>B</span> diviser en bas</span>
-    <span class="bloc cacher-mobile"><kbd>Ctrl+PgDn</kbd> page suivante</span>
+    <span class="bloc cacher-mobile"><kbd>Ctrl+B</kbd> <span>?</span> aide</span>
     <span class="sep-v cacher-mobile"></span>
     <span class="bloc"><span id="horloge">--:--</span></span>
   </div>
@@ -279,68 +271,62 @@ table.tb td{padding:0 16px 0 0;vertical-align:top}
 /* =========================================================
    1. Le pont vers le vrai système — lexos-terminal-pro.py
    ========================================================= */
-/*  ═══ CE QUE CETTE FENÊTRE PEUT FAIRE, ET CE QU'ELLE NE PEUT PAS ═══
-    Ce n'est pas un émulateur de terminal : pas de grille de caractères, pas
-    de curseur qu'on déplace, pas d'écran qu'on efface pour le redessiner.
-    C'est un journal qui défile. Les commandes SIMPLES (qui lisent, écrivent,
-    impriment et se terminent) marchent très bien. Les programmes PLEIN
-    ÉCRAN (vim, nano, htop, less, man…) ne peuvent pas s'afficher ici — le
-    pont les reconnaît et le dit, plutôt que de montrer un carnage de codes
-    d'échappement. Voir /usr/lib/lexos/terminal-pro.py pour le détail. */
+/*  ═══ LE PONT : TROIS ROUTES, UN VRAI PSEUDO-TERMINAL ═══
+    ALEX : « j'ai beau essayer le terminal LexOS Pro, je suis même pas
+    capable de lancer claude ». Ce n'était pas un bogue mais l'architecture :
+    chaque commande partait dans un bash jetable, entrée fermée, sortie
+    ramassée à la fin, tué au bout de 25 secondes — et sans pseudo-terminal,
+    donc isatty() faux, donc claude refusait de démarrer.
+
+    Maintenant, chaque volet a SON shell, vivant, derrière un vrai pty :
+
+      GET  /api/flux?fen=…   la sortie, en flux continu (SSE)
+      POST /api/saisie       les frappes, telles quelles
+      POST /api/taille       colonnes × lignes (TIOCSWINSZ)
+      POST /api/fermer       raccroche le shell et tout ce qu'il a lancé
+
+    LA SÉCURITÉ N'A PAS BOUGÉ : 127.0.0.1 seulement, le jeton tiré au hasard
+    exigé dans l'en-tête X-Lexos-Jeton de CHAQUE requête, l'origine vérifiée.
+    Le raisonnement est écrit en tête de /usr/lib/lexos/terminal-pro.py. */
 const _params = new URLSearchParams(location.search);
 const _port  = _params.get("port");
 const _jeton = _params.get("jeton");
 
+//  xterm.js s'installe sur « window.Terminal ». Or CE fichier appelle déjà
+//  « Terminal » son gestionnaire d'onglets et de divisions, et son « const »
+//  masque le global dans toute cette portée. On capture donc la classe sous
+//  un autre nom : « window.Terminal » est une lecture de PROPRIÉTÉ, que le
+//  masquage de l'identifiant ne touche pas.
+const XTerm = window.Terminal;
+const XFit  = window.FitAddon && window.FitAddon.FitAddon;
+
+const ENTETES = { "Content-Type": "application/json", "X-Lexos-Jeton": _jeton || "" };
+
+//  « ~ » veut dire « le dossier personnel, décidé par le pont ». La page ne
+//  demande plus $HOME au démarrage : c'est le shell qui sait où il est, et
+//  c'est lui qui l'écrit dans son invite. Une seule source de vérité.
 let ACCUEIL = "~";
 
-//  Le serveur rend déjà du HTML sûr (couleurs comprises, contenu échappé) :
-//  jamais besoin de le ré-échapper. Pour retrouver du texte BRUT (un nom de
-//  fichier obtenu par la complétion, par exemple), on repasse par le DOM —
-//  c'est l'inverse fiable de l'échappement HTML, sans réimplémenter les
-//  entités à la main.
-function desEchapper(html){
-  const d = document.createElement("div");
-  d.innerHTML = html;
-  return d.textContent;
-}
-
-async function appelBackend(cmd, ctx){
+async function poste(route, corps){
   if(!_port || !_jeton) return null;
   try{
-    const r = await fetch("/api/exec", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Lexos-Jeton": _jeton },
-      body: JSON.stringify({ cmd, cwd: ctx.cwd })
-    });
-    const j = await r.json();
-    if(!j || j.ok !== true){
-      return { sortie: '<span class="r">' + esc((j && j.erreur) || "le pont local ne répond pas") + '</span>', cwd: ctx.cwd };
-    }
-    return { sortie: j.sortie || "", cwd: j.cwd || ctx.cwd };
-  } catch(e){
-    return { sortie: '<span class="r">le pont local ne répond pas — relance lexos-pro-terminal</span>', cwd: ctx.cwd };
-  }
+    const r = await fetch(route, {method:"POST", headers:ENTETES, body:JSON.stringify(corps)});
+    return await r.json();
+  }catch(e){ return null; }
 }
 
 /* =========================================================
    2. Utilitaires d'affichage
    ========================================================= */
+//  « esc » sert encore au seul endroit où l'on écrit du HTML : le message
+//  de secours quand xterm.js manque. Tout le reste passe par le terminal,
+//  qui ne connaît que des octets — donc plus rien à échapper.
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-function joli(chemin){
-  if(!chemin) return chemin;
-  if(chemin === ACCUEIL) return "~";
-  if(ACCUEIL !== "~" && chemin.startsWith(ACCUEIL + "/")) return "~" + chemin.slice(ACCUEIL.length);
-  return chemin;
-}
-//  Découpage minimal, pour lire le PREMIER mot d'une ligne (choisir entre un
-//  built-in de fenêtre et le vrai bash) — jamais pour réinterpréter la ligne
-//  elle-même : celle-ci part ENTIÈRE et TELLE QUELLE vers bash, qui sait déjà
-//  parser guillemets, pipes et « && » bien mieux qu'un réimplémentation ici.
-function premierMot(ligne){
-  const m = ligne.match(/^\s*(\S+)/);
-  return m ? m[1] : "";
-}
+
+//  CE QUI A DISPARU ICI : « joli() » raccourcissait le dossier courant en
+//  « ~ » pour l'invite que la page dessinait elle-même, et « sleep() »
+//  cadençait l'affichage ligne par ligne. La page ne dessine plus d'invite
+//  et n'affiche plus rien à son rythme : bash fait les deux.
 
 /* =========================================================
    3. Fenêtre (pane)
@@ -357,12 +343,9 @@ class Fenetre {
   constructor(cwd){
     this.id = ++compteurFen;
     this.cwd = cwd || ACCUEIL;
-    this.hist = chargerHistorique();
-    this.hi = this.hist.length;
-    this.brouillon = "";
-    this.occupe = false;
-    this.annule = false;
+    this.fermee = false;
     this.construire();
+    this.brancher();
   }
   construire(){
     const el = document.createElement("div");
@@ -379,21 +362,10 @@ class Fenetre {
           '<button data-a="fermer" class="danger" title="Fermer (Ctrl+B X)" aria-label="Fermer la fenêtre">'+ICONES.x+'</button>'+
         '</span>'+
       '</div>'+
-      '<div class="fen-corps">'+
-        '<div class="sortie"></div>'+
-        '<div class="invite">'+
-          '<span class="ps1"></span>'+
-          '<input class="champ" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="ligne de commande">'+
-          '<span class="curseur clignote"></span>'+
-        '</div>'+
-      '</div>';
+      '<div class="fen-corps"><div class="ecran"></div></div>';
     this.el = el;
     this.corps  = el.querySelector(".fen-corps");
-    this.sortie = el.querySelector(".sortie");
-    this.inviteEl = el.querySelector(".invite");
-    this.ps1El = el.querySelector(".ps1");
-    this.champ = el.querySelector(".champ");
-    this.curseur = el.querySelector(".curseur");
+    this.hote   = el.querySelector(".ecran");
 
     el.querySelector(".fen-outils").addEventListener("mousedown", e => e.stopPropagation());
     el.querySelector(".fen-outils").addEventListener("click", e => {
@@ -407,121 +379,211 @@ class Fenetre {
       if(a === "fermer") Terminal.fermerFenetre();
     });
     el.addEventListener("mousedown", () => Terminal.activer(this));
-    this.corps.addEventListener("click", () => {
-      const sel = window.getSelection();
-      if(sel && String(sel).length) return;
-      this.focus();
-    });
-    this.champ.addEventListener("input", () => this.majCurseur());
-    this.champ.addEventListener("keyup", () => this.majCurseur());
-    this.champ.addEventListener("click", () => this.majCurseur());
-    this.champ.addEventListener("keydown", e => this.touche(e));
-    this.champ.addEventListener("focus", () => Terminal.activer(this));
-    this.majPS1();
+    this.majTitre();
   }
 
-  /* --- affichage --- */
-  ecrire(html, cls){
-    const d = document.createElement("div");
-    d.className = "ligne" + (cls ? " " + cls : "");
-    d.innerHTML = html === "" ? "&nbsp;" : html;
-    this.sortie.appendChild(d);
-    this.bas();
-    return d;
-  }
-  txt(s, cls){ return this.ecrire(esc(s), cls); }
-  saut(){ const d = document.createElement("div"); d.className = "ligne vide"; this.sortie.appendChild(d); }
-  bas(){ this.corps.scrollTop = this.corps.scrollHeight; }
-
-  majPS1(){
-    this.ps1El.innerHTML =
-      '<span class="u">' + esc(Terminal.utilisateur) + '</span><span class="f">@</span><span class="h">lexos</span>' +
-      '<span class="f">:</span><span class="p">' + esc(joli(this.cwd)) + '</span><span class="f">$</span>&nbsp;';
-    const t = this.el.querySelector(".chemin");
-    t.textContent = "fen " + this.id + " · " + joli(this.cwd);
-    requestAnimationFrame(() => this.majCurseur());
-    Terminal.majEtat();
-  }
-  majCurseur(){
-    const cw = Terminal.largeurCar(this.champ);
-    const dep = this.champ.selectionStart ?? this.champ.value.length;
-    const gauche = this.ps1El.offsetWidth + dep * cw - this.champ.scrollLeft;
-    this.curseur.style.left = Math.max(0, gauche) + "px";
-    this.curseur.style.width = Math.max(6, cw) + "px";
-    this.curseur.classList.remove("clignote");
-    clearTimeout(this._tc);
-    this._tc = setTimeout(() => this.curseur.classList.add("clignote"), 420);
-  }
-  focus(){ if(!this.occupe) this.champ.focus({preventScroll:true}); this.bas(); }
-
-  /* --- Y a-t-il du texte sélectionné, N'IMPORTE OÙ dans la page ? ---
-     ALEX : le copier-coller ne marchait pas. La cause n'était pas le
-     presse-papier mais CETTE question, mal posée : le gestionnaire de Ctrl+C
-     ne regardait que la sélection DANS LE CHAMP DE SAISIE. Quand on
-     sélectionne du texte dans la SORTIE — le cas normal, on veut copier le
-     résultat d'une commande — la condition restait vraie, preventDefault()
-     s'exécutait, et la copie était avalée : on obtenait « ^C » à la place du
-     texte dans le presse-papier.
-
-     ET L'ANCIEN TEST ÉTAIT FAUX MÊME POUR LE CHAMP : il niait selectionEnd,
-     qui vaut 0 quand le curseur est au DÉBUT sans rien sélectionner — la
-     condition se trompait donc déjà dans ce cas-là. Une sélection se mesure
-     en COMPARANT début et fin, pas en testant la nullité de la fin.
-
-     LE MOTIF FAUTIF N'EST PAS RECOPIÉ ICI, EXPRÈS. Le banc interdit son
-     écriture dans ce fichier ; un commentaire qui le citerait déclencherait
-     le garde-fou pour rien — ou pire, apprendrait à l'émousser pour le faire
-     taire. C'est la même règle que pour le triplet d'accent dans la feuille
-     du panneau. */
-  aSelection(){
-    const sel = window.getSelection();
-    if(sel && !sel.isCollapsed && String(sel).length > 0) return true;
-    return this.champ.selectionStart !== this.champ.selectionEnd;
-  }
-
-  /* --- clavier --- */
-  touche(e){
-    if(Terminal.prefixe) return;             /* le mode préfixe a la priorité */
-    if(e.key === "Enter"){
-      e.preventDefault();
-      const v = this.champ.value;
-      this.champ.value = "";
-      this.soumettre(v);
-    } else if(e.key === "ArrowUp"){
-      e.preventDefault();
-      if(this.hi === this.hist.length) this.brouillon = this.champ.value;
-      if(this.hi > 0){ this.hi--; this.champ.value = this.hist[this.hi]; this.finLigne(); }
-    } else if(e.key === "ArrowDown"){
-      e.preventDefault();
-      if(this.hi < this.hist.length){
-        this.hi++;
-        this.champ.value = this.hi === this.hist.length ? this.brouillon : this.hist[this.hi];
-        this.finLigne();
-      }
-    } else if(e.key === "Tab"){
-      e.preventDefault(); this.completer();
-    } else if(e.key === "l" && e.ctrlKey){
-      e.preventDefault(); this.effacer();
-    } else if(e.key === "c" && e.ctrlKey && !e.shiftKey && !this.aSelection()){
-      /*  Pas de sélection : Ctrl+C ANNULE LA LIGNE. C'est un terminal, ce
-          comportement doit rester — et c'est celui de GNOME Console et de
-          xfce4-terminal : Ctrl+C copie s'il y a une sélection, interrompt
-          sinon. Quand il y a une sélection, on ne fait RIEN : ni
-          preventDefault, ni « ^C ». On laisse le navigateur copier. */
-      e.preventDefault();
-      this.ecrire(this.ps1El.innerHTML + esc(this.champ.value) + '<span class="r">^C</span>');
-      this.champ.value = ""; this.annule = true; this.majCurseur();
-    } else if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c"){
-      /*  Les raccourcis habituels des terminaux sous Linux. Ils ne se
-          contentent pas de « laisser faire le navigateur » : dans une vue
-          QtWebEngine, Ctrl+Maj+C n'a aucune action par défaut. On copie donc
-          nous-mêmes. */
-      e.preventDefault(); this.copier();
-    } else if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "v"){
-      e.preventDefault(); this.coller();
-    } else if(e.key === "u" && e.ctrlKey){
-      e.preventDefault(); this.champ.value = ""; this.majCurseur();
+  /* --- L'ÉCRAN : xterm.js, pas un journal de lignes -------------------
+     Ce qui a disparu ici : « ecrire/txt/saut » (fabriquer des <div> de
+     sortie), « majPS1/majCurseur » (dessiner une invite et un curseur à la
+     main), « touche/completer/soumettre/executer » (réimplémenter une ligne
+     de commande) et « chargerHistorique/sauverHistorique ». Tout ça existe
+     déjà, en mieux : l'invite, l'historique et la complétion sont à bash ;
+     le curseur, la grille et le défilement sont à xterm.js. */
+  brancher(){
+    if(!XTerm){
+      //  Pas de bibliothèque : on le DIT dans le volet, on ne laisse pas un
+      //  rectangle noir muet. Le lanceur bascule normalement sur le Terminal
+      //  classique avant d'en arriver là — ce message est le dernier filet.
+      this.hote.innerHTML =
+        '<div style="padding:14px;font-family:var(--mono);font-size:12.5px;color:var(--rouge)">'+
+        'xterm.js est introuvable — l\'affichage du terminal ne peut pas démarrer.'+
+        '<div style="color:var(--texte-3);margin-top:6px">sudo apt install node-xterm, '+
+        'puis relance lexos-pro-terminal.</div></div>';
+      return;
     }
+    this.term = new XTerm({
+      allowProposedApi: true,
+      cursorBlink: true,
+      //  « bar » plutôt que le bloc plein : c'est le curseur de la plupart
+      //  des terminaux modernes, et il ne cache pas le caractère dessous.
+      cursorStyle: "bar",
+      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim()
+                  || "monospace",
+      fontSize: 12.5,
+      lineHeight: 1.2,
+      //  Un historique généreux : c'est lui qui remplace le journal qu'on
+      //  faisait défiler à la main, et c'est xterm.js qui le tient.
+      scrollback: 20000,
+      //  Le collage au clic du milieu, comme dans tous les terminaux X.
+      rightClickSelectsWord: true,
+      theme: paletteXterm()
+    });
+    if(XFit){ this.ajust = new XFit(); this.term.loadAddon(this.ajust); }
+    this.term.open(this.hote);
+
+    //  ═══ COPIER-COLLER ═══
+    //  ALEX y tenait, et xterm.js ne le fait pas tout seul : il intercepte
+    //  les frappes AVANT le navigateur. Ctrl+Maj+C/V sont les raccourcis
+    //  habituels sous Linux ; Ctrl+C sans sélection doit rester
+    //  l'INTERRUPTION (c'est un terminal), et copier seulement quand il y a
+    //  quelque chose de sélectionné — exactement ce que font GNOME Console
+    //  et xfce4-terminal.
+    this.term.attachCustomKeyEventHandler(e => {
+      if(e.type !== "keydown") return true;
+      if(Terminal.prefixe) return false;          /* Ctrl+B a la priorité */
+      if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c"){ this.copier(); return false; }
+      if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "v"){ this.coller(); return false; }
+      if(e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "c"
+         && this.term.hasSelection()){ this.copier(); return false; }
+      return true;
+    });
+    //  Le clic du milieu colle la sélection, comme partout sous X.
+    this.hote.addEventListener("auxclick", e => {
+      if(e.button === 1){ e.preventDefault(); this.coller(); }
+    });
+
+    this.term.onData(d => this.envoyer(d));
+    //  onBinary porte les octets bruts que le mode « souris » de certains
+    //  programmes émet : les oublier ferait sauter le clic dans htop et vim.
+    this.term.onBinary(d => this.envoyer(d));
+    this.term.onTitleChange(t => { this.titre = t; this.majTitre(); });
+
+    //  ═══ LA TAILLE ═══
+    //  ResizeObserver plutôt que l'événement « resize » de la fenêtre : un
+    //  volet change aussi de taille quand on DÉPLACE UN SÉPARATEUR ou qu'on
+    //  zoome un autre volet, sans que la fenêtre bouge d'un pixel. Sans ça,
+    //  htop dessinerait à l'ancienne largeur (validation n° 7).
+    this._ro = new ResizeObserver(() => this.ajuster());
+    this._ro.observe(this.corps);
+
+    this.ouvrirFlux();
+  }
+
+  ajuster(){
+    if(!this.term || !this.ajust || this.fermee) return;
+    if(this.corps.clientWidth < 20 || this.corps.clientHeight < 20) return;
+    try{ this.ajust.fit(); }catch(e){ return; }
+    const c = this.term.cols, l = this.term.rows;
+    if(c === this._c && l === this._l) return;
+    this._c = c; this._l = l;
+    //  Avant que le flux réponde, il n'y a pas encore de session à
+    //  redimensionner : c'est le paramètre « colonnes » de /api/flux qui
+    //  porte la taille de départ. Poster ici donnerait un 404 silencieux.
+    if(this.pret) poste("/api/taille", {fen:String(this.id), colonnes:c, lignes:l});
+  }
+
+  /* --- Les frappes ------------------------------------------------------
+     ═══ UNE SEULE ÉCRITURE EN VOL À LA FOIS, ET RIEN NE SE PERD ═══
+     MESURÉ dans un vrai navigateur, pas déduit : en tapant « echo tres tot »
+     dès l'ouverture de la fenêtre, le shell recevait « trse tot ». Deux
+     défauts distincts, et chacun suffit à rendre le terminal inutilisable
+     par moments :
+
+       1. CE QUI EST TAPÉ TROP TÔT ÉTAIT PERDU. Cette fonction postait vers
+          /api/saisie sans savoir si la session existait ; tant que le flux
+          n'avait pas répondu, le pont répondait 404 et les caractères
+          disparaissaient EN SILENCE. Quelqu'un qui ouvre le terminal avec
+          Super+T et se met à taper tout de suite — le geste le plus banal
+          qui soit — perdait le début de sa première commande.
+
+       2. CE QUI EST TAPÉ VITE ARRIVAIT DANS LE DÉSORDRE. Chaque touche
+          partait dans SA propre requête, sans attendre la précédente : deux
+          requêtes en vol en même temps, et le serveur les traite dans
+          l'ordre où elles arrivent, pas dans celui où on a frappé. D'où le
+          « tres » devenu « trse ». Coller un bloc de texte, ou simplement
+          taper vite, suffisait.
+
+     Le correctif est le même pour les deux : ce qu'on tape s'accumule, et
+     un seul envoi est en vol à la fois. Ce qui est frappé pendant qu'une
+     requête voyage part avec la suivante, d'un bloc — donc moins de
+     requêtes, et l'ordre garanti par construction. */
+  envoyer(texte){
+    if(this.fermee || !texte) return;
+    this.enAttente = (this.enAttente || "") + texte;
+    this.verser();
+  }
+
+  async verser(){
+    //  Pas encore de session (le flux n'a pas répondu) : on garde tout. Le
+    //  versement sera relancé dès que /api/flux répond.
+    if(this._enVol || !this.pret || this.fermee) return;
+    this._enVol = true;
+    try{
+      while(this.enAttente){
+        const bloc = this.enAttente;
+        this.enAttente = "";
+        await poste("/api/saisie", {fen:String(this.id), texte:bloc});
+      }
+    } finally {
+      this._enVol = false;
+    }
+  }
+
+  /* --- Le flux de sortie ------------------------------------------------
+     fetch() + getReader(), PAS EventSource : EventSource ne sait pas poser
+     d'en-tête personnalisé, il ne pourrait donc pas porter le jeton — et
+     sans jeton le pont répond 403, à raison. On découpe donc les événements
+     SSE nous-mêmes, ce qui est trois lignes.
+
+     Les données arrivent en base64 : ce qui sort d'un pty est un flot
+     d'octets lu par blocs, et un bloc peut couper un caractère accentué en
+     deux. Le base64 les transporte intacts ; c'est le décodeur UTF-8 à état
+     de xterm.js qui recolle les morceaux. */
+  async ouvrirFlux(){
+    if(!_port || !_jeton){
+      this.term.write("\r\n\x1b[33m! cette page a été ouverte sans le pont local\x1b[0m\r\n" +
+                      "\x1b[90m  lance \x1b[0mlexos-pro-terminal\x1b[90m pour obtenir un vrai terminal.\x1b[0m\r\n");
+      return;
+    }
+    //  On ajuste AVANT d'ouvrir le flux : le shell doit naître à la bonne
+    //  taille, sinon sa première invite et sa bannière sont dessinées à 80
+    //  colonnes puis reflowées de travers.
+    try{ if(this.ajust) this.ajust.fit(); }catch(e){}
+    const q = new URLSearchParams({
+      fen: String(this.id), cwd: this.cwd === "~" ? "" : this.cwd,
+      colonnes: String(this.term.cols), lignes: String(this.term.rows)
+    });
+    let r;
+    try{
+      r = await fetch("/api/flux?" + q.toString(), {headers:{"X-Lexos-Jeton":_jeton}});
+    }catch(e){ r = null; }
+    if(!r || !r.ok || !r.body){
+      this.term.write("\r\n\x1b[31m— le pont local ne répond pas ; relance lexos-pro-terminal\x1b[0m\r\n");
+      return;
+    }
+    this.pret = true;
+    //  Le flux répond : la session existe. Ce qui a été tapé en attendant
+    //  part MAINTENANT, dans l'ordre, avant toute nouvelle frappe.
+    this.verser();
+    Terminal.majEtat();
+    const lecteur = r.body.getReader();
+    const dec = new TextDecoder();
+    let reste = "";
+    for(;;){
+      let bloc;
+      try{ bloc = await lecteur.read(); }catch(e){ break; }
+      if(bloc.done) break;
+      reste += dec.decode(bloc.value, {stream:true});
+      //  Un événement SSE se termine par une ligne vide. Ce qui suit le
+      //  dernier séparateur est un message incomplet : on le garde pour le
+      //  tour suivant.
+      const parts = reste.split("\n\n");
+      reste = parts.pop();
+      for(const ev of parts){
+        if(ev.startsWith("event: fin")){ this.finSession(); return; }
+        for(const ligne of ev.split("\n")){
+          if(!ligne.startsWith("data: ")) continue;      /* « : … » = maintien */
+          this.term.write(base64Octets(ligne.slice(6)));
+        }
+      }
+    }
+    if(!this.fermee) this.finSession();
+  }
+
+  finSession(){
+    this.pret = false;
+    if(this.fermee || !this.term) return;
+    this.term.write("\r\n\x1b[90m— session terminée. Ctrl+B puis X pour fermer ce volet.\x1b[0m\r\n");
   }
 
   /* --- Presse-papier ---------------------------------------------------
@@ -530,9 +592,10 @@ class Fenetre {
      de QtWebEngine ; document.execCommand est obsolète et marche encore
      partout. Sans le repli, le raccourci serait muet sur certaines versions
      — et un raccourci muet, on croit que c'est le presse-papier qui est
-     cassé. */
+     cassé. Côté Qt, DEUX réglages sont nécessaires (écriture ET lecture) :
+     voir terminal-pro.py. */
   async copier(){
-    const texte = String(window.getSelection() || "");
+    const texte = this.term ? this.term.getSelection() : "";
     if(!texte) return;
     try{
       if(navigator.clipboard && navigator.clipboard.writeText){
@@ -548,110 +611,58 @@ class Fenetre {
         texte = await navigator.clipboard.readText();
       }
     }catch(_){ texte = ""; }
-    if(!texte){
-      /*  Rien lu : on laisse le collage natif faire son travail (menu du
-          clic droit, Ctrl+V). Mieux vaut ne rien faire que d'effacer la
-          ligne en croyant coller. */
-      try{ document.execCommand("paste"); }catch(_){}
-      return;
-    }
-    /*  On insère AU CURSEUR, pas à la fin : coller au milieu d'une commande
-        déjà tapée est le cas courant. */
-    const d = this.champ.selectionStart ?? this.champ.value.length;
-    const f = this.champ.selectionEnd ?? d;
-    const v = this.champ.value;
-    this.champ.value = v.slice(0, d) + texte + v.slice(f);
-    const pos = d + texte.length;
-    this.champ.setSelectionRange(pos, pos);
-    this.majCurseur();
+    //  Rien lu : mieux vaut ne rien envoyer que d'envoyer du vide au shell.
+    if(texte) this.envoyer(texte);
   }
-  finLigne(){
-    const n = this.champ.value.length;
-    requestAnimationFrame(() => { this.champ.setSelectionRange(n,n); this.majCurseur(); });
-  }
-  async completer(){
-    const v = this.champ.value;
-    const args = v.split(/\s+/);
-    const frag = args[args.length-1] || "";
-    if(args.length <= 1){
-      const choix = Object.keys(COMMANDES).filter(c => c.startsWith(frag));
-      if(choix.length === 1){ this.champ.value = choix[0] + " "; this.finLigne(); }
-      else if(choix.length > 1) this.ecrire(this.ps1El.innerHTML + esc(v)) &&
-        this.ecrire(choix.map(c => '<span class="j">'+esc(c)+"</span>").join("   "));
-      return;
-    }
-    //  ═══ COMPLÉTION SUR LE VRAI SYSTÈME DE FICHIERS ═══
-    //  Aucune route à part : on réutilise /api/exec avec « compgen », le
-    //  même outil que bash emploie lui-même pour Tab. C'est bash qui
-    //  connaît les vrais fichiers, jamais une liste recopiée ici.
-    if(!Terminal.backend) return;
-    const rep = await Terminal.backend(
-      "compgen -A file -- " + JSON.stringify(frag).replace(/'/g,"'\\''"),
-      {cwd:this.cwd, fenetre:this.id});
-    if(!rep) return;
-    const choix = desEchapper(rep.sortie).split("\n").map(s => s.trim()).filter(Boolean);
-    if(choix.length === 1){
-      args[args.length-1] = choix[0];
-      this.champ.value = args.join(" ");
-      this.finLigne();
-    } else if(choix.length > 1){
-      this.ecrire(this.ps1El.innerHTML + esc(v));
-      this.ecrire(choix.map(c => '<span class="t2">'+esc(c)+"</span>").join("   "));
-    }
-  }
-  effacer(){ this.sortie.innerHTML = ""; this.bas(); }
 
-  /* --- exécution --- */
-  async soumettre(ligne){
-    this.ecrire(this.ps1El.innerHTML + esc(ligne));
-    const brut = ligne.trim();
-    if(brut){
-      this.hist.push(brut); sauverHistorique(this.hist);
-    }
-    this.hi = this.hist.length; this.brouillon = "";
-    if(!brut){ this.bas(); return; }
-
-    this.occupe = true; this.annule = false;
-    this.el.classList.add("occupe");
-    const attente = this.ecrire('<span class="travaille"></span>');
-    try {
-      await this.executer(brut);
-    } catch(err){
-      this.txt("lexsh : erreur interne — " + err.message, "r");
-    }
-    attente.remove();
-    this.occupe = false;
-    this.el.classList.remove("occupe");
-    this.majPS1();
-    if(Terminal.active === this) this.focus();
-    this.bas();
+  majTitre(){
+    const t = this.el.querySelector(".chemin");
+    t.textContent = "fen " + this.id + (this.titre ? " · " + this.titre : "");
+    Terminal.majEtat();
   }
-  async executer(brut){
-    const nom = premierMot(brut);
-    const cmd = COMMANDES[nom];
-    if(cmd){ await cmd.run(this, brut.trim().slice(nom.length).trim().split(/\s+/).filter(Boolean)); return; }
-    if(!Terminal.backend){
-      this.ecrire('<span class="r">lexsh : pas de backend branché</span>' +
-                  '<span class="s"> — ouvre cette page avec </span>' +
-                  '<span class="j">lexos-pro-terminal</span>' +
-                  '<span class="s">, pas directement dans un onglet de navigateur.</span>');
-      return;
-    }
-    const rep = await Terminal.backend(brut, {cwd:this.cwd, fenetre:this.id});
-    if(!rep) return;
-    if(rep.sortie) this.ecrire(rep.sortie);
-    if(typeof rep.cwd === "string" && rep.cwd && rep.cwd !== this.cwd){
-      this.cwd = rep.cwd;
-    }
+
+  focus(){ if(this.term) this.term.focus(); }
+
+  /* --- Fermeture -------------------------------------------------------
+     RACCROCHER LE SHELL EST OBLIGATOIRE, pas une politesse : sans cet appel,
+     fermer un onglet pendant qu'un htop tourne laisserait le programme
+     vivant, sans plus aucune fenêtre pour l'atteindre. */
+  detruire(){
+    if(this.fermee) return;
+    this.fermee = true;
+    if(this._ro){ try{ this._ro.disconnect(); }catch(e){} }
+    poste("/api/fermer", {fen:String(this.id)});
+    if(this.term){ try{ this.term.dispose(); }catch(e){} }
   }
 }
 
-function chargerHistorique(){
-  try { return JSON.parse(localStorage.getItem("lexos.hist") || "[]").slice(-300); }
-  catch(e){ return []; }
+/*  La palette de xterm.js, tirée des MÊMES variables CSS que le reste de la
+    fenêtre : deux jeux de couleurs à tenir en accord finiraient par diverger
+    — c'est exactement ce qui est arrivé au fond du bureau et à ui.css. */
+function paletteXterm(){
+  const v = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  return {
+    background: v("--noir") || "#000000",
+    foreground: v("--texte") || "#ffffff",
+    cursor: v("--orange") || "#ff6a1a",
+    cursorAccent: v("--noir") || "#000000",
+    selectionBackground: "rgba(255,106,26,.32)",
+    black: "#1a1512", red: v("--rouge"), green: v("--vert"), yellow: v("--jaune"),
+    blue: "#7aa2ff", magenta: "#d68aff", cyan: "#5fd1d6", white: v("--texte-2"),
+    brightBlack: v("--texte-3"), brightRed: v("--rouge"), brightGreen: v("--vert"),
+    brightYellow: v("--jaune"), brightBlue: "#7aa2ff", brightMagenta: "#d68aff",
+    brightCyan: "#5fd1d6", brightWhite: v("--texte")
+  };
 }
-function sauverHistorique(h){
-  try { localStorage.setItem("lexos.hist", JSON.stringify(h.slice(-300))); } catch(e){}
+
+//  atob rend une chaîne dont chaque caractère porte UN octet : on la
+//  retransforme en octets pour que xterm.js fasse lui-même le décodage
+//  UTF-8. Passer par une chaîne JavaScript casserait les accents.
+function base64Octets(b64){
+  const brut = atob(b64);
+  const o = new Uint8Array(brut.length);
+  for(let i = 0; i < brut.length; i++) o[i] = brut.charCodeAt(i);
+  return o;
 }
 
 /* =========================================================
@@ -729,37 +740,29 @@ class Onglet {
    ========================================================= */
 const Terminal = {
   onglets: [], iOnglet: 0, active: null,
-  backend: null, prefixe: false, utilisateur: "lexos",
-  _cw: null,
+  backend: false, prefixe: false, utilisateur: "lexos",
 
   init(){
     this.travail = document.getElementById("travail");
     this.barre   = document.getElementById("onglets");
     document.getElementById("plus").addEventListener("click", () => this.nouvelOnglet());
     window.addEventListener("keydown", e => this.clavier(e), true);
-    this.nouvelOnglet(true);
+    this.nouvelOnglet();
     setInterval(() => this.horloge(), 1000); this.horloge();
+    //  La police d'écran arrive après le premier rendu : quand elle est là,
+    //  la largeur d'un caractère change, donc le nombre de colonnes aussi.
+    //  Sans ce recalcul, le shell resterait persuadé d'avoir la largeur
+    //  mesurée avec la police de repli.
     if(document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
-      this._cw = null; this.onglets.forEach(o => o.fenetres().forEach(f => f.majCurseur()));
+      this.onglets.forEach(o => o.fenetres().forEach(f => f.ajuster()));
     });
-    window.addEventListener("resize", () => this.active && this.active.majCurseur());
-  },
-
-  largeurCar(champ){
-    if(this._cw) return this._cw;
-    const probe = document.createElement("span");
-    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
-    probe.style.font = getComputedStyle(champ).font;
-    probe.textContent = "0".repeat(100);
-    document.body.appendChild(probe);
-    this._cw = probe.getBoundingClientRect().width / 100;
-    probe.remove();
-    return this._cw;
+    //  Chaque volet observe déjà SA taille (ResizeObserver), ce qui couvre
+    //  aussi les séparateurs déplacés et le zoom — rien à rebrancher ici.
   },
 
   get onglet(){ return this.onglets[this.iOnglet]; },
 
-  nouvelOnglet(premier){
+  nouvelOnglet(){
     const fen = new Fenetre(ACCUEIL);
     const ong = new Onglet(fen);
     this.onglets.push(ong);
@@ -769,11 +772,14 @@ const Terminal = {
     ong.rendre();
     this.majOnglets();
     this.activer(fen);
-    bienvenue(fen, premier);
+    bienvenue(fen);
   },
   fermerOnglet(i){
     if(this.onglets.length === 1) return;
     const ong = this.onglets[i];
+    //  Un onglet peut contenir PLUSIEURS volets divisés : les raccrocher
+    //  tous, pas seulement celui qui a le focus.
+    ong.fenetres().forEach(f => f.detruire());
     ong.el.remove();
     this.onglets.splice(i, 1);
     this.iOnglet = Math.min(this.iOnglet, this.onglets.length - 1);
@@ -837,7 +843,7 @@ const Terminal = {
     if(!t) return;
     const rect = fen.el.getBoundingClientRect();
     if((dir === "row" && rect.width < 260) || (dir === "col" && rect.height < 150)){
-      fen.txt("lexsh : pas assez de place pour diviser cette fenêtre.", "j");
+      fen.term && fen.term.write("\r\n\x1b[33m— pas assez de place pour diviser ce volet.\x1b[0m\r\n");
       return;
     }
     const neuve = new Fenetre(fen.cwd);
@@ -850,20 +856,21 @@ const Terminal = {
     ong.rendre();
     this.majOnglets();
     this.activer(neuve);
-    bienvenue(neuve, false);
+    bienvenue(neuve);
   },
   fermerFenetre(){
     const ong = this.onglet, fen = this.active;
     const liste = ong.fenetres();
     if(liste.length === 1){
       if(this.onglets.length === 1){
-        fen.txt("lexsh : dernière fenêtre — on la garde ouverte.", "j");
+        fen.term && fen.term.write("\r\n\x1b[33m— dernier volet : on le garde ouvert.\x1b[0m\r\n");
         return;
       }
       this.fermerOnglet(this.iOnglet);
       return;
     }
     const t = ong.chercher(fen);
+    fen.detruire();
     const frere = t.parent.a === t.noeud ? t.parent.b : t.parent.a;
     const gp = this.parentDe(t.parent, ong.racine, null);
     if(gp === null) ong.racine = frere;
@@ -920,6 +927,7 @@ const Terminal = {
       else if(k === "b") this.diviser("col");
       else if(k === "x") this.fermerFenetre();
       else if(k === "z") this.zoom();
+      else if(k === "?" || k === "/") aide(this.active);
       else if(k === "o"){ const l = this.onglet.fenetres(); this.activer(l[(l.indexOf(this.active)+1) % l.length]); }
       else if(e.key.startsWith("Arrow")) this.naviguer(e.key);
       else if(/^[1-9]$/.test(k)) this.allerOnglet(parseInt(k,10) - 1);
@@ -949,7 +957,12 @@ const Terminal = {
     document.getElementById("e-onglets-m").textContent = this.onglets.length > 1 ? "pages" : "page";
     document.getElementById("e-fen").textContent = nf;
     document.getElementById("e-fen-m").textContent = nf > 1 ? "fenêtres" : "fenêtre";
-    document.getElementById("e-chemin").textContent = this.active ? joli(this.active.cwd) : "~";
+    //  Le dossier courant n'est plus suivi par la page : c'est le shell qui
+    //  le tient, et c'est lui qui l'annonce dans le titre du terminal (la
+    //  séquence OSC que bash émet à chaque invite). On affiche donc ce que
+    //  le shell dit, jamais une valeur qu'on aurait recopiée de notre côté.
+    document.getElementById("e-chemin").textContent =
+      (this.active && this.active.titre) ? this.active.titre : "~";
   },
   horloge(){
     const d = new Date();
@@ -971,104 +984,63 @@ const ART = [
 "  ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝"
 ].join("\n");
 
-function bienvenue(fen, complet){
-  if(complet){
-    fen.ecrire(esc(ART), "banniere");
-    fen.saut();
-    fen.ecrire('<span class="t2">LexOS Pro Terminal</span>' +
-               '<span class="s">  ·  fr-CA  ·  </span><span class="d">⚜ Produit du Québec</span>');
-    fen.ecrire(Terminal.backend
-      ? '<span class="g">✓ branché sur le vrai système</span><span class="s"> — les commandes s\'exécutent pour de vrai.</span>'
-      : '<span class="j">! mode démonstration</span><span class="s"> — aucune commande ne s\'exécute vraiment (ouvre cette page avec </span><span class="j">lexos-pro-terminal</span><span class="s">).</span>');
-    fen.ecrire('<span class="s">Tape </span><span class="j">aide</span>' +
-               '<span class="s"> pour les raccourcis, </span><span class="j">split</span>' +
-               '<span class="s"> pour ouvrir une autre fenêtre.</span>');
-    fen.saut();
-  } else {
-    fen.ecrire('<span class="s">lexsh — fenêtre ' + fen.id + ' ouverte dans </span>' +
-               '<span class="d">' + esc(joli(fen.cwd)) + '</span>');
-  }
+/*  La bannière s'écrit DANS le terminal, en séquences ANSI — pas en HTML.
+    Il n'y a plus de journal de <div> où insérer du balisage : xterm.js ne
+    connaît que des octets, exactement comme un vrai terminal. */
+function bienvenue(fen){
+  if(!fen.term) return;
+  const O = "\x1b[38;5;208m", S = "\x1b[90m", V = "\x1b[32m", J = "\x1b[33m", R = "\x1b[0m";
+  fen.term.write(O + ART.split("\n").join("\r\n") + R + "\r\n\r\n");
+  fen.term.write("LexOS Pro Terminal" + S + "  ·  fr-CA  ·  " + R + O + "⚜ Produit du Québec" + R + "\r\n");
+  fen.term.write(_port && _jeton
+    ? V + "✓ vrai terminal" + S + " — pty complet : claude, sudo, nano, htop, less y tournent." + R + "\r\n"
+    : J + "! mode démonstration" + S + " — page ouverte sans le pont (lance lexos-pro-terminal)." + R + "\r\n");
+  fen.term.write(S + "Ctrl+B puis D/B divise · T nouvel onglet · X ferme · ? l'aide." + R + "\r\n\r\n");
 }
 
 /* =========================================================
-   7. Commandes — SEULEMENT celles qui pilotent CETTE fenêtre.
-   Tout le reste (ls, cd, cat, apt, git, n'importe quoi d'installé) part
-   entier vers le vrai bash par appelBackend() — jamais réimplémenté ici.
+   7. L'aide — un RACCOURCI, plus une commande tapée
+   -----------------------------------------------------------------------
+   CE QUI A DISPARU ICI, ET POURQUOI CE N'EST PAS UNE PERTE. Cette page avait
+   ses propres commandes (« aide », « split », « tab », « backend »,
+   « about ») : elles étaient interceptées AVANT bash, parce que bash n'était
+   pas vraiment là — chaque ligne partait dans un processus jetable. Le volet
+   parle maintenant à un shell VIVANT : tout ce qu'on tape lui appartient, et
+   intercepter « aide » ou « split » masquerait un vrai programme portant ce
+   nom, exactement le piège que le banc de ce terminal traque depuis le début
+   (la page d'origine réimplémentait ls, cd, cat… contre un faux disque).
+
+   L'aide reste donc atteignable, mais par le PRÉFIXE — Ctrl+B puis « ? » —
+   comme les autres actions de fenêtre, et elle s'écrit dans le terminal.
    ========================================================= */
-const COMMANDES = {};
-function cmd(nom, desc, run, groupe){ COMMANDES[nom] = {nom, desc, run, groupe: groupe || "Fenêtres"}; }
-
-cmd("split", "diviser la fenêtre : split -v (droite) | -h (bas)", (f, a) => {
-  const v = !a[0] || a[0] === "-v" || a[0] === "droite";
-  Terminal.activer(f);
-  Terminal.diviser(v ? "row" : "col");
-}, "Fenêtres");
-
-cmd("tab", "onglets : tab new | tab 2 | tab close", (f, a) => {
-  const s = (a[0] || "new").toLowerCase();
-  if(s === "new" || s === "nouveau") Terminal.nouvelOnglet();
-  else if(s === "close" || s === "fermer") Terminal.fermerOnglet(Terminal.iOnglet);
-  else if(/^\d+$/.test(s)) Terminal.allerOnglet(parseInt(s,10) - 1);
-  else f.txt("tab : usage — tab new | tab close | tab <numéro>", "r");
-}, "Fenêtres");
-
-cmd("zoom", "agrandir/réduire la fenêtre active", f => { Terminal.activer(f); Terminal.zoom(); }, "Fenêtres");
-cmd("exit", "fermer la fenêtre active", f => { Terminal.activer(f); Terminal.fermerFenetre(); }, "Fenêtres");
-cmd("clear", "effacer l'écran de la fenêtre", f => f.effacer(), "Fenêtres");
-
-cmd("aide", "afficher cette aide", f => {
-  const groupes = {};
-  Object.values(COMMANDES).forEach(c => (groupes[c.groupe] = groupes[c.groupe] || []).push(c));
-  f.saut();
-  f.ecrire('<span class="gras">lexsh — aide</span><span class="s">  ·  « aide » ou « help »</span>');
-  Object.keys(groupes).forEach(g => {
-    f.saut();
-    f.ecrire('<span class="j gras">' + esc(g) + '</span>');
-    groupes[g].forEach(c => f.ecrire('  <span class="d">' + esc(c.nom.padEnd(9)) + '</span><span class="t2">' + esc(c.desc) + '</span>'));
-  });
-  f.saut();
-  f.ecrire('<span class="j gras">Raccourcis</span><span class="s">  (préfixe : Ctrl+B, puis la touche)</span>');
-  [["Ctrl+B  D","diviser à droite"],["Ctrl+B  B","diviser en bas"],["Ctrl+B  X","fermer la fenêtre"],
-   ["Ctrl+B  Z","plein écran"],["Ctrl+B  O","fenêtre suivante"],["Ctrl+B  ←↑↓→","changer de fenêtre"],
-   ["Ctrl+B  T","nouvelle page (onglet)"],["Ctrl+B  N / P","page suivante / précédente"],
-   ["Ctrl+B  1-9","aller à la page"],["Ctrl+PgDn/PgUp","glisser d'une page à l'autre"],
-   ["Ctrl+L","effacer l'écran"],["Ctrl+C","copier si du texte est sélectionné, sinon annuler la ligne"],
-   ["Ctrl+Maj+C","copier la sélection"],["Ctrl+Maj+V","coller"],
-   ["Clic droit","copier / coller par le menu"],
-   ["↑ / ↓","historique"],["Tab","complétion"]]
-   .forEach(([k,d]) => f.ecrire('  <span class="m">' + esc(k.padEnd(13)) + '</span><span class="t2">' + esc(d) + '</span>'));
-  f.saut();
-  f.ecrire('<span class="j gras">Tout le reste</span><span class="s"> part vers bash pour de vrai : </span><span class="d">ls</span><span class="s">, </span><span class="d">cd</span><span class="s">, </span><span class="d">cat</span><span class="s">, </span><span class="d">sudo</span><span class="s">, </span><span class="d">lexos …</span><span class="s"> — n\'importe quel programme installé.</span>');
-  f.ecrire('<span class="s">Les programmes PLEIN ÉCRAN (</span><span class="d">vim</span><span class="s">, </span><span class="d">nano</span><span class="s">, </span><span class="d">htop</span><span class="s">, </span><span class="d">less</span><span class="s">, </span><span class="d">man</span><span class="s">…) ont besoin du </span><span class="j">Terminal classique</span><span class="s"> — ils ne peuvent pas s\'afficher ici.</span>');
-  f.saut();
-}, "Fenêtres");
-COMMANDES["help"] = {...COMMANDES["aide"], nom:"help", desc:"idem « aide »"};
-
-cmd("history", "historique des commandes", f => {
-  f.hist.slice(-40).forEach((h, i) => f.ecrire('<span class="s">' + String(f.hist.length - Math.min(40,f.hist.length) + i + 1).padStart(4) + '</span>  ' + esc(h)));
-}, "Fenêtres");
-
-cmd("backend", "état de la connexion au vrai système", f => {
-  f.saut();
-  if(Terminal.backend){
-    f.ecrire('<span class="g gras">✓ branché</span><span class="s"> — pont local sur </span><span class="d">http://127.0.0.1:' + esc(_port) + '</span>');
-    f.ecrire('<span class="s">Les commandes tapées ici s\'exécutent vraiment, avec tes droits.</span>');
-  } else {
-    f.ecrire('<span class="j gras">! mode démonstration</span><span class="s"> — cette page a été ouverte sans le pont.</span>');
-    f.ecrire('<span class="s">Lance </span><span class="j">lexos-pro-terminal</span><span class="s"> pour l\'obtenir.</span>');
-  }
-  f.saut();
-}, "Fenêtres");
-
-cmd("about", "à propos de ce terminal", f => {
-  f.saut();
-  f.ecrire('<span class="gras">LexOS Pro Terminal</span> <span class="s">— le terminal officiel de LexOS Pro.</span>');
-  f.ecrire('<span class="s">Onglets illimités · divisions horizontales et verticales imbriquées · séparateurs déplaçables ·</span>');
-  f.ecrire('<span class="s">historique persistant · complétion Tab sur le vrai système · thème noir pur, texte blanc.</span>');
-  f.ecrire('<span class="s">Les commandes tapées ici s\'exécutent réellement, via </span><span class="d">/usr/lib/lexos/terminal-pro.py</span><span class="s">.</span>');
-  f.ecrire('<span class="s">Les programmes plein écran (vim, nano, htop…) restent l\'affaire du </span><span class="j">Terminal classique</span><span class="s">.</span>');
-  f.saut();
-}, "Fenêtres");
+function aide(fen){
+  if(!fen || !fen.term) return;
+  const S = "\x1b[90m", J = "\x1b[33m", M = "\x1b[38;5;147m", G = "\x1b[1m", R = "\x1b[0m";
+  const l = t => fen.term.write(t + "\r\n");
+  l("");
+  l(G + "LexOS Pro Terminal — aide" + R + S + "   (Ctrl+B puis ?)" + R);
+  l("");
+  l(J + G + "Fenêtres" + R + S + "   préfixe : Ctrl+B, puis la touche" + R);
+  [["D", "diviser à droite"], ["B", "diviser en bas"], ["X", "fermer ce volet"],
+   ["Z", "plein écran / retour"], ["O", "volet suivant"], ["flèches", "aller au volet voisin"],
+   ["T", "nouvel onglet"], ["N / P", "onglet suivant / précédent"], ["1..9", "aller à l'onglet n"],
+   ["?", "cette aide"]].forEach(([k, d]) => l("  " + M + k.padEnd(13) + R + d));
+  l("");
+  l(J + G + "Sans préfixe" + R);
+  //  Ctrl+C a DEUX comportements, et une aide qui n'en dit qu'un envoie
+  //  chercher la panne au mauvais endroit. Avec une sélection il copie ;
+  //  sans sélection il descend au shell et interrompt pour de vrai.
+  [["Ctrl+C", "copie s'il y a une sélection, sinon interrompt"],
+   ["Ctrl+PgDn / PgUp", "onglet suivant / précédent"],
+   ["Ctrl+Maj+C", "copier la sélection"],
+   ["Ctrl+Maj+V", "coller"],
+   ["clic du milieu", "coller"]].forEach(([k, d]) => l("  " + M + k.padEnd(20) + R + d));
+  l("");
+  l(J + G + "Tout le reste" + R + " appartient au shell : " + S +
+    "ls, cd, sudo, git, claude, vim, htop, less…" + R);
+  l(S + "C'est un vrai pseudo-terminal — les programmes plein écran s'affichent ici." + R);
+  l("");
+}
 
 /* =========================================================
    8. API publique + démarrage
@@ -1077,7 +1049,11 @@ window.LexOS = {
   fenetreActive(){ return Terminal.active; },
   nouvelOnglet(){ Terminal.nouvelOnglet(); },
   diviser(dir){ Terminal.diviser(dir === "bas" ? "col" : "row"); },
-  ecrire(txt){ if(Terminal.active) Terminal.active.txt(txt); }
+  //  « écrire » pose du texte À L'ÉCRAN, il ne l'envoie pas au shell : c'est
+  //  la même distinction que dans un vrai terminal entre ce qu'on affiche et
+  //  ce qu'on tape. Pour taper, il y a « saisir ».
+  ecrire(txt){ if(Terminal.active && Terminal.active.term) Terminal.active.term.write(String(txt)); },
+  saisir(txt){ if(Terminal.active) Terminal.active.envoyer(String(txt)); }
 };
 
 //  ═══ CROCHET DE BANC ═══
@@ -1086,30 +1062,30 @@ window.LexOS = {
 //  démarrage automatique (qui suppose un vrai DOM complet) pendant qu'on
 //  teste ces fonctions à la pièce.
 if(typeof globalThis !== "undefined"){
-  globalThis.__banc = { COMMANDES, Terminal, Fenetre, premierMot, esc, joli,
-                         desEchapper, appelBackend, get ACCUEIL(){ return ACCUEIL; } };
+  globalThis.__banc = { Terminal, Fenetre, esc, aide,
+                         poste, base64Octets, paletteXterm,
+                         get ACCUEIL(){ return ACCUEIL; } };
 }
 
 async function demarrage(){
+  //  PLUS DE COMMANDE DE DÉMARRAGE. L'ancienne page interrogeait le pont sur
+  //  le dossier personnel et le nom d'utilisateur avant d'ouvrir la première
+  //  fenêtre, pour dessiner une invite crédible. Il n'y a plus d'invite à
+  //  dessiner : c'est bash qui écrit la sienne, avec les vraies valeurs, dès
+  //  qu'il démarre. Un aller-retour de moins, et UNE source de vérité au
+  //  lieu de deux — c'est cette duplication qui avait collé les deux
+  //  réponses en une seule chaîne (« /rootroot »), silencieusement fausse.
+  //
+  //  « cwd » vide veut dire « le dossier personnel » côté pont : c'est lui
+  //  qui sait où il est, pas nous.
+  const ind = document.getElementById("backend-ind");
   if(_port && _jeton){
-    Terminal.backend = appelBackend;
-    //  Le VRAI dossier personnel, avant d'ouvrir la première fenêtre — sinon
-    //  elle démarrerait dans « ~ » puis changerait de valeur sous les yeux.
-    //  UN « \n » ENTRE LES DEUX, EXPLICITEMENT. « printf "%s" » n'ajoute
-    //  aucun saut de ligne : sans lui, la sortie de $HOME et celle de
-    //  whoami se collaient en une seule chaîne (« /rootroot ») — repéré en
-    //  chargeant la vraie page dans un vrai navigateur, contre un vrai
-    //  pont : le dossier personnel ET le nom d'utilisateur étaient FAUX
-    //  tous les deux, et rien dans un bac à sable avec un fetch simulé ne
-    //  pouvait le voir.
-    const r = await appelBackend('printf "%s\\n" "$HOME"; whoami', {cwd:"/"});
-    if(r && r.sortie){
-      const lignes = desEchapper(r.sortie).trim().split("\n");
-      if(lignes[0]) ACCUEIL = lignes[0].trim();
-      if(lignes[1]) Terminal.utilisateur = lignes[1].trim();
-    }
-    document.getElementById("backend-ind").textContent = "branché — " + Terminal.utilisateur + "@lexos";
-    document.getElementById("backend-ind").className = "branche";
+    Terminal.backend = true;
+    ind.textContent = "vrai terminal — pty sur 127.0.0.1:" + _port;
+    ind.className = "branche";
+  } else {
+    ind.textContent = "démo — sans le pont local";
+    ind.className = "absent";
   }
   Terminal.init();
 }

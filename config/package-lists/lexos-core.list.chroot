@@ -259,3 +259,34 @@ libglib2.0-bin
 #  xdotool N'EST PAS ICI, ET C'EST VOULU : python3-xlib sait envoyer XTEST
 #  lui-même (Xlib.ext.xtest), mesuré sur un vrai serveur X. Un paquet de moins.
 python3-xlib
+
+#  ═══ node-xterm : L'AFFICHEUR DU TERMINAL, ET POURQUOI IL EST OBLIGATOIRE ═══
+#  ALEX : « j'ai beau essayer le terminal LexOS Pro, je suis même pas capable
+#  de lancer claude ». LexOS Pro Terminal ouvre maintenant un VRAI pseudo-
+#  terminal (pty.fork) : claude, sudo, nano, htop et less y tournent pour de
+#  bon. Mais un pty parle en grille de caractères — curseur qu'on déplace,
+#  écran qu'on efface — et c'est xterm.js qui tient cette grille dans la page.
+#
+#  SANS CE PAQUET, LE TERMINAL PRINCIPAL DU SYSTÈME N'AFFICHE RIEN. Ce n'est
+#  pas une fonction en moins, c'est la fenêtre qui remplace Super+T et l'icône
+#  du dock. Une liste tolérante — celles que le hook 0250 pose en acceptant
+#  qu'un paquet manque — mettrait ça à la merci d'un miroir qui hoquète : la
+#  panne des dossiers blancs de l'ISO 72, et l'écran de démarrage disparu.
+#
+#  DEBIAN, PAS npm. La règle est écrite en toutes lettres dans
+#  lexos-pro-terminal pour PySide6 : « jamais de pip --break-system-packages ».
+#  xterm.js est empaqueté (trixie/main, ~630 Ko) et livre aussi l'extension
+#  « fit » dont la page se sert pour calculer colonnes × lignes.
+node-xterm
+
+#  ═══ fonts-jetbrains-mono : LA POLICE DU TERMINAL, PAS UNE COQUETTERIE ═══
+#  La page de LexOS Pro Terminal allait la chercher chez Google à chaque
+#  ouverture. VÉRIFIÉ dans un vrai navigateur contre le vrai pont : hors
+#  ligne, la requête échoue — et un portable n'a pas toujours le réseau.
+#
+#  Ce n'est pas qu'une question d'allure : xterm.js MESURE la largeur d'un
+#  caractère pour décider du nombre de colonnes qu'il annonce au shell. Une
+#  police qui arrive en retard, ou pas du tout, fait mesurer la grille deux
+#  fois — le shell reçoit deux tailles, et un programme plein écran dessine
+#  à la mauvaise largeur. La police doit être là AVANT le premier caractère.
+fonts-jetbrains-mono

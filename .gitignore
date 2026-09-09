@@ -48,3 +48,13 @@ __pycache__/
 #  Makefile cherche shellcheck dans le PATH et dit quoi installer s'il
 #  manque — le dépôt n'a pas à porter le binaire.
 *.whl
+
+#  ═══ LE vendor/ DU TERMINAL EST POSÉ À LA CONSTRUCTION, PAS ICI ═══
+#  usr/share/lexos/terminal-pro/web/vendor/ contient des LIENS vers xterm.js
+#  et sa feuille de style, dans /usr/share/nodejs — le hook 0455 les crée à
+#  partir du paquet Debian « node-xterm ». Les versionner mettrait dans le
+#  dépôt des liens qui ne pointent nulle part sur une autre machine, et
+#  ferait croire que la page marche là où le paquet n'est pas installé.
+#  Le banc du navigateur les pose puis les retire ; cette ligne garantit
+#  qu'un banc interrompu ne laisse rien derrière lui dans un commit.
+config/includes.chroot/usr/share/lexos/terminal-pro/web/vendor/

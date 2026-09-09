@@ -60,130 +60,87 @@ for F in "$BACKEND" "$PAGE" "$LANCEUR" "$BUREAU" "$HOOK" "$DISPATCH" "$COMPLETIO
 done
 
 # =============================================================================
-titre "1. LE BACKEND : exécution réelle, cwd suivi, stdin fermé, délai"
+titre "1. LE BACKEND : renvoyé au banc du pseudo-terminal"
 # =============================================================================
+#  CETTE SECTION A ÉTÉ VIDÉE, ET C'EST LE SIGNE QUE LE TRAVAIL EST FAIT.
+#  Elle éprouvait executer() : un bash JETABLE par commande, l'entrée fermée
+#  (stdin=DEVNULL), la sortie ramassée d'un bloc, un délai de 25 s, et
+#  ansi_vers_html() qui RETIRAIT en silence tout ce qui n'était pas une
+#  couleur — déplacements du curseur, effacements d'écran.
+#
+#  ALEX : « j'ai beau essayer le terminal LexOS Pro, je suis même pas capable
+#  de lancer claude ». Ces quatre choses étaient la raison. Il n'y a plus de
+#  bash jetable ni de journal de lignes : un vrai pseudo-terminal, un shell
+#  par volet, et xterm.js qui tient la grille de caractères.
+#
+#  Ce que cette section éprouvait est donc devenu SANS OBJET — et ce qui l'a
+#  remplacé est éprouvé ailleurs, plus sévèrement :
+#    · tests/test_lexos_terminal_pty.sh          le pty et les quatre routes
+#    · tests/test_lexos_terminal_navigateur.sh   l'affichage, dans Chromium
+#
+#  On garde ici UN contrôle : que l'ancien chemin ne revienne pas par la
+#  petite porte. Un « executer() » qui reparaîtrait à côté du pty rendrait
+#  le comportement du terminal dépendant de la commande tapée.
 if ! command -v python3 >/dev/null 2>&1; then
-	saute "python3 absent : le backend n'a PAS été éprouvé"
+	saute "python3 absent"
 else
-	cat > "$BANC/b1.py" <<'PY'
-import sys, time, importlib.util
-spec = importlib.util.spec_from_file_location("tp", sys.argv[1])
-tp = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tp)
-
-def dit(bon, m): print(("OK|" if bon else "NON|") + m)
-
-try:
-    # --- exécution réelle ---
-    html, cwd = tp.executer("printf 'reel:%s' 42", "/tmp")
-    dit("reel:42" in html, "une commande imprime pour de vrai, pas une réponse inventée")
-
-    # --- cd suivi, y compris chaîné ---
-    html, cwd = tp.executer("cd / && pwd", "/tmp")
-    dit(cwd == "/", "« cd / && pwd » change bien le dossier suivi (%s)" % cwd)
-    html, cwd = tp.executer("pwd", "/etc")
-    dit(cwd == "/etc" and "/etc" in html, "sans cd, le dossier ne bouge pas")
-
-    #  ═══ LA COMMANDE DE DÉMARRAGE DE LA PAGE, REJOUÉE POUR DE VRAI ═══
-    #  Repéré en chargeant la vraie page dans un vrai navigateur, contre un
-    #  vrai pont — pas dans un bac à sable au fetch simulé : « printf "%s"
-    #  "$HOME" » sans « \\n » collait sa sortie à celle de « whoami » qui
-    #  suit (« /rootroot » au lieu de deux lignes). Le nom d'utilisateur ET
-    #  le dossier personnel affichés étaient FAUX tous les deux — silencieux,
-    #  rien ne plantait.
-    html, cwd = tp.executer('printf "%s\\n" "$HOME"; whoami', "/")
-    lignes = html.strip().split("\n")
-    #  Le bogue donnait UNE seule ligne collée (« /rootroot ») : la longueur
-    #  suffit à le prouver — deux lignes non vides, pas une de plus.
-    dit(len(lignes) == 2 and all(lignes),
-        "la commande de démarrage rend bien DEUX lignes distinctes (%r)" % (lignes,))
-
-    #  ═══ STDIN FERMÉ, ÉPROUVÉ POUR DE VRAI ═══
-    #  Ce script est lui-même nourri par un « yes | » (voir plus bas) : SA
-    #  PROPRE entrée standard a donc toujours une ligne prête. Si executer()
-    #  n'imposait pas stdin=DEVNULL, la commande hériterait de cette même
-    #  entrée et « read » lirait « y » — le contenu le prouve, pas la
-    #  vitesse (une minuterie peut mentir si l'environnement du banc a,
-    #  par hasard, sa propre entrée déjà tarie).
-    t0 = time.time()
-    html, cwd = tp.executer("read -r x; echo apres:$x fin", "/tmp")
-    dt = time.time() - t0
-    dit(dt < 3 and "apres: fin" in html,
-        "une commande qui lit l'entrée reçoit EOF tout de suite (stdin fermé), pas la vraie entrée du banc")
-
-    # --- le délai maximal coupe ---
-    tp.DELAI_MAX = 1.0
-    t0 = time.time()
-    html, cwd = tp.executer("sleep 5; echo trop-tard", "/tmp")
-    dt = time.time() - t0
-    dit(dt < 3 and "trop-tard" not in html, "une commande qui dort trop longtemps est coupée (%.1fs)" % dt)
-
-    # --- programmes plein écran reconnus AVANT exécution ---
-    for prog in ("vim", "nano", "htop", "less", "man"):
-        html, cwd = tp.executer(prog + " x", "/tmp")
-        dit("Terminal classique" in html, "« %s » est reconnu et renvoie au Terminal classique" % prog)
-    html, cwd = tp.executer("sudo vim /etc/passwd", "/tmp")
-    dit("Terminal classique" in html, "« sudo vim » est reconnu à travers sudo")
-    html, cwd = tp.executer("ls", "/tmp")
-    dit("Terminal classique" not in html, "« ls » n'est PAS pris pour un programme plein écran")
-
-    # --- ANSI -> HTML : couleurs rendues, curseur retiré, progression compressée ---
-    html = tp.ansi_vers_html("\x1b[31mrouge\x1b[0m <script>")
-    dit('class="r"' in html and "&lt;script&gt;" in html,
-        "une couleur ANSI devient une classe CSS, et le contenu reste échappé")
-    html = tp.ansi_vers_html("\x1b[2J\x1b[Hbonjour")
-    dit(html == "bonjour", "le déplacement du curseur et l'effacement d'écran sont retirés, jamais montrés")
-    html = tp.ansi_vers_html("un\rdeux\rtrois")
-    dit(html == "trois", "une ligne réécrite au \\r ne garde que son dernier état")
-    #  « \\x1b[?25l » (cacher le curseur) a un paramètre PRIVÉ (le « ? ») —
-    #  quasi tous les programmes interactifs l'émettent. Une regex qui ne
-    #  reconnaît que « ESC[ chiffres m » le laisse passer tel quel, en clair.
-    html = tp.ansi_vers_html("\x1b[?25lcache\x1b[?25h")
-    dit(html == "cache", "« \\x1b[?25l » (curseur caché, très courant) est retiré, pas montré en clair")
-    #  Un échappement HORS CSI (pas de « [ » après ESC) : sauvegarde/rappel
-    #  du curseur (DECSC/DECRC) et reset complet (RIS). Chemin de code
-    #  différent des séquences CSI ci-dessus — à éprouver séparément.
-    html = tp.ansi_vers_html("\x1b7sauve\x1b8restaure")
-    dit(html == "sauverestaure", "« \\x1b7 »/« \\x1b8 » (sauver/rappeler le curseur, hors CSI) sont retirés")
-    html = tp.ansi_vers_html("\x1bcreset")
-    dit(html == "reset", "« \\x1bc » (reset complet du terminal, hors CSI) est retiré")
-    #  GRAS ET COULEUR ENSEMBLE (« \\x1b[1;32m », git/grep --color/npm le
-    #  font tout le temps) : un span par code, jamais refermé, laissait la
-    #  moitié de la ligne suivante en gras.
-    html = tp.ansi_vers_html("\x1b[1;32mvert gras\x1b[0m normal")
-    dit(html == '<span class="gras g">vert gras</span> normal',
-        "gras ET couleur dans le même code tiennent dans UN span correctement refermé")
-
-except Exception as e:
-    print("NON|le banc s'est arrêté : %s: %s" % (type(e).__name__, e))
-print("FIN|")
+	#  ═══ ON LIT DU CODE, PAS DE LA PROSE ═══
+	#  « sed 's/#.*//' » ne suffit pas ici : l'en-tête du fichier est une
+	#  DOCSTRING, pas un commentaire « # », et elle raconte exprès ce qui a
+	#  disparu — « LISTE_TUI », « capture_output », le délai de 25 s. Un
+	#  grep sur le texte brut serait donc rouge à jamais, et la tentation
+	#  serait d'effacer l'explication pour faire taire le banc : on perdrait
+	#  la seule trace écrite de pourquoi claude ne démarrait pas.
+	#
+	#  On passe donc par le TOKENIZER de Python : il ne rend que les noms,
+	#  les opérateurs et les nombres — jamais le contenu d'une chaîne ni
+	#  d'un commentaire. Ce qui reste est du code, et rien d'autre.
+	python3 - "$BACKEND" > "$BANC/pont-code.txt" <<'PY'
+import io, sys, token, tokenize
+src = open(sys.argv[1], encoding="utf-8").read()
+mots = []
+for t in tokenize.generate_tokens(io.StringIO(src).readline):
+    if t.type in (token.NAME, token.OP, token.NUMBER):
+        mots.append(t.string)
+sys.stdout.write(" ".join(mots))
 PY
-	#  « yes | » donne à CE SCRIPT une entrée toujours prête — c'est ce qui
-	#  rend le contrôle « stdin fermé » ci-dessus capable de mentir si
-	#  DEVNULL disparaissait, au lieu de rester vrai par accident de
-	#  l'environnement du banc.
-	SORTIE_B="$(yes 2>/dev/null | python3 "$BANC/b1.py" "$BACKEND" 2>/dev/null | grep -E '^(OK|NON|FIN)\|' || true)"
-	if [ -z "$SORTIE_B" ]; then
-		non "le backend n'a rien rendu"
-	elif ! grep -q '^FIN|' <<< "$SORTIE_B"; then
-		non "le banc du backend s'est arrêté avant la fin"
+	CODE_PONT="$(cat "$BANC/pont-code.txt")"
+	MORTS=""
+	for MOTIF in "def executer" "def ansi_vers_html" "LISTE_TUI" "DELAI_MAX" "capture_output" "DEVNULL"; do
+		grep -qF "$MOTIF" <<< "$CODE_PONT" && MORTS="$MORTS $MOTIF"
+	done
+	if [ -z "$MORTS" ]; then
+		ok "l'ancien chemin (bash jetable, entrée fermée, délai, journal de lignes) a bien disparu"
 	else
-		while IFS='|' read -r V M; do
-			case "$V" in OK) ok "$M" ;; NON) non "$M" ;; esac
-		done <<EOF
-$SORTIE_B
-EOF
+		non "l'ancien chemin est de retour dans le pont :$MORTS"
+	fi
+	#  ET LE NOUVEAU EST BIEN LÀ : sans ce contrôle, un fichier VIDE
+	#  passerait le contrôle ci-dessus avec les honneurs.
+	#  Le tokenizer retire aussi les CHAÎNES : « /api/flux » n'y est plus.
+	#  On le cherche donc dans le fichier, mais sur la ligne de code qui
+	#  l'utilise — pas dans l'en-tête qui le décrit.
+	if grep -qF "pty . fork" <<< "$CODE_PONT" && grep -qE '^\s*if chemin == "/api/flux"' "$BACKEND"; then
+		ok "le pont repose bien sur un pseudo-terminal et sert le flux (/api/flux)"
+	else
+		non "le pont n'a ni pty.fork ni /api/flux — le terminal ne peut rien afficher"
 	fi
 fi
 
 # =============================================================================
-titre "2. SÉCURITÉ — le jeton et l'Origine, pas seulement dans le code lu"
+titre "2. SÉCURITÉ — ce qui reste vrai après le pty"
 # =============================================================================
+#  Le modèle n'a pas bougé (127.0.0.1, jeton, Origine) mais les routes, si :
+#  /api/exec a disparu ; /api/flux, /api/saisie, /api/taille et /api/fermer
+#  l'ont remplacée. LA MATRICE COMPLÈTE — quatre routes contre trois refus —
+#  est dans tests/test_lexos_terminal_pty.sh, et c'est elle qui a trouvé que
+#  /api/flux ne vérifiait NI le jeton NI l'origine : la route la plus
+#  sensible des quatre, celle qui ouvre le shell. Ici on garde le contrôle
+#  qui ne dépend d'aucune route : sur quoi le serveur écoute.
 if ! command -v python3 >/dev/null 2>&1; then
-	saute "python3 absent : la sécurité du pont n'a PAS été éprouvée pour de vrai"
+	saute "python3 absent : l'écoute du pont n'a PAS été éprouvée"
 else
 	SORTIE_S="$(LEXOS_TERMINAL_PRO_WEB="$BANC" python3 - "$BACKEND" <<'PY' 2>/dev/null | grep -E '^(OK|NON|FIN)\|' || true
-import sys, json, importlib.util, urllib.request, urllib.error
+import sys, importlib.util
 spec = importlib.util.spec_from_file_location("tp", sys.argv[1])
 tp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tp)
@@ -192,47 +149,21 @@ def dit(bon, m): print(("OK|" if bon else "NON|") + m)
 
 try:
     serveur, port, jeton = tp.demarrer_serveur()
-    base = "http://127.0.0.1:%d" % port
-
-    def poste(cmd, entetes=None, origine=None):
-        corps = json.dumps({"cmd": cmd, "cwd": "/tmp"}).encode()
-        req = urllib.request.Request(base + "/api/exec", data=corps, method="POST")
-        req.add_header("Content-Type", "application/json")
-        for k, v in (entetes or {}).items():
-            req.add_header(k, v)
-        if origine is not None:
-            req.add_header("Origin", origine)
-        try:
-            with urllib.request.urlopen(req, timeout=5) as r:
-                return r.status, json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read())
-
+    #  Un terminal exécute n'importe quoi, exprès : SEUL compte qui peut
+    #  l'atteindre. Écouter 0.0.0.0 offrirait un shell au réseau entier.
     dit(serveur.socket.getsockname()[0] == "127.0.0.1", "le serveur n'écoute QUE 127.0.0.1")
-
-    code, rep = poste("echo x")
-    dit(code == 403 and rep["ok"] is False, "aucun jeton -> refusé (403), rien n'est exécuté")
-
-    code, rep = poste("echo x", entetes={"X-Lexos-Jeton": "un-faux-jeton"})
-    dit(code == 403, "un mauvais jeton -> refusé (403)")
-
-    code, rep = poste("echo x", entetes={"X-Lexos-Jeton": jeton}, origine="http://site-hostile.example")
-    dit(code == 403, "le bon jeton mais une Origine étrangère -> refusé (403)")
-
-    code, rep = poste("echo cava", entetes={"X-Lexos-Jeton": jeton}, origine=base)
-    dit(code == 200 and rep["ok"] is True and "cava" in rep["sortie"], "le bon jeton et la bonne Origine -> exécuté")
-
-    code, rep = poste("echo cava", entetes={"X-Lexos-Jeton": jeton})
-    dit(code == 200 and rep["ok"] is True, "le bon jeton sans aucune Origine -> exécuté (tous les navigateurs n'en posent pas)")
-
-    serveur.shutdown()
+    #  Le jeton est tiré à CHAQUE lancement : deux fenêtres ouvertes en même
+    #  temps ne doivent jamais partager le même.
+    serveur2, _, jeton2 = tp.demarrer_serveur()
+    dit(jeton != jeton2 and len(jeton) >= 32, "le jeton est neuf à chaque lancement, et assez long")
+    serveur.shutdown(); serveur2.shutdown()
 except Exception as e:
     print("NON|le banc s'est arrêté : %s: %s" % (type(e).__name__, e))
 print("FIN|")
 PY
 )"
 	if [ -z "$SORTIE_S" ]; then
-		non "le banc de sécurité n'a rien rendu"
+		non "le pont n'a rien rendu sur son écoute"
 	elif ! grep -q '^FIN|' <<< "$SORTIE_S"; then
 		non "le banc de sécurité s'est arrêté avant la fin"
 	else
@@ -245,99 +176,102 @@ EOF
 fi
 
 # =============================================================================
-titre "3. LE FRONT-END — aucune commande fictive ne masque plus une vraie"
+titre "3. LE FRONT-END — la page ne réimplémente toujours RIEN"
 # =============================================================================
-if ! command -v node >/dev/null 2>&1; then
-	saute "node absent : le front-end n'a PAS été éprouvé"
+#  ══ CE QUE CETTE SECTION SURVEILLE DEPUIS LE DÉBUT ══
+#  La page d'origine simulait un système de fichiers ENTIER en mémoire, et
+#  réimplémentait ls, cd, cat, mkdir, rm, grep, find, wc, tree, whoami,
+#  uname, env, ps, neofetch en JavaScript contre cet arbre fictif. Si un seul
+#  de ces noms redevenait un « built-in » de la page, taper « ls » ne
+#  montrerait plus JAMAIS le vrai dossier — un bogue invisible tant qu'on ne
+#  cherche pas un fichier qu'on sait pourtant présent.
+#
+#  ══ CE QUI A CHANGÉ, ET POURQUOI LE CONTRÔLE DEVIENT PLUS SIMPLE ══
+#  La page n'a plus de ligne de commande du tout : elle ne LIT plus ce qu'on
+#  tape, elle le transmet au pty octet par octet (xterm.onData → /api/saisie).
+#  Il n'y a donc plus rien à intercepter, ni aucun tableau de commandes où
+#  une commande fictive pourrait se cacher. On vérifie exactement ça.
+if ! command -v python3 >/dev/null 2>&1; then
+	saute "python3 absent : la page n'a PAS été relue"
 else
-	python3 - "$PAGE" <<'PY' > "$BANC/tp.js"
+	#  ON LIT LE CODE, PAS LES COMMENTAIRES. Ce fichier PARLE de « ls », de
+	#  « COMMANDES » et de l'ancien journal pour expliquer ce qui a disparu ;
+	#  un grep naïf serait rouge à jamais — ou pire, on l'émousserait pour le
+	#  faire taire. Piège déjà payé deux fois dans ce dépôt.
+	python3 - "$PAGE" > "$BANC/page-code.js" <<'PY'
 import re, sys
 s = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r'<script>(.*)</script>', s, re.S)
-sys.stdout.write(m.group(1) if m else "")
+m = re.search(r"<script>(.*)</script>", s, re.S)
+js = m.group(1) if m else ""
+js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+js = "\n".join(l for l in js.splitlines() if not l.lstrip().startswith("//"))
+sys.stdout.write(js)
 PY
-	SORTIE_J="$(node - "$BANC/tp.js" <<'NODEJS' 2>&1 | grep -E '^(OK|NON|FIN)\|' || true
-const vm = require("vm");
-const fs = require("fs");
-const source = fs.readFileSync(process.argv[2] || process.argv[1], "utf8");
-
-function el(){
-  let _html = "";
-  return { style:{}, classList:{add(){},remove(){},toggle(){},contains(){return false}},
-    addEventListener(){}, appendChild(){}, querySelector:()=>el(), querySelectorAll:()=>[],
-    setAttribute(){}, getAttribute(){return null}, dataset:{}, children:[],
-    getBoundingClientRect:()=>({width:800,height:600,left:0,top:0}),
-    focus(){}, remove(){}, closest:()=>null,
-    set innerHTML(v){ _html = v; }, get innerHTML(){ return _html; },
-    get textContent(){ return _html.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&"); } };
-}
-const appels = [];
-const bac = vm.createContext({
-  __BANC_NE_PAS_DEMARRER__: true,
-  document:{ getElementById:()=>el(), createElement:()=>el(), querySelector:()=>el(),
-             querySelectorAll:()=>[], body:el(), fonts:{ready:Promise.resolve()}, documentElement:{style:{}} },
-  window:{}, location:{search:"?port=54321&jeton=LE-JETON", hash:""},
-  localStorage:{getItem(){return null}, setItem(){}},
-  fetch: (url, opts) => { appels.push({url, opts}); return Promise.resolve({json: async () => ({ok:true, sortie:"x\n", cwd:"/tmp"})}); },
-  URLSearchParams, requestAnimationFrame:()=>0, setTimeout, clearTimeout, setInterval, console,
-  getComputedStyle:()=>({font:"12px monospace"}),
-});
-bac.globalThis = bac;
-const dit = (bon, m) => console.log((bon?"OK|":"NON|") + m);
-try {
-  vm.runInContext(source, bac, {filename:"terminal-pro.js"});
-  const B = bac.__banc;
-  dit(!!B, "le crochet de banc existe");
-
-  const chrome = ["split","tab","zoom","exit","clear","aide","help","history","backend","about"];
-  const manquantes = chrome.filter(n => !B.COMMANDES[n]);
-  dit(manquantes.length === 0, "les commandes de fenêtre (chrome de l'appli) sont toutes là");
-
-  //  LE CŒUR DE CE BANC : si un seul de ces noms redevient un built-in
-  //  local, il masquerait le VRAI programme du même nom pour toujours.
-  const fictives = ["ls","cd","pwd","cat","mkdir","touch","rm","grep","find",
-                     "wc","tree","echo","lex","ps","whoami","uname","env","neofetch"];
-  const restantes = fictives.filter(n => !!B.COMMANDES[n]);
-  dit(restantes.length === 0,
-      restantes.length ? ("ENCORE FICTIVES : " + restantes.join(",")) :
-      "aucune des " + fictives.length + " anciennes commandes fictives n'est un built-in local");
-
-  (async () => {
-    const rep = await B.appelBackend("ls -la", {cwd:"/tmp"});
-    dit(appels.length === 1 && appels[0].opts.headers["X-Lexos-Jeton"] === "LE-JETON",
-        "chaque appel au vrai système porte le jeton de l'URL");
-    dit(JSON.parse(appels[0].opts.body).cmd === "ls -la",
-        "la ligne tapée part ENTIÈRE vers bash — jamais redécoupée à la main");
-    console.log("FIN|");
-  })();
-} catch(e) {
-  console.log("NON|le rendu s'est arrêté : " + (e && e.message || e));
-  console.log("FIN|");
-}
-NODEJS
-)"
-	if [ -z "$SORTIE_J" ]; then
-		non "le front-end n'a rien rendu"
-	elif ! grep -q '^FIN|' <<< "$SORTIE_J"; then
-		non "le rendu du front-end s'est arrêté avant la fin"
+	CODE="$(cat "$BANC/page-code.js")"
+	if [ -z "$CODE" ]; then
+		non "impossible d'extraire le code de la page"
 	else
-		while IFS='|' read -r V M; do
-			case "$V" in OK) ok "$M" ;; NON) non "$M" ;; esac
-		done <<EOF
-$SORTIE_J
-EOF
+		if grep -qE "\bCOMMANDES\b" <<< "$CODE"; then
+			non "un tableau de commandes de la page est revenu : il masquerait de vrais programmes"
+		else
+			ok "aucun tableau de commandes dans la page — rien ne peut masquer un vrai programme"
+		fi
+
+		#  Le chemin de la frappe, en entier. Si « onData » disparaissait,
+		#  plus rien ne partirait au shell : une fenêtre belle et morte.
+		if grep -q "onData" <<< "$CODE" && grep -q "/api/saisie" <<< "$CODE"; then
+			ok "ce qu'on tape va de xterm.js au pty sans être relu par la page (onData → /api/saisie)"
+		else
+			non "le chemin de la frappe est cassé : ni onData ni /api/saisie"
+		fi
+
+		#  EventSource ne sait pas poser d'en-tête personnalisé : s'en servir
+		#  pour le flux ferait tomber le jeton, donc 403, donc un terminal
+		#  muet — et la panne serait à un endroit (la sécurité) très loin du
+		#  symptôme (rien ne s'affiche). La consigne l'interdit nommément.
+		if grep -q "EventSource" <<< "$CODE"; then
+			non "le flux passe par EventSource : il ne peut pas porter le jeton (403 garanti)"
+		else
+			ok "le flux est lu par fetch + getReader, pas par EventSource"
+		fi
+
+		if grep -q "X-Lexos-Jeton" <<< "$CODE"; then
+			ok "la page envoie le jeton dans un en-tête sur ses appels au pont"
+		else
+			non "la page n'envoie plus le jeton : le pont refusera tout"
+		fi
+	fi
+
+	#  ═══ RIEN NE VIENT D'INTERNET ═══
+	#  Mesuré dans un vrai navigateur : les polices allaient chez Google à
+	#  CHAQUE ouverture et échouaient (ERR_CONNECTION_RESET). Le terminal
+	#  principal du système doit s'ouvrir sur un portable sans réseau.
+	if grep -qE "https?://(cdn|unpkg|jsdelivr|fonts\.google|fonts\.gstatic)" "$PAGE"; then
+		non "la page va chercher un fichier sur Internet : elle ne marchera pas hors ligne"
+	else
+		ok "aucune ressource distante : tout vient de l'ISO (vendor/ et les polices Debian)"
 	fi
 fi
 
 # =============================================================================
 titre "4. TOUT EST BRANCHÉ — dispatcheur, aide, complétion, dock, panneau"
 # =============================================================================
-#  Repéré en chargeant la vraie page dans un vrai navigateur, contre un vrai
-#  pont : sans « \n », la sortie de $HOME et celle de whoami se collaient
-#  (« /rootroot ») — nom d'utilisateur ET dossier personnel faux, en silence.
-grep -qF 'printf "%s\\n" "$HOME"; whoami' "$PAGE" \
-	&& ok "la commande de démarrage garde son « \\n » entre les deux lignes" \
-	|| non "le « \\n » entre \$HOME et whoami a disparu — les deux colleraient de nouveau"
+#  ═══ IL N'Y A PLUS DE COMMANDE DE DÉMARRAGE, ET C'EST LE CORRECTIF ═══
+#  La page demandait « printf "%s\\n" "$HOME"; whoami » au pont avant d'ouvrir
+#  la première fenêtre, pour dessiner une invite crédible. Sans le « \\n », les
+#  deux sorties se collaient (« /rootroot ») : nom d'utilisateur ET dossier
+#  personnel faux, en silence — trouvé en chargeant la vraie page dans un vrai
+#  navigateur contre un vrai pont.
+#
+#  La vraie correction n'est pas le « \\n » : c'est qu'il n'y a plus DEUX
+#  sources de vérité. Le shell écrit sa propre invite, avec son vrai nom
+#  d'utilisateur et son vrai dossier. Ce contrôle veille donc à ce que la
+#  page ne se remette pas à deviner ce que bash sait déjà.
+if grep -qF 'whoami' "$PAGE"; then
+	non "la page redemande le nom d'utilisateur au pont : c'est au shell de l'écrire"
+else
+	ok "la page ne devine plus ni le dossier personnel ni l'utilisateur — bash les écrit"
+fi
 bash -n "$LANCEUR" 2>/dev/null && ok "lexos-pro-terminal : syntaxe bash valide" \
 	|| non "lexos-pro-terminal : erreur de syntaxe"
 #  La CHAÎNE « --classique » apparaît aussi dans l'aide : on vérifie la
@@ -431,36 +365,87 @@ fi
 
 if [ -x "$PONT" ]; then
 	ok "le pont x-terminal-emulator existe et est exécutable"
-	#  ═══ ET IL AIGUILLE POUR DE VRAI ═══
-	#  On le fait tourner avec de faux terminaux, et on regarde où il va.
-	#  Lire le « case » ne suffirait pas : c'est le comportement qui compte.
+	#  ═══ ET IL TRANSMET POUR DE VRAI ═══
+	#  On le fait tourner avec un faux LexOS Pro Terminal qui répète ses
+	#  arguments, et on regarde ce qui arrive. Lire le fichier ne suffirait
+	#  pas : c'est le comportement qui compte.
+	#
+	#  CE CONTRÔLE A CHANGÉ DE SENS, ET VOICI POURQUOI. Le pont renvoyait
+	#  vers le Terminal classique TOUT ce qui demandait d'exécuter une
+	#  commande (« -e », « -x », « --working-directory »…), parce que
+	#  terminal-pro.py ne lisait aucun argument : brancher l'alternative
+	#  Debian dessus aurait ouvert une fenêtre VIDE, en silence, chaque fois
+	#  qu'un programme du système demande un terminal pour lancer quelque
+	#  chose. LexOS Pro Terminal lit maintenant ses arguments ET a un vrai
+	#  pty : le détournement n'a plus lieu d'être, et le laisser en place
+	#  voudrait dire que la moitié du système continue d'ouvrir l'ancien
+	#  terminal sans que personne ne s'en aperçoive.
 	PB="$(mktemp -d)"
 	printf '#!/bin/sh\necho CLASSIQUE\n' > "$PB/xfce4-terminal.wrapper"
-	printf '#!/bin/sh\necho PRO\n'       > "$PB/lexos-pro-terminal"
+	printf '#!/bin/sh\necho "PRO:$*"\n'  > "$PB/lexos-pro-terminal"
 	chmod +x "$PB"/*
 	sed -e "s|/usr/bin/xfce4-terminal.wrapper|$PB/xfce4-terminal.wrapper|" \
-	    -e "s|/usr/bin/lexos-pro-terminal\$|$PB/lexos-pro-terminal|" \
+	    -e "s|/usr/bin/lexos-pro-terminal|$PB/lexos-pro-terminal|" \
 	    "$PONT" > "$PB/pont"
 	chmod +x "$PB/pont"
 	MAUVAIS=0
-	#  Sans argument, et avec un argument qui ne demande PAS d'exécution :
-	#  c'est « ouvre-moi un terminal », et c'est pour LexOS Pro Terminal.
-	for A in "" "--title=Truc"; do
+	for A in "" "--title=Truc" "-e ls" "-x htop" "--command=top" \
+	         "--hold -e ls" "--working-directory=/tmp"; do
 		# shellcheck disable=SC2086
-		[ "$(bash "$PB/pont" $A 2>/dev/null)" = "PRO" ] \
-			|| { non "« $A » n'ouvre pas LexOS Pro Terminal"; MAUVAIS=1; }
+		R="$(bash "$PB/pont" $A 2>/dev/null)"
+		case "$R" in
+			PRO:*) : ;;
+			*) non "« $A » n'arrive pas à LexOS Pro Terminal (reçu : $R)"; MAUVAIS=1 ;;
+		esac
 	done
-	[ "$MAUVAIS" = 0 ] && ok "« ouvre-moi un terminal » va bien à LexOS Pro Terminal"
-	#  Et tout ce qui demande d'EXÉCUTER part au Terminal classique, tant que
-	#  LexOS Pro Terminal n'a pas de pty. C'est la moitié qui évite la fenêtre
-	#  vide et muette.
-	MAUVAIS=0
-	for A in "-e ls" "-x htop" "--command=top" "--hold -e ls" "--working-directory=/tmp"; do
-		# shellcheck disable=SC2086
-		[ "$(bash "$PB/pont" $A 2>/dev/null)" = "CLASSIQUE" ] \
-			|| { non "« $A » n'est pas renvoyé au Terminal classique — fenêtre vide garantie"; MAUVAIS=1; }
-	done
-	[ "$MAUVAIS" = 0 ] && ok "tout ce qui demande d'EXÉCUTER part au Terminal classique (pas encore de pty)"
+	[ "$MAUVAIS" = 0 ] && ok "toutes les formes d'appel arrivent à LexOS Pro Terminal, sans détour"
+	#  ET LES ARGUMENTS ARRIVENT ENTIERS. Un pont qui les avalerait ouvrirait
+	#  un terminal sans rien lancer : la fenêtre vide, autrement.
+	R="$(bash "$PB/pont" --working-directory=/tmp -e "ls -la" 2>/dev/null)"
+	if [ "$R" = "PRO:--working-directory=/tmp -e ls -la" ]; then
+		ok "les arguments traversent le pont intacts (dossier de départ et commande)"
+	else
+		non "le pont abîme les arguments (reçu : $R)"
+	fi
+
+	#  ═══ ET LE PONT SAIT VRAIMENT LES LIRE, DE L'AUTRE CÔTÉ ═══
+	#  Le pont peut bien tout transmettre : si terminal-pro.py ne comprend
+	#  pas ces options, on retombe sur la fenêtre vide et muette qu'on
+	#  voulait justement éviter. On interroge donc lire_arguments() sur les
+	#  DEUX conventions — celle de xfce4-terminal (« -e "ls -la" », un seul
+	#  argument) et celle de Debian (« -e ls -la », déjà découpé).
+	if command -v python3 >/dev/null 2>&1; then
+		SORTIE_A="$(python3 - "$BACKEND" <<'PY' 2>/dev/null | grep -E '^(OK|NON)\|' || true
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location("tp", sys.argv[1])
+tp = importlib.util.module_from_spec(spec); spec.loader.exec_module(tp)
+def dit(b, m): print(("OK|" if b else "NON|") + m)
+dit(tp.lire_arguments(["--working-directory=/tmp"]) == ("/tmp", None, False),
+    "--working-directory= : « Ouvrir un terminal ici » de Thunar arrive au bon dossier")
+dit(tp.lire_arguments(["--working-directory", "/etc"]) == ("/etc", None, False),
+    "--working-directory séparé du dossier : compris aussi")
+dit(tp.lire_arguments(["-e", "ls -la"]) == (None, "ls -la", False),
+    "-e « ls -la » (xfce4-terminal : UN argument) : la ligne entière")
+dit(tp.lire_arguments(["-e", "ls", "-la", "/tmp"]) == (None, "ls -la /tmp", False),
+    "-e ls -la /tmp (Debian : déjà découpé) : recollé sans perdre d'argument")
+dit(tp.lire_arguments(["-e", "echo", "deux mots"]) == (None, "echo 'deux mots'", False),
+    "un argument qui contient une espace est protégé au recollage")
+dit(tp.lire_arguments(["--hold", "-x", "lexos", "capture", "video"]) == (None, "lexos capture video", True),
+    "--hold : le volet reste ouvert après la commande (lanceur 11 du panneau)")
+dit(tp.lire_arguments([]) == (None, None, False),
+    "sans argument : un shell ordinaire, rien de plus")
+PY
+)"
+		if [ -z "$SORTIE_A" ]; then
+			non "lire_arguments() n'existe pas : les options seraient ignorées en silence"
+		else
+			while IFS='|' read -r V M; do
+				case "$V" in OK) ok "$M" ;; NON) non "$M" ;; esac
+			done <<EOF
+$SORTIE_A
+EOF
+		fi
+	fi
 	rm -rf "$PB"
 else
 	non "aucun pont x-terminal-emulator : brancher le lanceur nu ouvrirait des fenêtres vides"

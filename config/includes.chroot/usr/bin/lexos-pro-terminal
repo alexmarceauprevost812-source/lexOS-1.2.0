@@ -78,4 +78,21 @@ if ! python3 -c "import PySide6.QtWebEngineWidgets" >/dev/null 2>&1; then
 	classique
 fi
 
+#  ── LE MÊME FILET, POUR LE PSEUDO-TERMINAL ──────────────────────────────
+#  Depuis que le terminal repose sur un VRAI pty (pty.fork), la fenêtre n'a
+#  plus rien à montrer si le noyau ne peut pas en ouvrir un : /dev/pts non
+#  monté, la limite kernel.pty.max atteinte, un conteneur sans devpts. Une
+#  fenêtre qui s'ouvre sur un shell mort est PIRE qu'une fenêtre qui ne
+#  s'ouvre pas — on ne comprend pas pourquoi rien ne répond. Même règle que
+#  ci-dessus : on bascule sur le Terminal classique, on ne meurt pas en
+#  silence derrière un raccourci clavier.
+if ! python3 -c "
+import os, pty
+m, e = pty.openpty()
+os.close(m); os.close(e)
+" >/dev/null 2>&1; then
+	warn "Impossible d'ouvrir un pseudo-terminal (/dev/pts) — ouverture du Terminal classique à la place."
+	classique
+fi
+
 exec python3 "$CODE" "$@"
