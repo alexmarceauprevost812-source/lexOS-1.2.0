@@ -45,6 +45,7 @@ export PATH
 
 PROG="${0##*/}"
 GUI=0
+SANS_ECRAN=0
 TARGET=""
 FSTYPE=""
 JSON=0
@@ -65,10 +66,21 @@ for a in "$@"; do
 		#  ordre, et la moindre les fait sortir. Voir le commentaire au-dessus
 		#  de la confirmation.
 		--confirme|--oui) CONFIRME=1 ;;
+		#  « --texte » : n'essaie RIEN d'afficher. C'est la passe privilégiée
+		#  qui le reçoit, parce que pkexec lui a retiré DISPLAY et
+		#  XAUTHORITY (mesuré, voir elever_pour_formater). Une boîte de
+		#  dialogue lancée là ne s'ouvrirait pas — elle échouerait en
+		#  silence, ce qui est exactement le défaut qu'on corrige.
+		--texte) GUI=0; SANS_ECRAN=1 ;;
 		-*) ;;
 		*) [[ -z "$TARGET" ]] && TARGET="$a" ;;
 	esac
 done
+
+#  « --texte » l'emporte, quel que soit l'ordre où les options arrivent :
+#  c'est une contrainte de la machine (il n'y a pas d'écran), pas une
+#  préférence que « --gui » pourrait renverser.
+[[ "$SANS_ECRAN" -eq 1 ]] && GUI=0
 
 if [[ -t 1 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
 	O=$'\033[38;5;208m'; E=$'\033[31m'; Y=$'\033[33m'; G=$'\033[32m'; B=$'\033[1m'; R=$'\033[0m'
@@ -440,20 +452,80 @@ else
 	umount "/dev/${DISK}"?* 2>/dev/null || true
 fi
 
-need_root() {
-	if [[ $EUID -ne 0 ]]; then
-		#  « --confirme » repart avec l'enfant : sans lui, la version root
-		#  reposerait la question — en mode texte, elle lirait une entrée
-		#  standard que personne ne tient, et resterait plantée là.
-		local -a SUITE=("/dev/${DISK}" "--fs=${FSTYPE}")
-		[[ "$GUI" -eq 1 ]] && SUITE+=(--gui)
-		[[ "$CONFIRME" -eq 1 ]] && SUITE+=(--confirme)
-		command -v pkexec >/dev/null 2>&1 && exec pkexec "$0" "${SUITE[@]}"
-		command -v sudo >/dev/null 2>&1 && exec sudo -E "$0" "${SUITE[@]}"
-		die "Droits administrateur requis pour formater /dev/${DISK}."
+#  ═══ ON N'ÉLÈVE QUE LE FORMATAGE, PAS L'INTERFACE — MESURÉ ═══
+#  ALEX : « que toutes les commandes pour un formatage soient bien activées
+#  une fois qu'on a écrit le mot de passe. »
+#
+#  CE QUE ÇA FAISAIT AVANT : « exec pkexec "$0" … --gui ». Le processus se
+#  REMPLAÇAIT par une version root qui gardait le mode graphique. Or pkexec
+#  repart d'un environnement minimal. Mesuré sur cette machine, polkit 124 :
+#
+#      $ DISPLAY=:99 XAUTHORITY=/tmp/x pkexec env
+#      HOME  LANG  LOGNAME  PATH  PKEXEC_UID  SHELL  TERM  USER
+#
+#  Huit variables, et NI DISPLAY NI XAUTHORITY. (« sudo -E », lui, les garde
+#  toutes deux — vérifié côte à côte.) Après le mot de passe, plus rien ne
+#  peut s'afficher : zenity n'a pas d'écran où dessiner.
+#
+#  Le piège est que c'est justement l'AFFICHAGE qui est cassé : die() appelle
+#  zenity, donc même le message d'erreur disparaît. Alex tape son mot de
+#  passe, et il ne se passe rien — sans la moindre explication. C'est aussi
+#  vrai de notify-send, qui a besoin en plus du bus de session.
+#
+#  LE CORRECTIF N'EST PAS DE COUPER « --gui » APRÈS COUP. C'est de ne pas
+#  élever l'interface du tout : on lance le travail privilégié comme un
+#  ENFANT en mode TEXTE, et le parent — qui a gardé son écran — reste vivant
+#  pour dire ce qui s'est passé. C'est la seule forme où un échec survenu
+#  après le mot de passe peut encore être MONTRÉ.
+elever_pour_formater() {
+	[[ $EUID -eq 0 ]] && return 0
+
+	#  « --confirme » repart avec l'enfant : sans lui, la version root
+	#  reposerait la question — elle lirait une entrée standard que personne
+	#  ne tient, et resterait plantée là. « --texte » lui interdit d'essayer
+	#  d'afficher quoi que ce soit : il n'a plus d'écran, et il n'en a plus
+	#  besoin, puisque c'est nous qui parlons à l'utilisateur.
+	local -a SUITE=("/dev/${DISK}" "--fs=${FSTYPE}" --confirme --texte)
+
+	local -a ELEV=()
+	if command -v pkexec >/dev/null 2>&1; then
+		ELEV=(pkexec)
+	elif command -v sudo >/dev/null 2>&1; then
+		ELEV=(sudo -E)
+	else
+		die "Droits administrateur requis pour formater /dev/${DISK}, et ni pkexec ni sudo ne sont installés."
 	fi
+
+	local JOURNAL CODE RAISON
+	JOURNAL="$(mktemp)"
+	#  La sortie d'erreur va dans un fichier, PAS dans un « tee » en
+	#  substitution de processus : celui-ci peut n'avoir pas fini d'écrire
+	#  quand on relit le fichier, et on perdrait justement la phrase qui
+	#  explique l'échec. On la relaie nous-mêmes, une fois l'enfant terminé.
+	"${ELEV[@]}" "$0" "${SUITE[@]}" 2>"$JOURNAL"
+	CODE=$?
+	[[ -s "$JOURNAL" ]] && cat "$JOURNAL" >&2
+	RAISON="$(grep -v '^[[:space:]]*$' "$JOURNAL" 2>/dev/null | tail -2 | tr '\n' ' ')"
+	rm -f "$JOURNAL"
+
+	case "$CODE" in
+		0) ;;
+		#  126 et 127 sont les codes de pkexec eux-mêmes, pas ceux du
+		#  formatage : les confondre ferait dire « le formatage a échoué »
+		#  alors que rien n'a été touché.
+		126) die "Mot de passe refusé, ou demande annulée — rien n'a été modifié sur /dev/${DISK}." ;;
+		127) die "Ce compte n'est pas autorisé à formater un support. Rien n'a été modifié." ;;
+		*)   die "Le formatage de /dev/${DISK} n'a pas abouti.${RAISON:+ }${RAISON}" ;;
+	esac
+
+	#  L'enfant a fini, et c'est NOUS qui avons encore un écran.
+	if [[ "$GUI" -eq 1 ]] && command -v notify-send >/dev/null 2>&1; then
+		notify-send -i media-removable "LexOS" "/dev/${DISK} formaté (${FSTYPE})" 2>/dev/null
+	fi
+	ok "/dev/${DISK} formaté en ${FSTYPE} — prêt à l'emploi."
+	exit 0
 }
-need_root
+elever_pour_formater
 
 say "Effacement de la table de partitions…"
 wipefs -a "/dev/${DISK}" >/dev/null 2>&1 || true
@@ -476,6 +548,11 @@ case "$FSTYPE" in
 esac || die "Échec du formatage de ${NEWPART}."
 
 udevadm settle 2>/dev/null || true
-command -v notify-send >/dev/null 2>&1 && \
+#  La passe privilégiée n'a NI écran NI bus de session : notify-send y
+#  échouerait sans rien dire. C'est le parent, resté vivant, qui annonce —
+#  voir elever_pour_formater. Quand on est root ET graphique (« sudo -E
+#  lexos-format --gui »), il n'y a pas de parent : on annonce ici.
+if [[ "$GUI" -eq 1 ]] && command -v notify-send >/dev/null 2>&1; then
 	notify-send -i media-removable "LexOS" "/dev/${DISK} formaté (${FSTYPE})" 2>/dev/null
+fi
 ok "/dev/${DISK} formaté en ${FSTYPE} — prêt à l'emploi."
