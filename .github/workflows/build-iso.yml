@@ -150,7 +150,15 @@ jobs:
 
       - name: Installer live-build (version Debian)
         run: |
-          sudo apt-get update -qq
+          #  ═══ L'ÉTAPE QUI A TUÉ L'ISO 120 ═══
+          #  « sudo apt-get update -qq » tout court. Le 9 septembre, le dépôt
+          #  apt de Google Chrome — que l'IMAGE DU COUREUR ajoute, et dont
+          #  LexOS ne prend rien — a servi un Packages.gz qui ne correspondait
+          #  plus à son fichier Release (« Hash Sum mismatch »). apt rend 100
+          #  dès qu'UN SEUL index échoue : la construction est morte ici, à la
+          #  sixième étape, avant même d'avoir commencé. Une heure de
+          #  construction perdue pour un dépôt qui ne nous sert à rien.
+          bash .github/scripts/apt-sain.sh
           sudo apt-get install -y --no-install-recommends \
             debootstrap debian-archive-keyring \
             xorriso squashfs-tools \

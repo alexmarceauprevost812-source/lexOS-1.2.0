@@ -14,7 +14,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Installer les outils d'analyse
-        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck libxml2-utils
+        run: |
+          #  L'index d'abord, et sans se laisser abattre par un dépôt tiers :
+          #  voir .github/scripts/apt-sain.sh. Sans lui, un « Hash Sum
+          #  mismatch » chez Google Chrome — un dépôt que ce projet n'emploie
+          #  PAS — faisait rendre 100 à apt, tuait cette étape, et laissait
+          #  xmllint absent pour les deux étapes suivantes, qui se
+          #  plaignaient alors de SVG et de XML au lieu de nommer la panne.
+          bash .github/scripts/apt-sain.sh
+          sudo apt-get install -y shellcheck libxml2-utils
 
       - name: shellcheck
         if: ${{ !cancelled() }}
@@ -1143,9 +1151,22 @@ jobs:
       #  La tâche « Scripts et configuration » ne tombait pas : elle fait
       #  « apt-get update » avant d'installer, depuis toujours. On applique
       #  ici la même règle, une fois pour toute la tâche.
+      #
+      #  DEUXIÈME ÉPISODE, LE 9 SEPTEMBRE, ET IL A COÛTÉ UNE ISO ENTIÈRE :
+      #
+      #    E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/
+      #       dists/stable/main/binary-amd64/Packages.gz  Hash Sum mismatch
+      #
+      #  Le dépôt apt de Google Chrome — ajouté par l'IMAGE DU COUREUR, dont
+      #  LexOS ne prend RIEN — servait un Packages.gz qui ne correspondait
+      #  plus à son fichier Release. apt rend 100 dès qu'UN index échoue, et
+      #  la construction de l'ISO 120 est morte à sa sixième étape, avant
+      #  d'avoir commencé. Le rafraîchissement passe donc maintenant par
+      #  .github/scripts/apt-sain.sh, qui retire les dépôts tiers inutiles
+      #  et réessaie — sans jamais faire taire une vraie erreur.
       - name: Rafraîchir l'index apt — sinon les paquets d'étape 404
         if: ${{ !cancelled() }}
-        run: sudo apt-get update -qq
+        run: bash .github/scripts/apt-sain.sh
 
       - name: Le profil « vif », et l'arrondi de la RAM
         if: ${{ !cancelled() }}
