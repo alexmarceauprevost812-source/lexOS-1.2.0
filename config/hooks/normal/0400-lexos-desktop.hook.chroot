@@ -404,6 +404,71 @@ else
 fi
 # <<< banc: fichiers
 
+# --- L'icône du terminal XFCE : celle de LexOS, pas le carré gris -----------
+# >>> banc: icone-terminal
+#  ALEX, PHOTO DU BUREAU : le lanceur « Terminal Xfce » porte un carré gris
+#  avec un « >_ » blanc, pendant que le terminal LexOS Pro, juste à côté dans
+#  le dock, porte l'icône noire à bordure orange. Il veut la même.
+#
+#  ═══ L'ICÔNE EXISTE DÉJÀ, PERSONNE NE LA DEMANDE ═══
+#  branding/icon-terminal.svg est rendue par le crochet 0300 en huit tailles
+#  sous le nom « lexos-terminal ». Le lanceur du paquet, lui, réclame un nom
+#  générique que le thème d'icônes résout vers le pictogramme gris. Les deux
+#  moitiés sont là, rien ne les relie.
+#
+#  ═══ /usr/local, ET PAS UNE RETOUCHE DU FICHIER DU PAQUET ═══
+#  Même procédé que « Note perso » et que « Fichiers » plus haut :
+#  XDG_DATA_DIRS vaut « /usr/local/share/:/usr/share/ » sur Debian, un
+#  fichier du même nom y passe DEVANT, et dpkg ne le connaît pas. Écrire
+#  par-dessus le fichier du paquet marcherait jusqu'à la première mise à
+#  jour de xfce4-terminal.
+#
+#  ═══ ON COPIE ET ON CHANGE UNE LIGNE — LE RESTE COÛTERAIT CHER ═══
+#  Le fichier du paquet fait 274 lignes, dont 111 traductions du seul nom, et
+#  il porte une action de menu contextuel (« Terminal Preferences »). Une
+#  entrée minimale réécrite de tête perdrait les trois. On copie, on
+#  substitue « Icon= », c'est tout.
+#
+#  ═══ ET LE NOM DU FICHIER EST CHERCHÉ, PAS SUPPOSÉ ═══
+#  La leçon du bloc « Fichiers » juste au-dessus : trois endroits écrivaient
+#  « thunar.desktop » en dur alors que Debian avait pu le renommer. Ici deux
+#  écritures sont plausibles selon la version — xfce4-terminal 1.1 est passé
+#  au nommage en DNS inversé pour ses ICÔNES (org.xfce.terminal), et rien ne
+#  garantit qu'il ne le fasse pas un jour pour le fichier lui-même.
+#
+#  ═══ CE QU'ON NE FAIT PAS, ET POURQUOI ═══
+#  On pourrait faire pointer le nom générique du thème d'icônes vers l'icône
+#  LexOS : un seul geste, et tous les terminaux du système suivraient. C'est
+#  précisément le problème — ça changerait aussi l'icône des programmes
+#  qu'Alex installera plus tard et dont on ne sait rien. Trop large pour un
+#  problème précis.
+TERM_DESKTOP=""
+for C in "$FIC_APPS/xfce4-terminal.desktop" \
+         "$FIC_APPS/org.xfce.terminal.desktop"; do
+	[ -r "$C" ] && { TERM_DESKTOP="$C"; break; }
+done
+if [ -n "$TERM_DESKTOP" ]; then
+	mkdir -p "$FIC_LOCAL"
+	TERM_ID="$(basename "$TERM_DESKTOP")"
+	sed -e 's/^Icon=.*/Icon=lexos-terminal/' \
+	    "$TERM_DESKTOP" > "$FIC_LOCAL/$TERM_ID"
+	#  ═══ UN .desktop SANS « Icon= » NE PRENDRAIT RIEN DU TOUT ═══
+	#  Le sed ne CRÉE pas la ligne : si une version future du paquet la
+	#  perdait, la copie n'aurait pas d'icône et on retomberait sur le
+	#  générique — en croyant avoir corrigé. On la pose alors nous-mêmes.
+	grep -q '^Icon=lexos-terminal$' "$FIC_LOCAL/$TERM_ID" || \
+		sed -i '0,/^\[Desktop Entry\]/s//[Desktop Entry]\nIcon=lexos-terminal/' \
+			"$FIC_LOCAL/$TERM_ID"
+	echo "[lexos]   ${TERM_ID} : icône LexOS (surcharge dans ${FIC_LOCAL})"
+	command -v update-desktop-database >/dev/null 2>&1 && \
+		update-desktop-database "$FIC_LOCAL" >/dev/null 2>&1 || true
+else
+	#  Pas une panne : xfce4-terminal vit dans une liste facultative. Mais
+	#  Alex verrait le carré gris, alors on le dit.
+	echo "[lexos]   !! aucun .desktop de xfce4-terminal trouvé — son icône restera générique"
+fi
+# <<< banc: icone-terminal
+
 # --- Entrées de menu LexOS ---------------------------------------------------
 mkdir -p /usr/share/applications
 

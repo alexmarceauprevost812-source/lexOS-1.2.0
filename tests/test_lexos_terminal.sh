@@ -486,5 +486,138 @@ else
 	ok "ia-agent.py n'écrit plus aucune couleur en dur — tout vient de la palette"
 fi
 
+# =============================================================================
+titre "L'icône du terminal XFCE : la surcharge du lanceur"
+# =============================================================================
+#  ═══ CE QUE CE CONTRÔLE EMPÊCHE ═══
+#  ALEX, PHOTO DU BUREAU : « Terminal Xfce » portait un carré gris pendant que
+#  le terminal LexOS Pro, à côté, portait l'icône noire à bordure orange.
+#  L'icône LexOS était pourtant rendue depuis longtemps (lexos-terminal, hook
+#  0300) — simplement, aucun lanceur ne la demandait.
+#
+#  ON EXÉCUTE LE VRAI FRAGMENT DU VRAI HOOK, sur le VRAI fichier du paquet
+#  quand il est là. Un banc qui recopierait une entrée de son cru ne prouverait
+#  rien : c'est justement la conservation de l'original qui est en jeu.
+HOOK_D="$RACINE/config/hooks/normal/0400-lexos-desktop.hook.chroot"
+BLOC_T="$(sed -n '/^# >>> banc: icone-terminal$/,/^# <<< banc: icone-terminal$/p' "$HOOK_D" | sed '1d;$d')"
+if [ -z "$BLOC_T" ]; then
+	non "le fragment « icone-terminal » a disparu du hook 0400"
+else
+	TB="$BANC/icone-terminal"; mkdir -p "$TB/apps" "$TB/local"
+	#  Le fichier du paquet s'il est installé ici ; sinon un substitut qui
+	#  porte les trois choses qu'on doit conserver — traduction, action, et
+	#  une ligne Icon= à remplacer.
+	SRC_PKG="/usr/share/applications/xfce4-terminal.desktop"
+	if [ -r "$SRC_PKG" ]; then
+		cp "$SRC_PKG" "$TB/apps/xfce4-terminal.desktop"
+		ORIGINE="le vrai fichier du paquet"
+	else
+		cat > "$TB/apps/xfce4-terminal.desktop" <<'FIN'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Xfce Terminal
+Name[fr]=Terminal Xfce
+Exec=xfce4-terminal
+Icon=org.xfce.terminal
+Categories=GTK;System;TerminalEmulator;
+Actions=preferences;
+
+[Desktop Action preferences]
+Name=Terminal Preferences
+Exec=xfce4-terminal --preferences
+FIN
+		ORIGINE="un substitut (le paquet n'est pas installé ici)"
+	fi
+	AVANT_TRAD="$(grep -c '^Name\[' "$TB/apps/xfce4-terminal.desktop")"
+	AVANT_LIG="$(wc -l < "$TB/apps/xfce4-terminal.desktop")"
+
+	( printf 'FIC_APPS="%s"\nFIC_LOCAL="%s"\n' "$TB/apps" "$TB/local"
+	  printf '%s\n' "$BLOC_T" ) > "$TB/frag.sh"
+	sh "$TB/frag.sh" >"$TB/journal" 2>&1
+
+	CIBLE="$TB/local/xfce4-terminal.desktop"
+	if [ ! -r "$CIBLE" ]; then
+		non "aucune surcharge produite dans /usr/local/share/applications ($ORIGINE)"
+	else
+		ok "la surcharge est posée dans /usr/local/share/applications ($ORIGINE)"
+
+		#  1. Elle demande bien l'icône LexOS.
+		if grep -q '^Icon=lexos-terminal$' "$CIBLE"; then
+			ok "…et elle porte « Icon=lexos-terminal »"
+		else
+			non "l'icône n'est pas lexos-terminal : $(grep -m1 '^Icon=' "$CIBLE")"
+		fi
+		#  ET PAS DEUX FOIS. Le repli ajoute la ligne quand elle manque ; s'il
+		#  se déclenchait à tort, le fichier en porterait deux et la seconde
+		#  gagnerait silencieusement.
+		N_ICON="$(grep -c '^Icon=' "$CIBLE")"
+		[ "$N_ICON" = "1" ] \
+			&& ok "…une seule ligne Icon=, pas de doublon" \
+			|| non "le fichier porte $N_ICON lignes « Icon= »"
+
+		#  2. Les actions du menu contextuel ont survécu — c'est la raison
+		#     pour laquelle on copie au lieu de réécrire.
+		if grep -q '^Actions=' "$CIBLE" && grep -q '^\[Desktop Action' "$CIBLE"; then
+			ok "les actions du menu contextuel sont conservées"
+		else
+			non "les actions ont été perdues : le fichier a été réécrit au lieu d'être copié"
+		fi
+
+		#  3. Les traductions aussi.
+		APRES_TRAD="$(grep -c '^Name\[' "$CIBLE")"
+		if [ "$APRES_TRAD" = "$AVANT_TRAD" ] && [ "$APRES_TRAD" -gt 0 ]; then
+			ok "les $APRES_TRAD traductions du nom sont conservées"
+		else
+			non "traductions : $APRES_TRAD contre $AVANT_TRAD à l'origine"
+		fi
+
+		#  4. LE CONTRÔLE QUI RÉSUME TOUT : une seule ligne doit différer.
+		#     Il attrape aussi bien une réécriture qu'un sed trop gourmand.
+		DIFFS="$(diff "$TB/apps/xfce4-terminal.desktop" "$CIBLE" | grep -c '^[<>]')"
+		if [ "$DIFFS" = "2" ]; then
+			ok "une seule ligne diffère de l'original ($AVANT_LIG lignes conservées)"
+		else
+			non "$DIFFS lignes changées au lieu de 2 (une retirée, une ajoutée)"
+		fi
+
+		#  5. Le nom du FICHIER doit être celui du paquet, sinon la surcharge
+		#     ne masque rien du tout et Alex verrait DEUX entrées de menu.
+		if [ "$(basename "$CIBLE")" = "$(basename "$TB/apps/xfce4-terminal.desktop")" ]; then
+			ok "…et elle porte le même nom de fichier : elle masque l'entrée, elle ne la double pas"
+		else
+			non "le nom de fichier diffère : il y aurait deux entrées de menu"
+		fi
+	fi
+
+	#  6. LE REPLI : un paquet dont la ligne Icon= aurait disparu.
+	TB2="$BANC/icone-terminal-sans"; mkdir -p "$TB2/apps" "$TB2/local"
+	grep -v '^Icon=' "$TB/apps/xfce4-terminal.desktop" > "$TB2/apps/xfce4-terminal.desktop"
+	( printf 'FIC_APPS="%s"\nFIC_LOCAL="%s"\n' "$TB2/apps" "$TB2/local"
+	  printf '%s\n' "$BLOC_T" ) > "$TB2/frag.sh"
+	sh "$TB2/frag.sh" >/dev/null 2>&1
+	if grep -q '^Icon=lexos-terminal$' "$TB2/local/xfce4-terminal.desktop" 2>/dev/null; then
+		ok "sans ligne « Icon= » dans le paquet, la surcharge la pose quand même"
+	else
+		non "un paquet sans « Icon= » donnerait une surcharge SANS icône — le gris reviendrait"
+	fi
+
+	#  7. RIEN N'EST ÉCRIT DANS /usr/share : c'est tout l'intérêt du procédé.
+	if [ -z "$(find "$TB/apps" -newer "$TB/frag.sh" -type f 2>/dev/null)" ]; then
+		ok "le fichier du paquet n'est pas touché (une mise à jour ne défera rien)"
+	else
+		non "le fichier du paquet a été modifié : la prochaine mise à jour effacerait le correctif"
+	fi
+
+	#  8. L'icône demandée doit exister — sinon on a juste remplacé un nom
+	#     générique par un nom qui ne résout rien, et le résultat est pire.
+	if grep -qE '(^|[[:space:]])terminal([[:space:]]|\\|$)' "$RACINE/config/hooks/normal/0300-lexos-assets.hook.chroot" \
+	   && [ -r "$RACINE/branding/icon-terminal.svg" ]; then
+		ok "« lexos-terminal » est bien rendue par le hook 0300 depuis branding/icon-terminal.svg"
+	else
+		non "l'icône lexos-terminal n'est plus produite : le lanceur demanderait un nom qui n'existe pas"
+	fi
+fi
+
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]
