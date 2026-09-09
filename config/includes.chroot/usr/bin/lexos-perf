@@ -228,6 +228,59 @@ apply_cpu() {
 		skip "gouverneur CPU : pilote cpufreq absent (machine virtuelle ?)"
 	fi
 
+	#  ═══ TLP RÉÉCRIT CE QU'ON VIENT D'ÉCRIRE ═══
+	#  Les fichiers de /sys/devices/system/cpu/*/cpufreq sont VOLATILS. TLP,
+	#  s'il est installé, réapplique SES valeurs au démarrage, au branchement
+	#  du secteur et à chaque sortie de veille — et il démarre après nous.
+	#
+	#  Constaté sur le T460 d'Alex, et c'est la mesure qui a tout expliqué :
+	#      $ cat /etc/lexos/performance
+	#      max
+	#      $ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+	#      powersave                    ← le profil « max » demande performance
+	#      $ cat …/policy0/energy_performance_preference
+	#      balance_performance          ← idem
+	#  C'est-à-dire, à la lettre, les défauts de TLP. Le profil enregistré
+	#  n'avait AUCUN effet, et rien ne le disait.
+	#
+	#  Et ça se voit à l'œil nu : le i5-6300U descend à 400 MHz au repos.
+	#  Une animation de fermeture dure 100 à 260 ms ; sous « powersave », la
+	#  montée en fréquence prend une bonne part de ce temps — l'animation se
+	#  joue PENDANT la rampe. C'est le à-coup systématique sur la première
+	#  image de chaque menu et de chaque fermeture.
+	#
+	#  On dépose donc une surcharge dans /etc/tlp.d, qui prime sur
+	#  /etc/tlp.conf, et on demande à TLP de la relire. C'est elle qui tient
+	#  dans le temps ; l'écriture directe ci-dessus ne sert qu'à l'effet
+	#  immédiat, avant le prochain réveil de TLP.
+	if [[ -d /etc/tlp.d && -w /etc/tlp.d ]]; then
+		#  SUR BATTERIE, ON NE SUIT PAS UN PROFIL AGRESSIF. L'autonomie d'un
+		#  ultraportable n'y survivrait pas, et personne ne demande ça en
+		#  choisissant un profil de performance : il le choisit pour quand la
+		#  machine est branchée.
+		local gov_bat="$P_GOVERNOR" epp_bat="$P_EPP"
+		case "${PROFILE:-}" in
+			max|performant|vif) gov_bat="powersave"; epp_bat="balance_power" ;;
+		esac
+		{
+			printf '# Généré par lexos-perf — profil : %s\n' "${PROFILE:-?}"
+			printf '# Ne pas éditer : réécrit à chaque changement de profil.\n\n'
+			printf 'CPU_SCALING_GOVERNOR_ON_AC=%s\n'    "$P_GOVERNOR"
+			printf 'CPU_SCALING_GOVERNOR_ON_BAT=%s\n'   "$gov_bat"
+			printf 'CPU_ENERGY_PERF_POLICY_ON_AC=%s\n'  "$P_EPP"
+			printf 'CPU_ENERGY_PERF_POLICY_ON_BAT=%s\n' "$epp_bat"
+			printf 'CPU_BOOST_ON_AC=%s\n'               "$(( P_NO_TURBO ? 0 : 1 ))"
+		} > /etc/tlp.d/99-lexos-perf.conf 2>/dev/null \
+			&& ok "surcharge TLP écrite (elle prime sur /etc/tlp.conf)" \
+			|| skip "surcharge TLP impossible à écrire"
+		#  « tlp start » relit la configuration et réapplique. Sans lui, la
+		#  surcharge ne vaudrait qu'au prochain démarrage.
+		if command -v tlp >/dev/null 2>&1; then
+			tlp start >/dev/null 2>&1 \
+				|| skip "TLP n'a pas pu relire tout de suite (au prochain démarrage)"
+		fi
+	fi
+
 	local t
 	for t in /sys/devices/system/cpu/intel_pstate/no_turbo \
 	         /sys/devices/system/cpu/cpufreq/boost; do
@@ -788,8 +841,23 @@ case "$CMD" in
 	apply)
 		PROFILE="$(current_profile)"
 		load_profile "$PROFILE" || die "Profil enregistré invalide : $PROFILE"
-		[[ "$SCOPE" != "user"   ]] && [[ $EUID -eq 0 ]] && apply_system
-		[[ "$SCOPE" != "system" ]] && apply_user
+		#  ═══ LE « && » EN DERNIÈRE POSITION FUYAIT SON CODE DE RETOUR ═══
+		#  Avec « --system-only », SCOPE vaut « system », donc le test de la
+		#  seconde ligne était FAUX : la liste && renvoyait 1, et comme
+		#  c'était la DERNIÈRE commande du script, lexos-perf sortait en
+		#  échec alors qu'apply_system venait de parfaitement réussir.
+		#  Le service étant Type=oneshot, systemd le marquait « failed » à
+		#  chaque démarrage — et personne ne voyait que le profil, lui,
+		#  n'était pas appliqué. Reproduit avant correctif :
+		#      $ lexos-perf apply --system-only --quiet ; echo $?
+		#      1
+		#  Deux « if » disent la même chose sans rien laisser fuir.
+		if [[ "$SCOPE" != "user" ]] && [[ $EUID -eq 0 ]]; then
+			apply_system
+		fi
+		if [[ "$SCOPE" != "system" ]]; then
+			apply_user
+		fi
 		;;
 	apply-system)
 		#  Point d'entrée interne, appelé par set_profile à travers
@@ -810,3 +878,10 @@ case "$CMD" in
 		fi
 		;;
 esac
+
+#  ═══ ET LE CODE DE SORTIE EST FIXÉ ICI, PAS LAISSÉ AU HASARD ═══
+#  Le code de sortie d'un script est celui de sa dernière commande, et un
+#  « esac » rend celui du dernier test évalué — c'est-à-dire n'importe quoi.
+#  C'est ce hasard-là qui faisait passer lexos-perf.service pour « failed ».
+#  Les vraies erreurs, elles, sortent par die(), qui rend 1 explicitement.
+exit 0

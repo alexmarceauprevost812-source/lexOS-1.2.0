@@ -5,6 +5,17 @@ Description=LexOS — applique le profil de performance
 #  pointe le script lui-même, comme lexos-demo-guard.service.
 Documentation=file:/usr/bin/lexos-perf
 After=sysinit.target local-fs.target
+#  ═══ AVANT TLP, ET CE N'EST QUE LA MOITIÉ DE LA RÉPONSE ═══
+#  TLP réapplique SES valeurs de gouverneur et d'EPP au démarrage. S'il passe
+#  après nous, il écrase ce qu'on vient d'écrire — c'est ce qui se passait
+#  sur le T460 d'Alex : /etc/lexos/performance disait « max » pendant que le
+#  gouverneur en mémoire était « powersave », le défaut de TLP.
+#  Cet ordonnancement aide, mais il ne suffit pas : TLP réapplique AUSSI au
+#  branchement du secteur et à chaque sortie de veille, où aucun ordre de
+#  démarrage ne nous protège. Le vrai correctif est la surcharge que
+#  lexos-perf dépose dans /etc/tlp.d/99-lexos-perf.conf, qui prime sur
+#  /etc/tlp.conf et que TLP relit lui-même. Les deux vont ensemble.
+Before=tlp.service
 
 [Service]
 Type=oneshot
