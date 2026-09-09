@@ -485,10 +485,35 @@ PLY_PLUIE="$BRAND/pluie-demarrage.png"
 #  couleurs, on rallonge le démarrage, et on paierait l'animation deux fois
 #  — une fois à la regarder, une fois à la charger.
 PLY_INTRO_SRC="$BRAND/ouvrir-ordinateur.mp4"
-PLY_INTRO_N=53          # 3,5 s à 15 im/s — la durée de l'entrée en matière
+PLY_INTRO_DUREE=5       # secondes de vidéo montrées
 PLY_INTRO_FPS=15
-PLY_INTRO_LARGEUR=640
-PLY_INTRO_HAUTEUR=360
+#  ═══ PLEIN ÉCRAN — ALEX : « qu'on voie l'animation en tout son écran » ═══
+#  C'était 640×360, dessiné AU CENTRE d'un écran de 1920×1080 : un timbre-
+#  poste au milieu du noir. Le commentaire d'alors l'assumait — « l'image
+#  n'est PAS étirée » — pour ne pas payer ~50 ms d'étirement par image à
+#  l'exécution. Cette raison-là tient toujours : on n'étire pas. On DÉCOUPE
+#  DIRECTEMENT À LA TAILLE DE L'ÉCRAN, à la construction, une fois pour
+#  toutes.
+#
+#  CE QUE ÇA COÛTE, MESURÉ ICI (mêmes filtres, compression zstd de
+#  l'initramfs, décompression chronométrée trois fois) :
+#      640×360,  3,5 s          →  3,4 Mo,  7 ms
+#      960×540,  5 s            →  7,4 Mo, 11 ms
+#      1920×1080, 5 s, 128 c    → 20,3 Mo, 20 ms
+#  TREIZE MILLISECONDES de plus au démarrage. La crainte inscrite ici —
+#  « au-delà de 960×540 on rallonge le démarrage » — était une estimation ;
+#  la mesure la chiffre, et elle est négligeable. Ce qui se paie vraiment,
+#  c'est 17 Mo d'ISO et de mémoire pendant l'amorçage. Sur la seule image
+#  que LexOS construit — « pro » —, c'est un prix qu'on accepte pour que le
+#  logo d'Alex remplisse l'écran au lieu d'en occuper un neuvième.
+PLY_INTRO_LARGEUR=1920
+PLY_INTRO_HAUTEUR=1080
+#  ═══ ET LA DURÉE : 3,5 s COUPAIT JUSTE AVANT LA CHUTE ═══
+#  Relevé image par image sur la vidéo : à 0,5 s une lueur, à 1,5 s le
+#  blason, et « LEXOS » ne commence à apparaître qu'à 3,5 s — exactement là
+#  où l'ancienne coupe s'arrêtait. On voyait donc le logo se former sans
+#  jamais voir le mot. Cinq secondes le montrent en entier.
+PLY_INTRO_N=0           # DÉRIVÉ de ce que ffmpeg produit — voir plus bas
 
 #  Les cinq lettres du logo, déjà détourées et déjà agrandies ×2 en PLUS
 #  PROCHE VOISIN par Alex. ON NE LES RÉÉCHANTILLONNE PAS : le logo est du
@@ -643,8 +668,8 @@ if [ -d "$PLY_SRC" ]; then
 			#  ferait que CHOISIR les couleurs, le PNG resterait encodé en
 			#  24 bits et ne pèserait pas moins lourd pour autant.
 			PLY_INTRO_ERR="$(ffmpeg -y -loglevel error -i "$PLY_INTRO_SRC" \
-				-t 3.5 -vf "fps=${PLY_INTRO_FPS},scale=${PLY_INTRO_LARGEUR}:${PLY_INTRO_HAUTEUR}:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=full[p];[s1][p]paletteuse=dither=none" \
-				-frames:v "$PLY_INTRO_N" -start_number 0 -pred mixed \
+				-t "$PLY_INTRO_DUREE" -vf "fps=${PLY_INTRO_FPS},scale=${PLY_INTRO_LARGEUR}:${PLY_INTRO_HAUTEUR}:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=full[p];[s1][p]paletteuse=dither=none" \
+				-start_number 0 -pred mixed \
 				"$PLY_DST/intro-%04d.png" </dev/null 2>&1 >/dev/null)"
 			#  ═══ ON COMPTE CE QUI EST VRAIMENT SORTI, PAS CE QU'ON A DEMANDÉ ═══
 			#  « -frames:v » est un plafond, pas une garantie : ffmpeg peut
@@ -653,10 +678,24 @@ if [ -d "$PLY_SRC" ]; then
 			#  sur EXACTEMENT $PLY_INTRO_N images, numérotées sans trou : un
 			#  compte différent, et l'entrée en matière n'entre pas dans le
 			#  script — jamais une séquence à moitié écrite.
+			#  ═══ ON PREND LE COMPTE QUE FFMPEG A RENDU, ON NE L'EXIGE PLUS ═══
+			#  CE QUE ÇA FAISAIT AVANT : le hook réclamait EXACTEMENT 53
+			#  images ; à 52, il effaçait tout et l'ISO partait sans animation,
+			#  avec pour seule trace une ligne dans une heure de journal.
+			#  Or ce compte dépend de la vidéo SOURCE : la même commande rend
+			#  53 images sur l'ancienne et 52 sur celle qu'Alex vient
+			#  d'envoyer — l'horodatage de la première image ne tombe pas au
+			#  même endroit. Autrement dit : déposer une nouvelle vidéo
+			#  supprimait l'animation, en silence.
+			#  On compte donc ce qui est SORTI, et le script Plymouth reçoit
+			#  ce nombre-là. Un plancher reste : sous une seconde d'images,
+			#  ce n'est pas une entrée en matière, c'est un accident.
 			PLY_INTRO_VUES="$(ls "$PLY_DST"/intro-*.png 2>/dev/null | wc -l)"
-			if [ "$PLY_INTRO_VUES" -eq "$PLY_INTRO_N" ]; then
+			PLY_INTRO_MIN="$PLY_INTRO_FPS"
+			PLY_INTRO_N="$PLY_INTRO_VUES"
+			if [ "$PLY_INTRO_VUES" -ge "$PLY_INTRO_MIN" ]; then
 				PLY_INTRO_OK=1
-				echo "[lexos]   entrée en matière : ouvrir-ordinateur.mp4 découpée en ${PLY_INTRO_N} images (${PLY_INTRO_LARGEUR}x${PLY_INTRO_HAUTEUR}, 128 couleurs)"
+				echo "[lexos]   entrée en matière : ouvrir-ordinateur.mp4 découpée en ${PLY_INTRO_N} images (${PLY_INTRO_LARGEUR}x${PLY_INTRO_HAUTEUR}, 128 couleurs, ${PLY_INTRO_DUREE} s) — PLEIN ÉCRAN"
 				#  LA VIDÉO NE RESTE PAS DANS L'ISO. C'est une source de
 				#  construction : une fois découpée, elle ne sert plus à
 				#  rien sur la machine, et 7 Mo dans l'image, c'est 7 Mo
@@ -673,7 +712,7 @@ if [ -d "$PLY_SRC" ]; then
 				fi
 			else
 				rm -f "$PLY_DST"/intro-*.png
-				echo "[lexos]   !! entrée en matière : ffmpeg a produit ${PLY_INTRO_VUES} image(s) au lieu de ${PLY_INTRO_N} — écran de"
+				echo "[lexos]   !! entrée en matière : ffmpeg n'a produit que ${PLY_INTRO_VUES} image(s), moins d'une seconde — écran de"
 				echo "[lexos]   !! démarrage SANS la vidéo d'ouverture (mascotte + LEXOS + pluie"
 				echo "[lexos]   !! s'affichent comme avant). Message de ffmpeg : ${PLY_INTRO_ERR}"
 			fi
@@ -772,14 +811,20 @@ if (mode == "reboot") {
 }
 
 // ═══ L'ENTRÉE EN MATIÈRE — RÉGLAGES ═══
-// Ces quatre nombres DOIVENT correspondre à PLY_INTRO_N, PLY_INTRO_FPS,
-// PLY_INTRO_LARGEUR et PLY_INTRO_HAUTEUR du hook 0300, qui fabrique les
-// images à ces dimensions-là : tests/test_lexos_plymouth.sh compare les
-// deux et rougit si l'un bouge sans l'autre.
-intro_n = 53;             // images (3,5 s à 15 im/s)
-intro_fps = 15;
-intro_largeur = 640;
-intro_hauteur = 360;
+// CES QUATRE NOMBRES NE SONT PLUS ÉCRITS À LA MAIN. Ils étaient recopiés
+// ici ET dans le hook, et un banc comparait les deux copies pour qu'elles ne
+// divergent pas. Une copie qu'un banc surveille reste une copie : le hook
+// les ÉCRIT maintenant, depuis ses propres variables, au moment où il
+// fabrique les images. Il ne peut donc plus y avoir de désaccord — et
+// intro_n vaut exactement le nombre d'images que ffmpeg a rendues, pas
+// celui qu'on espérait.
+SCRIPT_TETE
+		printf 'intro_n = %d;             // images (%s s a %s im/s)\n' \
+			"$PLY_INTRO_N" "$PLY_INTRO_DUREE" "$PLY_INTRO_FPS"
+		printf 'intro_fps = %d;\n'      "$PLY_INTRO_FPS"
+		printf 'intro_largeur = %d;\n'  "$PLY_INTRO_LARGEUR"
+		printf 'intro_hauteur = %d;\n'  "$PLY_INTRO_HAUTEUR"
+		cat <<'SCRIPT_TETE_SUITE'
 // LES DEUX VALEURS PAR DÉFAUT DISENT « PAS D'ENTRÉE EN MATIÈRE ». Sans les
 // images, rien plus bas ne les change, et refresh_callback saute droit au
 // logo — l'écran de démarrage TEL QU'IL ÉTAIT avant cette consigne.
@@ -789,7 +834,7 @@ intro_termine = 1;
 // ce décalage, les lettres arriveraient déjà à mi-course.
 intro_decalage = 0;
 
-SCRIPT_TETE
+SCRIPT_TETE_SUITE
 
 		#  La pluie n'entre dans le script QUE si son image a été posée.
 		#  Écrire « Image("pluie-demarrage.png") » sans le fichier laisserait

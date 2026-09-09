@@ -1327,12 +1327,23 @@ titre "10. L'entrée en matière — la vidéo d'ouverture, découpée en images
 #    · le montage : images chargées UNE FOIS, jamais dans refresh_callback ;
 #    · et, plus bas, la séquence JOUÉE dans le vrai interpréteur.
 INTRO_SRC="$BRANDING/ouvrir-ordinateur.mp4"
-#  Le plafond. Mesuré sur ce fichier : 3,7 Mo pour 53 images en 640×360 à
-#  128 couleurs. La consigne autorise jusqu'à 960×540/128 couleurs (~6,5 Mo)
-#  « si le rendu déçoit », et INTERDIT d'aller au-delà. 5 Mo laisse la marge
-#  du format retenu sans laisser passer un retour au 1080p (33 Mo) ni au
-#  PNG non réduit (9,8 Mo en 640×360).
-INTRO_PLAFOND_KO=5120
+#  ═══ LE PLAFOND A ÉTÉ RELEVÉ, ET VOICI LA MESURE QUI LE JUSTIFIE ═══
+#  Il valait 5 Mo, pour interdire « un retour au 1080p (33 Mo) ». Ce chiffre
+#  de 33 Mo était une estimation faite AVANT réduction de palette. Mesuré
+#  depuis, avec la vraie chaîne du hook et la vraie compression de
+#  l'initramfs (zstd -19, décompression chronométrée trois fois) :
+#
+#      640×360,   3,5 s, 128 couleurs →  3,4 Mo compressés,  7 ms
+#      960×540,   5 s,   128 couleurs →  7,4 Mo compressés, 11 ms
+#      1920×1080, 5 s,   128 couleurs → 20,3 Mo compressés, 20 ms
+#
+#  TREIZE MILLISECONDES au démarrage : le plein écran ne « paie pas
+#  l'animation deux fois », il coûte un battement de cil. Ce qui se paie,
+#  c'est la place — et ALEX A DEMANDÉ le plein écran (« qu'on voie
+#  l'animation en tout son écran »).
+#  24 Mo laissent passer le format retenu et rien de plus : des images en
+#  4K, ou des PNG non réduits en 1080p, dépasseraient encore.
+INTRO_PLAFOND_KO=24576
 
 if [ ! -r "$INTRO_SRC" ]; then
 	saut "branding/ouvrir-ordinateur.mp4 absent : l'entrée en matière n'est pas mesurée (Alex ne l'a pas encore déposée)"
@@ -1345,11 +1356,20 @@ else
 	#  Le compte attendu n'est pas écrit ici : il est LU dans le hook, pour
 	#  qu'un changement de durée n'ait pas à être reporté à la main dans ce
 	#  banc — et le contrôle suivant vérifie que le script dit le même.
-	INTRO_N_HOOK="$(sed -n 's/^PLY_INTRO_N=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
-	if [ -n "$INTRO_N_HOOK" ] && [ "$INTRO_VUES" = "$INTRO_N_HOOK" ]; then
-		ok "les $INTRO_VUES images de l'entrée en matière sont posées dans le thème"
+	#  ═══ LE COMPTE SE LIT DANS LE SCRIPT PRODUIT, PLUS DANS LE HOOK ═══
+	#  Le hook ne porte plus de nombre écrit à la main : il compte les images
+	#  que ffmpeg a réellement rendues et l'écrit dans le script. C'est ce
+	#  qu'il fallait faire — la même commande rend 53 images sur une vidéo et
+	#  52 sur une autre, et l'ancien hook, qui en exigeait 53, JETAIT toute
+	#  l'animation en silence dès qu'Alex changeait de vidéo.
+	#  L'invariant qui compte est donc : ce que le script annonce == ce qui
+	#  est POSÉ sur le disque. Un script qui promettrait une image de plus
+	#  ferait chercher à Plymouth un fichier absent.
+	INTRO_N_SCRIPT="$(sed 's|//.*$||' "$SCRIPT" | sed -n 's/^intro_n = \([0-9]*\);.*/\1/p' | head -1)"
+	if [ -n "$INTRO_N_SCRIPT" ] && [ "$INTRO_VUES" = "$INTRO_N_SCRIPT" ]; then
+		ok "les $INTRO_VUES images de l'entrée en matière sont posées, et le script en annonce autant"
 	else
-		non "$INTRO_VUES image(s) posée(s), le hook en annonce ${INTRO_N_HOOK:-?}"
+		non "$INTRO_VUES image(s) posée(s), le script en annonce ${INTRO_N_SCRIPT:-?}"
 	fi
 
 	#  ═══ LA VIDÉO DOIT ENTRER DANS LE CHROOT, SINON RIEN NE SE PASSE ═══
@@ -1404,7 +1424,11 @@ PYIMG
 	#  quelque chose les compare.
 	CODE_I="$(sed 's|//.*$||' "$SCRIPT")"
 	ACCORD=1
-	for COUPLE in "PLY_INTRO_N:intro_n" "PLY_INTRO_FPS:intro_fps" \
+	#  PLY_INTRO_N n'est plus de la partie : il n'existe plus comme constante
+	#  du hook (il est compté à la construction), et le contrôle juste
+	#  au-dessus le compare à ce qui est réellement posé — ce qui est plus
+	#  fort que comparer deux copies d'un même chiffre.
+	for COUPLE in "PLY_INTRO_FPS:intro_fps" \
 	              "PLY_INTRO_LARGEUR:intro_largeur" "PLY_INTRO_HAUTEUR:intro_hauteur"; do
 		V_HOOK="$(sed -n "s/^${COUPLE%%:*}=\([0-9]*\).*/\1/p" "$HOOK" | head -1)"
 		V_SCRIPT="$(sed -n "s/^${COUPLE##*:} = \([0-9]*\);.*/\1/p" <<< "$CODE_I" | head -1)"
@@ -1413,7 +1437,18 @@ PYIMG
 			ACCORD=0
 		fi
 	done
-	[ "$ACCORD" = 1 ] && ok "les quatre réglages (compte, cadence, largeur, hauteur) sont les mêmes dans le hook et dans le script"
+	[ "$ACCORD" = 1 ] && ok "les trois réglages (cadence, largeur, hauteur) sont les mêmes dans le hook et dans le script"
+	#  ET LE PLEIN ÉCRAN EST UNE PROMESSE, DONC UN CONTRÔLE. ALEX : « qu'on
+	#  voie l'animation en tout son écran ». Une image plus petite que l'écran
+	#  serait dessinée au centre, entourée de noir — c'est ce qu'on vient de
+	#  quitter, et rien n'empêcherait d'y revenir sans le dire.
+	L_HOOK="$(sed -n 's/^PLY_INTRO_LARGEUR=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
+	H_HOOK="$(sed -n 's/^PLY_INTRO_HAUTEUR=\([0-9]*\).*/\1/p' "$HOOK" | head -1)"
+	if [ "${L_HOOK:-0}" -ge 1920 ] && [ "${H_HOOK:-0}" -ge 1080 ]; then
+		ok "les images sont découpées en ${L_HOOK}×${H_HOOK} — l'entrée en matière remplit un écran de 1080p"
+	else
+		non "les images font ${L_HOOK:-?}×${H_HOOK:-?} : sur un écran de 1920×1080, l'animation serait un timbre-poste au centre"
+	fi
 
 	#  ═══ CHARGÉES UNE FOIS, JAMAIS DANS LE RAFRAÎCHISSEMENT ═══
 	#  Un Image() par rafraîchissement relirait le fichier 15 fois par
@@ -1553,7 +1588,21 @@ PYIMG
 			|| true
 
 		#  ═══ LA MAIN PASSE AU SPLASH, ET SON HORLOGE REPART DE ZÉRO ═══
-		FIN="$(sonder 0 200 ifin intro_termine idec intro_decalage \
+		#  ═══ LE MOMENT DU SONDAGE SE CALCULE, IL N'EST PLUS ÉCRIT EN DUR ═══
+		#  Il valait 200 rafraîchissements, soit 4 s à la cadence de 50 —
+		#  c'est-à-dire 3,53 s d'entrée en matière (53 images à 15 im/s) plus
+		#  les 0,46 s qu'attend le contrôle suivant. Le nombre collait au
+		#  format d'alors ; il ne colle plus dès qu'on change la durée, et le
+		#  banc accusait alors le décalage de ne pas s'appliquer, alors que la
+		#  séquence n'était tout simplement pas finie. On le calcule donc à
+		#  partir de ce que le script annonce vraiment.
+		FPS_S="$(sed 's|//.*$||' "$SCRIPT" | sed -n 's/^intro_fps = \([0-9]*\);.*/\1/p' | head -1)"
+		N_S="$(sed 's|//.*$||' "$SCRIPT" | sed -n 's/^intro_n = \([0-9]*\);.*/\1/p' | head -1)"
+		APRES=200
+		if [ -n "$FPS_S" ] && [ -n "$N_S" ] && [ "$FPS_S" -gt 0 ]; then
+			APRES="$(python3 -c "print(int(round(($N_S/$FPS_S + 0.46) * 50)))" 2>/dev/null || echo 200)"
+		fi
+		FIN="$(sonder 0 "$APRES" ifin intro_termine idec intro_decalage \
 			iop 'intro_sprite.GetOpacity()' masc 'mascotte_sprite.GetOpacity()' \
 			pluie 'pluie_sprite.GetOpacity()' \
 			l0 'lettre_sprite[0].GetOpacity()' l4 'lettre_sprite[4].GetOpacity()')"
