@@ -390,10 +390,28 @@ print(settings._dock_etat())" 2>/dev/null | tail -1)"
 	#  Et la page doit VRAIMENT traiter ce null, sinon le moteur est honnête
 	#  et l'écran ment quand même.
 	APP_JS="$RACINE/config/includes.chroot/usr/share/lexos/settings/web/app.js"
-	if grep -q 'etat.dock == null' "$APP_JS"; then
+	#  ═══ « etat.dock » EST DEVENU « vu("dock") », ET C'EST VOULU ═══
+	#  Les Paramètres affichent maintenant le choix AVANT que la machine ait
+	#  répondu (ALEX : « rendre les Paramètres fluides ») : « vu(clé) » rend
+	#  ce qu'on vient de cliquer s'il y a une demande en vol, et l'état réel
+	#  sinon. Lire « etat.dock » directement rendrait la page moins vraie,
+	#  pas plus — elle ignorerait le clic en cours.
+	#
+	#  Le cas gardé ici est le même : position INCONNUE, aucun bouton allumé,
+	#  et la raison écrite. On accepte donc les deux formes, mais on exige
+	#  qu'une comparaison à « null » existe : sans elle, la page allumerait
+	#  un bouton au hasard ou n'expliquerait rien.
+	if grep -qE '(etat\.dock|vu\("dock"\)) *== *null' "$APP_JS"; then
 		ok "…et la page prévoit ce cas : aucun bouton allumé, une explication"
 	else
 		non "la page ne traite pas le cas « position inconnue » : elle n'affichera rien d'utile"
+	fi
+	#  ET L'EXPLICATION EXISTE VRAIMENT. Comparer à null sans rien afficher
+	#  laisserait l'écran muet — le pire des trois cas.
+	if grep -q 'Position introuvable' "$APP_JS"; then
+		ok "…et la raison est écrite à l'écran, pas seulement dans le code"
+	else
+		non "la page compare à null mais n'explique rien : l'écran reste muet"
 	fi
 
 	#  Le fichier fantôme ne doit pas revenir : c'était la deuxième source de
