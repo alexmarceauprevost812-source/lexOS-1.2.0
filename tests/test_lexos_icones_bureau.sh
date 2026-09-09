@@ -216,7 +216,13 @@ grep -q 'lexos-icones-bureau' "$DISPATCH" \
 #  déjà un grep du FICHIER ENTIER — la branche du dispatcheur suffisait donc
 #  à le rendre vert, même sans une ligne d'aide. On lit maintenant la seule
 #  zone d'aide, repérée par la ligne d'aide d'un outil voisin déjà en place.
-AIDE_ZONE="$(grep -E '^\s+\$\{A\}[a-zà-ÿ-]+\$\{R\}' "$DISPATCH")"
+#  PAS DE PLAGE DE LETTRES ACCENTUÉES DANS UNE EXPRESSION. « [a-zà-ÿ-] »
+#  a fait tomber la CI sur « grep: Invalid collation character » : selon la
+#  locale du coureur, « à-ÿ » n'est pas une plage valide — les deux bornes
+#  tiennent sur deux octets en UTF-8. Ici la même ligne passait, alors le
+#  banc etait vert en local et rouge sur GitHub. On décrit maintenant la
+#  FORME de la ligne d'aide, qui ne depend d'aucune locale.
+AIDE_ZONE="$(grep -E '^[[:space:]]+\$\{A\}[^$]+\$\{R\}' "$DISPATCH")"
 if grep -q 'icones-bureau' <<< "$AIDE_ZONE"; then
 	ok "…et il a sa ligne dans l'aide de « lexos »"
 else

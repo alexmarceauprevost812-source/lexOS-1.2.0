@@ -261,8 +261,33 @@ if command -v xfce4-terminal >/dev/null 2>&1 \
 export PS1='\$ '
 . "$RACINE/config/includes.chroot/usr/share/lexos/shell/interactive.sh"
 EOF
+		#  ═══ LE VÉRIFICATEUR EST POSÉ DEHORS ═══
+		#  Le sous-shell tourne dans « bash -c '…' » : la moindre apostrophe
+		#  à l'intérieur casse la commande. On écrit donc le compteur de
+		#  pixels dans un fichier, et on le lance par son chemin.
+		cat > "$BANC/vu.py" <<'PYVU'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+w, h = im.size
+n = sum(1 for y in range(min(30, h)) for x in range(w)
+        if im.getpixel((x, y)) == (255, 255, 255))
+sys.exit(0 if n >= 40 else 1)
+PYVU
 		xvfb_lancer 1100x700x24 || true
 		DISP="$XVFB_AFF"
+		#  ═══ windowfocus AVANT windowactivate — MESURÉ SUR LA CI ═══
+		#  Ce contrôle rendait « 0 px blancs et 896 px verts » sur le coureur
+		#  GitHub : l'invite s'affichait bien, la frappe n'arrivait nulle
+		#  part. « windowactivate » passe par _NET_ACTIVE_WINDOW, que SEUL un
+		#  gestionnaire de fenêtres honore — et il n'y en a aucun sous ce
+		#  Xvfb. « windowfocus » appelle XSetInputFocus, qui ne dépend de
+		#  personne. windowactivate reste ensuite, au cas où un WM serait là,
+		#  mais ce n'est plus lui qui porte le contrôle.
+		#
+		#  ET L'IMAGE EST PRISE QUAND LA FRAPPE EST VUE, pas après une pause
+		#  fixe : sur un coureur chargé, 0,8 s ne suffit pas toujours à VTE
+		#  pour redessiner, et le banc mesurait une image d'avant la frappe.
 		#  « xdotool search --sync » attend la fenêtre SANS LIMITE, et
 		#  « import » prend un verrou sur l'écran entier : chacun est sous
 		#  timeout, et la session D-Bus entière aussi — rien ici ne peut
@@ -273,12 +298,18 @@ EOF
 				-e "bash --rcfile $HOME/.bashrc -i" >/dev/null 2>&1 &
 			sleep 4
 			W="$(timeout 20 xdotool search --sync --class xfce4-terminal 2>/dev/null | head -1)"
-			[ -n "$W" ] && timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
+			if [ -n "$W" ]; then
+				timeout 10 xdotool windowfocus --sync "$W" 2>/dev/null
+				timeout 10 xdotool windowactivate --sync "$W" 2>/dev/null
+			fi
 			sleep 0.5
 			timeout 10 xdotool type --delay 40 "echo BONJOUR"
-			sleep 0.8
-			timeout 20 import -window root "$1"
-		  ' _ "$BANC/frappe.png" ) >/dev/null 2>&1
+			for _ in 1 2 3 4 5 6 7 8 9 10; do
+				sleep 0.4
+				timeout 20 import -window root "$1" 2>/dev/null || continue
+				python3 "$2" "$1" && break
+			done
+		  ' _ "$BANC/frappe.png" "$BANC/vu.py" ) >/dev/null 2>&1
 		kill "$XVFB_PID" 2>/dev/null; wait "$XVFB_PID" 2>/dev/null; XVFB_PID=""
 		if [ -s "$BANC/frappe.png" ]; then
 			#  Première ligne du terminal (les 30 premiers pixels de haut).

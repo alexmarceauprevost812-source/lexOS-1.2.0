@@ -123,7 +123,15 @@ esac
 titre "4. Aucune interface du tout -> ça le dit, ça n'invente rien"
 # =============================================================================
 vide_bl
-SORTIE="$(LEXOS_BL="$BANC/bl" "$OUTIL" 2>&1)"
+#  ═══ « AUCUNE INTERFACE » VEUT DIRE AUCUNE, xrandr COMPRIS ═══
+#  Vider LEXOS_BL ne suffit pas : lexos-brightness a un TROISIÈME recours,
+#  « xrandr --brightness », qu'il retient dès qu'un DISPLAY existe. Sur une
+#  machine sans écran — le coureur de la CI — le contrôle passait ; lancé
+#  sous xvfb-run, ou simplement sur un vrai bureau, il rougissait en lisant
+#  « Luminosité : 0% ». Le banc dépendait de sa machine hôte sans le dire.
+#  On retire donc DISPLAY pour ce contrôle-ci, et lui seul : c'est la
+#  situation qu'il prétend décrire.
+SORTIE="$(env -u DISPLAY LEXOS_BL="$BANC/bl" "$OUTIL" 2>&1)"
 grep -qi "aucun moyen" <<< "$SORTIE" \
 	&& ok "sans aucune interface, lexos-brightness le dit clairement" \
 	|| non "sortie inattendue sans interface : $SORTIE"
