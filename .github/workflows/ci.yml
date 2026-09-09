@@ -1331,6 +1331,46 @@ jobs:
           kill "$SONDE_PID" 2>/dev/null || true
           unset DISPLAY
           [ "$MUETTES" -eq 0 ] || exit 1
+          #  ═══ ON MESURE SUR LE SYSTÈME DE LEXOS, PAS SUR CELUI DU COUREUR ═══
+          #  Le journal ne s'en cachait pas : azure.archive.ubuntu.com, noble,
+          #  zenity 4.0.1-1build3. Or LexOS est bâti sur DEBIAN TRIXIE, et les
+          #  hauteurs que ce banc mesure sont décidées par yad, zenity et GTK —
+          #  qui n'ont pas les mêmes versions sur les deux systèmes. Une
+          #  géométrie relevée sur noble ne dit rien de sûr de ce qu'Alex verra.
+          #  On lance donc le banc DANS debian:trixie, avec les vraies versions.
+          #
+          #  ET SI LE CONTENEUR NE PEUT PAS ÊTRE PRÉPARÉ, ON LE DIT FORT. Le
+          #  repli sur le coureur n'est pas silencieux : « ::warning:: » ici, et
+          #  la section 0 du banc imprime le système sur lequel il a mesuré et
+          #  compte l'écart comme UN NON MESURÉ. Personne ne peut lire ces
+          #  hauteurs en croyant qu'elles viennent de trixie.
+          #  ON DÉCIDE SUR UNE MARQUE, PAS SUR UN CODE DE SORTIE. Premier
+          #  essai : trier les codes (97, 125, 126, 127) pour distinguer « le
+          #  conteneur n'a pas pu être préparé » de « le banc a rougi ».
+          #  MESURÉ ICI : le client docker qui ne joint pas son démon rend
+          #  simplement 1 — le même code qu'un banc en échec. L'étape serait
+          #  donc partie au ROUGE en annonçant un défaut de la fenêtre, alors
+          #  qu'aucune fenêtre n'avait été ouverte. Un code de sortie ne dit
+          #  pas ce qui s'est passé ; une marque écrite au moment précis où le
+          #  banc démarre, si.
+          TRACE="$(mktemp)"
+          set +e
+          docker run --rm -v "$PWD:/depot" -w /depot debian:trixie bash -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq                                          || exit 97
+            apt-get install -y --no-install-recommends \
+              xvfb yad zenity xdotool python3 >/dev/null                || exit 97
+            echo TRIXIE-PRET
+            bash tests/test_lexos_install_avertissement.sh' 2>&1 | tee "$TRACE"
+          CODE_TRIXIE=${PIPESTATUS[0]}
+          set -e
+          if grep -q '^TRIXIE-PRET$' "$TRACE"; then
+            #  Le banc a VRAIMENT tourné dans trixie : son verdict est le nôtre.
+            rm -f "$TRACE"
+            exit "$CODE_TRIXIE"
+          fi
+          rm -f "$TRACE"
+          echo "::warning::le conteneur Debian trixie n'a pas pu être préparé (code $CODE_TRIXIE) — on mesure sur ce coureur, et le banc le dit lui-même dans sa section 0, où l'écart compte comme un NON MESURÉ"
           bash tests/test_lexos_install_avertissement.sh
 
       - name: Profils de performance — tous chargeables

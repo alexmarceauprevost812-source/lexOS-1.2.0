@@ -153,6 +153,41 @@ raconter() {   # $1 = affichage ; $2 = fichier de plaintes
 }
 
 # -----------------------------------------------------------------------------
+titre "0. Sur quel système ces hauteurs ont-elles été mesurées"
+#  ═══ LEXOS EST BÂTI SUR DEBIAN TRIXIE. LE COUREUR EST SUR UBUNTU ═══
+#  Le journal du coureur ne s'en cache pas : azure.archive.ubuntu.com, noble,
+#  zenity 4.0.1-1build3, xvfb 2:21.1.12-1ubuntu1.6. Or les hauteurs que ce
+#  banc mesure sont décidées par yad, zenity et GTK — et ces trois-là n'ont
+#  pas les mêmes versions sur les deux systèmes. Une géométrie relevée sur
+#  noble ne dit donc rien de SÛR de ce qu'Alex verra sur sa machine.
+#
+#  DEUX RÉPONSES ÉTAIENT POSSIBLES : mesurer dans un vrai conteneur trixie,
+#  ou assumer que c'est indicatif et l'écrire. La première est meilleure —
+#  l'étape de la CI lance donc ce banc DANS debian:trixie. La seconde reste
+#  vraie partout ailleurs : sur la machine de quelqu'un, ce banc tourne sur
+#  ce que cette machine a.
+#  Alors il le DIT, à chaque exécution, et il compte l'écart comme un
+#  « non mesuré » — jamais comme une réussite.
+SYS="inconnu"; SYS_ID=""; SYS_NOM=""
+if [[ -r /etc/os-release ]]; then
+	SYS_ID="$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')"
+	SYS_NOM="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')"
+	SYS="$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"')"
+fi
+printf '  %s·%s mesuré sur : %s\n' "$JAUNE" "$FIN" "${SYS:-inconnu}"
+for O in yad zenity; do
+	if command -v "$O" >/dev/null 2>&1; then
+		printf '  %s·%s %-7s %s\n' "$JAUNE" "$FIN" "$O :" \
+			"$(dpkg-query -W -f='${Version}' "$O" 2>/dev/null || echo 'version inconnue') · $(ldd "$(command -v "$O")" 2>/dev/null | grep -o 'libgtk-[0-9-]*\.so\.[0-9]*' | sort -u | tr '\n' ' ')"
+	fi
+done
+if [[ "$SYS_ID" == "debian" && "$SYS_NOM" == "trixie" ]]; then
+	ok "mesuré sur le système de LexOS (Debian trixie) — ces hauteurs sont celles qu'Alex verra"
+else
+	saut "mesuré sur « ${SYS:-inconnu} », PAS sur Debian trixie — yad, zenity et GTK n'y ont pas les mêmes versions, ces hauteurs sont indicatives"
+fi
+
+# -----------------------------------------------------------------------------
 titre "1. Le fichier et ses deux fonctions de mesure"
 if [[ -r "$INST" ]]; then ok "lexos-install lisible"; else
 	non "lexos-install introuvable ($INST)"; printf '\n'; exit 1; fi
