@@ -45,7 +45,12 @@ die()  { printf '%serreur :%s %s\n' "$RG" "$R" "$*" >&2; exit 1; }
 #  valeurs par défaut sont les vraies.
 DEST="${LEXOS_MAJ_DEST:-}"
 ETC_LEXOS="${LEXOS_MAJ_ETC:-/etc/lexos}"
-DEFAUT_SRC="${LEXOS_MAJ_SRC_DEFAUT:-/home/alex/Projets LexOS/lexOS-2.0}"
+_maison() {
+	local u="${SUDO_USER:-${USER:-}}" h=""
+	[[ -n "$u" ]] && h="$(getent passwd "$u" 2>/dev/null | cut -d: -f6)"
+	printf '%s' "${h:-${HOME:-/root}}"
+}
+DEFAUT_SRC="${LEXOS_MAJ_SRC_DEFAUT:-$(_maison)/Projets LexOS/lexOS-2.0}"
 
 # =============================================================================
 #  Les arguments
