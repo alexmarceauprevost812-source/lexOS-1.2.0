@@ -12,6 +12,17 @@ set -uo pipefail
 
 PROG="${0##*/}"
 
+#  ═══ /usr/sbin N'EST PAS DANS LE PATH D'UN COMPTE ORDINAIRE ═══
+#  ufw, chkrootkit et leurs pareils vivent dans /usr/sbin. Cet outil se
+#  lit SANS sudo — c'est un état, pas une action — et « command -v ufw »
+#  échouait donc pour l'utilisateur alors que le pare-feu était installé
+#  ET actif. L'état annonçait « non installé » et invitait à installer un
+#  paquet déjà là. rkhunter, fail2ban-client et freshclam vivent dans
+#  /usr/bin : le faux négatif ne frappait que le pare-feu, ce qui le
+#  rendait d'autant plus crédible.
+LEXOS_SECURE_SBIN=1
+case ":$PATH:" in *:/usr/sbin:*) ;; *) PATH="$PATH:/usr/sbin:/sbin" ;; esac
+
 case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
 	*UTF-8*|*utf8*|*UTF8*|*utf-8*) ;;
 	*) locale -a 2>/dev/null | grep -qiE '^C\.utf-?8$' && export LC_ALL=C.UTF-8 ;;
@@ -42,7 +53,14 @@ cmd_status() {
 	printf '\n%s%s — sécurité%s\n\n' "$B$O" "$PROG" "$R"
 
 	if command -v ufw >/dev/null 2>&1; then
-		local fw; fw="$(ufw status 2>/dev/null | head -n1)"
+		#  « ufw status » exige root. Sans sudo on lit le fichier de
+		#  configuration, qui est en lecture pour tous : ENABLED=yes.
+		local fw=""
+		if [[ $EUID -eq 0 ]]; then
+			fw="$(ufw status 2>/dev/null | head -n1)"
+		elif grep -qi '^ENABLED=yes' /etc/ufw/ufw.conf 2>/dev/null; then
+			fw="Status: active"
+		fi
 		if [[ "$fw" == *"active"* ]]; then
 			ok "Pare-feu (ufw) : actif"
 		else
@@ -72,8 +90,17 @@ cmd_status() {
 
 	if command -v fail2ban-client >/dev/null 2>&1; then
 		if systemctl is-active fail2ban >/dev/null 2>&1; then
-			local n; n="$(fail2ban-client status 2>/dev/null | grep -oP '(?<=Number of jail:\s)\d+' || echo '?')"
-			ok "Anti-intrusion (fail2ban) : actif (${n} prison(s))"
+			#  La socket de fail2ban est réservée à root : sans sudo on
+			#  n'affiche pas de compte plutôt qu'un « ? » qui fait peur.
+			local n=""
+			if [[ $EUID -eq 0 ]]; then
+				n="$(fail2ban-client status 2>/dev/null | grep -oP '(?<=Number of jail:\s)\d+')"
+			fi
+			if [[ -n "$n" ]]; then
+				ok "Anti-intrusion (fail2ban) : actif (${n} prison(s))"
+			else
+				ok "Anti-intrusion (fail2ban) : actif"
+			fi
 		else
 			warn "Anti-intrusion (fail2ban) : installé mais arrêté — ${PROG} enable"
 		fi
