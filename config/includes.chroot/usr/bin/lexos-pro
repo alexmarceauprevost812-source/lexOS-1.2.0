@@ -1,0 +1,70 @@
+#!/bin/sh
+# =============================================================================
+#  LEXOS PRO — lanceur
+# =============================================================================
+#  N'INSTALLE RIEN. Si PySide6 manque, ce lanceur le DIT et donne la commande
+#  à taper, distribution par distribution. Un lanceur qui installe des paquets
+#  système tout seul, c'est une fenêtre de mot de passe surgie de nulle part
+#  et un système modifié sans que personne l'ait demandé.
+#
+#  ET IL NE DÉMARRE PAS EN ROOT. La vérification est faite deux fois — ici
+#  pour le message clair, et dans app.py pour que ce soit vrai même si
+#  quelqu'un lance le module Python directement.
+# =============================================================================
+set -eu
+
+RACINE="${LEXOS_PRO_RACINE:-/usr/lib/lexos}"
+#  Lancement depuis les sources du dépôt (mise au point) : on se repère sur
+#  l'emplacement réel de ce script plutôt que sur un chemin codé en dur.
+if [ ! -d "$RACINE/pro" ]; then
+	ICI="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+	if [ -d "$ICI/../lib/lexos/pro" ]; then
+		RACINE="$(CDPATH='' cd -- "$ICI/../lib/lexos" && pwd)"
+	fi
+fi
+
+if [ ! -d "$RACINE/pro" ]; then
+	echo "LEXOS PRO : le dossier « $RACINE/pro » est introuvable." >&2
+	echo "Réinstallez le paquet, ou définissez LEXOS_PRO_RACINE." >&2
+	exit 1
+fi
+
+if [ "$(id -u)" = "0" ] && [ -z "${LEXOS_PRO_AUTORISER_ROOT:-}" ]; then
+	echo "LEXOS PRO ne se lance pas en root." >&2
+	echo "Utilisez votre compte habituel : les rares actions qui demandent" >&2
+	echo "des droits passent par pkexec, qui affiche sa propre fenêtre." >&2
+	exit 2
+fi
+
+PY="${LEXOS_PRO_PYTHON:-python3}"
+if ! command -v "$PY" >/dev/null 2>&1; then
+	echo "LEXOS PRO : « $PY » est introuvable." >&2
+	exit 1
+fi
+
+if ! "$PY" -c 'import PySide6' >/dev/null 2>&1; then
+	echo "LEXOS PRO a besoin de PySide6, qui n'est pas installé." >&2
+	echo >&2
+	#  On NOMME la distribution : le paquet ne s'appelle pas pareil partout,
+	#  et « Ubuntu » n'est pas « Debian » même si les deux ont apt.
+	ID=""
+	[ -r /etc/os-release ] && ID="$(. /etc/os-release 2>/dev/null; printf '%s' "${ID:-}")"
+	case "$ID" in
+		debian|ubuntu|linuxmint|pop|lexos)
+			echo "  sudo apt install python3-pyside6.qtwidgets python3-pyside6.qtgui" >&2 ;;
+		fedora|rhel|centos)
+			echo "  sudo dnf install python3-pyside6" >&2 ;;
+		arch|manjaro|endeavouros)
+			echo "  sudo pacman -S pyside6" >&2 ;;
+		opensuse*|sles)
+			echo "  sudo zypper install python3-pyside6" >&2 ;;
+		*)
+			echo "  Installez PySide6 par le gestionnaire de paquets de votre" >&2
+			echo "  distribution, ou : pip install --user PySide6" >&2 ;;
+	esac
+	echo >&2
+	echo "LEXOS PRO n'installe jamais de paquet système lui-même." >&2
+	exit 3
+fi
+
+exec "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from pro.app import principal; sys.exit(principal(sys.argv[2:]))' "$RACINE" "lexos-pro" "$@"

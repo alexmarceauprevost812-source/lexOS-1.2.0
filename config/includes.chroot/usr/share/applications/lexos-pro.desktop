@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=LEXOS PRO
+Name[fr]=LEXOS PRO
+GenericName=System dashboard
+GenericName[fr]=Tableau de bord du système
+Comment=System overview, files, settings and diagnostics
+Comment[fr]=Vue d'ensemble du système, fichiers, paramètres et diagnostics
+Exec=lexos-pro
+Icon=lexos-pro
+Terminal=false
+Categories=System;Monitor;
+Keywords=lexos;systeme;system;parametres;settings;diagnostic;gpu;reseau;
+StartupNotify=true
+StartupWMClass=lexos-pro
