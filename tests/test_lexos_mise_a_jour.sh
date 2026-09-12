@@ -569,6 +569,132 @@ else
 fi
 
 # =============================================================================
+titre "9. L'OUTIL SE COPIE SUR LUI-MÊME PENDANT QU'IL TOURNE"
+# =============================================================================
+#  ═══ CE QUE ÇA FAISAIT, RELEVÉ CHEZ ALEX ═══
+#      Fichiers   source : /home/alex/lexOS-2.0
+#      /usr/bin/lexos-mise-a-jour: ligne 332: erreur de syntaxe près du
+#      symbole inattendu « done »
+#
+#  La liste des fichiers à copier contient « usr/bin/lexos-mise-a-jour » :
+#  l'outil se recopiait sur lui-même en pleine exécution. « cp » écrit DANS le
+#  fichier existant, et bash ne charge pas un script d'un coup — il le lit au
+#  fil de l'exécution en gardant sa position. Le contenu changeait sous lui,
+#  il reprenait au même décalage dans un fichier devenu différent, et tombait
+#  au milieu d'un mot.
+#
+#  ═══ ON REPRODUIT LA SCÈNE EXACTE ═══
+#  L'outil QUI TOURNE est celui du faux système ; le faux clone en contient
+#  une version DIFFÉRENTE — la même, avec trois mille lignes insérées en
+#  tête. C'est ce décalage qui fait trébucher bash s'il relit le fichier.
+#  Et il reste du travail APRÈS la copie de l'outil (deux autres outils,
+#  triés autour de lui, plus deux autres arbres) : sans ça, la boucle
+#  finirait avant que bash n'ait à relire quoi que ce soit, et le banc serait
+#  vert sans rien prouver — c'est exactement ce qui est arrivé à Alex ce
+#  jour-là, et ce qui a fait croire que tout allait bien.
+#
+#  MESURÉ AVEC LA VERSION D'AVANT (« cp -a » sur place) :
+#      lexos-mise-a-jour: line 369: lage: command not found
+#      erreur : Aucun dépôt indiqué et « …/nulle-part » n'existe pas.
+#      code de sortie 1, et /etc/lexos/maj JAMAIS écrit
+#  « lage » est un morceau du mot « décalage » : bash a repris sa lecture au
+#  milieu d'un mot, puis a ré-exécuté l'analyse des arguments depuis le
+#  nouveau contenu. L'outil ne faisait plus du tout ce qu'on lui demandait.
+SCENE="$BANC/soi-meme"
+mkdir -p "$SCENE/clone/config/includes.chroot/usr/bin" \
+         "$SCENE/clone/config/includes.chroot/usr/share/lexos" \
+         "$SCENE/clone/config/includes.chroot/usr/lib/lexos" \
+         "$SCENE/systeme/usr/bin" "$SCENE/systeme/etc/lexos"
+: > "$SCENE/clone/lexos.conf"
+
+#  La version « neuve » : la vraie, décalée de trois mille lignes.
+{
+	head -1 "$OUTIL"
+	i=1; while [ "$i" -le 3000 ]; do printf '#  ligne de decalage %d
+' "$i"; i=$((i+1)); done
+	tail -n +2 "$OUTIL"
+} > "$SCENE/clone/config/includes.chroot/usr/bin/lexos-mise-a-jour"
+chmod 755 "$SCENE/clone/config/includes.chroot/usr/bin/lexos-mise-a-jour"
+
+#  Du travail avant ET après, dans l'ordre de « find | sort ».
+for N in aaa-avant zzz-apres; do
+	printf '#!/bin/sh
+echo %s
+' "$N" > "$SCENE/clone/config/includes.chroot/usr/bin/lexos-$N"
+	chmod 755 "$SCENE/clone/config/includes.chroot/usr/bin/lexos-$N"
+done
+printf 'body{}
+'        > "$SCENE/clone/config/includes.chroot/usr/share/lexos/ui.css"
+printf 'print("neuf")
+' > "$SCENE/clone/config/includes.chroot/usr/lib/lexos/settings.py"
+
+#  L'OUTIL QUI TOURNE EST CELUI DU SYSTÈME — c'est tout l'objet du contrôle.
+cp "$OUTIL" "$SCENE/systeme/usr/bin/lexos-mise-a-jour"
+chmod 755 "$SCENE/systeme/usr/bin/lexos-mise-a-jour"
+
+SORTIE_SOI="$(cd "$SCENE" && LEXOS_MAJ_DEST="$SCENE/systeme" \
+	LEXOS_MAJ_ETC="$SCENE/systeme/etc/lexos" \
+	LEXOS_MAJ_SRC_DEFAUT="$SCENE/nulle-part" \
+	bash "$SCENE/systeme/usr/bin/lexos-mise-a-jour" --depuis "$SCENE/clone" 2>&1)"
+CODE_SOI=$?
+
+[ "$CODE_SOI" = "0" ] \
+	&& ok "l'outil se copie sur lui-même et finit NORMALEMENT (code 0)" \
+	|| non "l'outil s'est arrêté avec le code $CODE_SOI en se copiant sur lui-même"
+
+#  ═══ ET BASH NE DOIT PAS S'ÊTRE PLAINT ═══
+#  Un code 0 ne suffit pas : bash peut se plaindre d'une ligne et continuer.
+#  On cherche ses mots à lui, dans les deux langues — le coureur tourne en
+#  anglais, la machine d'Alex en français.
+#  PAR CHAÎNE ICI-MÊME, PAS PAR UN TUYAU : c'est la règle que ce banc se
+#  donne à lui-même quelques lignes plus bas, et elle vient de me reprendre
+#  en écrivant ceci. Sous pipefail, grep qui trouve ferme le tuyau, le
+#  producteur prend un SIGPIPE, et une correspondance VRAIE ressort en échec.
+MOTS_BASH='command not found|commande introuvable|syntax error|erreur de syntaxe|unexpected|inattendu'
+PLAINTES="$(grep -icE "$MOTS_BASH" <<< "$SORTIE_SOI" || true)"
+if [ "$PLAINTES" = "0" ]; then
+	ok "bash ne se plaint de rien — il a lu un fichier stable de bout en bout"
+else
+	PREMIERE="$(grep -m1 -iE "$MOTS_BASH" <<< "$SORTIE_SOI" || true)"
+	non "bash s'est plaint $PLAINTES fois : $PREMIERE"
+fi
+
+#  ═══ ET LE TRAVAIL EST FINI, PAS SEULEMENT COMMENCÉ ═══
+#  /etc/lexos/maj est écrit À LA FIN. Sa présence prouve que l'exécution est
+#  allée jusqu'au bout — c'est précisément ce qui manquait dans la version
+#  d'avant, où les fichiers étaient posés mais la trace absente.
+[ -r "$SCENE/systeme/etc/lexos/maj" ] \
+	&& ok "la trace /etc/lexos/maj est écrite : l'exécution est allée jusqu'au bout" \
+	|| non "/etc/lexos/maj absent — l'outil est mort avant la fin, comme chez Alex"
+
+#  ═══ TOUS LES FICHIERS SONT POSÉS ═══
+MANQUANTS=""
+for REL in usr/bin/lexos-mise-a-jour usr/bin/lexos-aaa-avant usr/bin/lexos-zzz-apres \
+           usr/share/lexos/ui.css usr/lib/lexos/settings.py; do
+	[ -r "$SCENE/systeme/$REL" ] || MANQUANTS="$MANQUANTS $REL"
+done
+[ -z "$MANQUANTS" ] \
+	&& ok "les cinq fichiers annoncés sont tous posés" \
+	|| non "fichiers manquants après le passage :$MANQUANTS"
+
+#  ═══ ET LA NOUVELLE VERSION EST BIEN EN PLACE ═══
+#  Un renommage réussi, c'est aussi ça : l'ancien contenu ne doit pas rester.
+if cmp -s "$SCENE/clone/config/includes.chroot/usr/bin/lexos-mise-a-jour" \
+          "$SCENE/systeme/usr/bin/lexos-mise-a-jour"; then
+	ok "le système porte bien la NOUVELLE version de l'outil"
+else
+	non "l'outil du système n'est pas identique à celui du clone — la copie s'est perdue"
+fi
+
+#  ═══ PAS DE RÉSIDU ═══
+#  Le temporaire vit dans le même dossier que la destination : s'il survivait,
+#  /usr/bin se remplirait de « .lexos-neuf-1234 » à chaque mise à jour.
+RESIDUS="$(find "$SCENE/systeme" -name '*.lexos-neuf-*' | wc -l | tr -d ' ')"
+[ "$RESIDUS" = "0" ] \
+	&& ok "aucun fichier temporaire laissé derrière" \
+	|| non "$RESIDUS fichier(s) temporaire(s) .lexos-neuf-* oubliés dans la destination"
+
+# =============================================================================
 #  ═══ LE RAPPEL, PARCE QU'UN ❌ A DÉJÀ DÉFILÉ ═══
 #  Quand on colle la fin d'un banc, on colle le résumé. Sans ce rappel, « 1
 #  échoués » ne dit pas lequel, et le diagnostic commence par une devinette.

@@ -309,11 +309,50 @@ copier_un() { # copier_un <source> <relatif>
 	if [[ -e "$dst" ]] && ! cmp -s "$src" "$dst"; then
 		cp -a "$dst" "$dst.lexos-bak-$DATE" 2>/dev/null && SAUVES=$((SAUVES + 1))
 	fi
-	#  « cp -a » conserve le bit d'exécution. Les 80 outils sont en 755 ; un
-	#  chmod perdu et la commande n'existe plus.
-	if cp -a "$src" "$dst"; then
+	#  ═══ ON ÉCRIT À CÔTÉ, PUIS ON RENOMME — ET C'EST OBLIGATOIRE ═══
+	#  CE QUE ÇA FAISAIT AVANT : « cp -a "$src" "$dst" », qui écrit DANS le
+	#  fichier existant — même inode, contenu remplacé sur place.
+	#  Or la liste des fichiers à copier contient « usr/bin/lexos-mise-a-jour ».
+	#  Ce programme se recopiait donc sur lui-même PENDANT qu'il tournait. Et
+	#  bash ne charge pas un script d'un coup : il le lit au fil de
+	#  l'exécution, en gardant sa position dans le fichier. Le contenu changeait
+	#  sous lui, il reprenait sa lecture au même décalage dans un fichier devenu
+	#  différent, et tombait au milieu d'un mot. Relevé chez Alex :
+	#
+	#      Fichiers   source : /home/alex/lexOS-2.0
+	#      /usr/bin/lexos-mise-a-jour: ligne 332: erreur de syntaxe près du
+	#      symbole inattendu « done »
+	#
+	#  Ce jour-là la boucle avait fini son travail avant que bash ne trébuche.
+	#  RIEN NE LE GARANTISSAIT. Quelques fichiers plus tôt, le système restait
+	#  à moitié à jour — et le passage suivant aurait annoncé « tout est
+	#  identique » pour ceux déjà posés, sans que personne ne sache que les
+	#  autres manquaient.
+	#
+	#  UN RENOMMAGE, LUI, REMPLACE L'ENTRÉE DU RÉPERTOIRE par un nouvel inode.
+	#  Bash garde ouvert celui qu'il lisait : il finit tranquillement l'ancienne
+	#  version pendant que la nouvelle est déjà en place pour le prochain appel.
+	#  C'est cette propriété-là qui rend l'opération sûre, et « cp » ne l'a pas.
+	#
+	#  TROIS CONDITIONS, TOUTES NÉCESSAIRES :
+	#    1. le temporaire est dans le MÊME DOSSIER que la destination — un
+	#       renommage n'est atomique qu'à l'intérieur d'un même système de
+	#       fichiers, passer par /tmp casserait la garantie ;
+	#    2. « cp -a » pose le bit d'exécution SUR LE TEMPORAIRE, avant le
+	#       renommage : le fichier n'existe jamais en place sans ses droits.
+	#       Les 80 outils sont en 755 ; un chmod perdu et la commande n'existe
+	#       plus ;
+	#    3. le temporaire est effacé si quoi que ce soit échoue — pas de
+	#       résidus dans /usr/bin.
+	#
+	#  ET ON L'APPLIQUE À TOUS LES FICHIERS, pas seulement à ce script-ci : la
+	#  règle vaut pour n'importe quel exécutable en cours d'utilisation, et un
+	#  cas particulier serait un piège pour la prochaine personne.
+	local tmp="$dst.lexos-neuf-$$"
+	if cp -a "$src" "$tmp" && mv -f "$tmp" "$dst"; then
 		COPIES=$((COPIES + 1))
 	else
+		rm -f "$tmp" 2>/dev/null
 		att "échec : $rel"
 	fi
 }
