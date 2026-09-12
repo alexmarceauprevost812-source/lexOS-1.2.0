@@ -695,6 +695,69 @@ RESIDUS="$(find "$SCENE/systeme" -name '*.lexos-neuf-*' | wc -l | tr -d ' ')"
 	|| non "$RESIDUS fichier(s) temporaire(s) .lexos-neuf-* oubliés dans la destination"
 
 # =============================================================================
+titre "10. CE QUI EST ANNONCÉ EST CE QUI EST POSÉ"
+# =============================================================================
+#  ═══ LE CONTRÔLE QUI AURAIT ATTRAPÉ LE DÉFAUT D'ORIGINE ═══
+#  Le jour où l'outil s'est écrasé lui-même, « --essai » promettait 4 fichiers.
+#  RIEN NE VÉRIFIAIT QU'IL Y EN AVAIT BIEN 4 AU BOUT. Et c'est précisément ce
+#  qui rend ce défaut si mauvais : un plantage au milieu de la boucle laisse
+#  des fichiers posés et d'autres non, puis le passage SUIVANT annonce « déjà
+#  identiques » pour ceux qui sont là — la machine a l'air à jour, et elle ne
+#  l'est pas.
+#  On compare donc TROIS nombres qui doivent être le même : ce que « --essai »
+#  promet, ce que le vrai passage déclare, et ce qu'on trouve SUR LE DISQUE.
+#
+#  On repart d'une scène neuve : les sections précédentes ont déjà écrit dans
+#  leur destination, et un compte fait sur une destination à moitié pleine ne
+#  voudrait rien dire.
+CPT="$BANC/compte"
+mkdir -p "$CPT/clone/config/includes.chroot/usr/bin" \
+         "$CPT/clone/config/includes.chroot/usr/share/lexos" \
+         "$CPT/clone/config/includes.chroot/usr/lib/lexos" \
+         "$CPT/systeme/etc/lexos"
+: > "$CPT/clone/lexos.conf"
+for N in un deux trois; do
+	printf '#!/bin/sh
+echo %s
+' "$N" > "$CPT/clone/config/includes.chroot/usr/bin/lexos-$N"
+	chmod 755 "$CPT/clone/config/includes.chroot/usr/bin/lexos-$N"
+done
+printf 'body{}
+'     > "$CPT/clone/config/includes.chroot/usr/share/lexos/a.css"
+printf 'print(1)
+'   > "$CPT/clone/config/includes.chroot/usr/lib/lexos/b.py"
+ATTENDUS=5
+
+compte_maj() { # compte_maj <arguments…> — rend le nombre annoncé par l'outil
+	LEXOS_MAJ_DEST="$CPT/systeme" LEXOS_MAJ_ETC="$CPT/systeme/etc/lexos" \
+	LEXOS_MAJ_SRC_DEFAUT="$CPT/nulle-part" \
+	bash "$OUTIL" --depuis "$CPT/clone" "$@" 2>&1
+}
+#  Le nombre se lit sur la ligne de résumé : « N fichier(s) copié(s) » ou
+#  « N fichier(s) SERAIENT copiés ». Par chaîne ici-même, jamais par un tuyau.
+nombre_annonce() { sed -n 's/.*[^0-9]\([0-9][0-9]*\) fichier(s) \(SERAIENT\)\?.*copi.*/\1/p' <<< "$1" | head -1; }
+
+SORTIE_ESSAI2="$(compte_maj --essai)"
+PROMIS="$(nombre_annonce "$SORTIE_ESSAI2")"
+[ "$PROMIS" = "$ATTENDUS" ] \
+	&& ok "« --essai » promet $PROMIS fichiers, et il y en a bien $ATTENDUS à copier" \
+	|| non "« --essai » promet « ${PROMIS:-rien} » alors que le clone en contient $ATTENDUS"
+
+SORTIE_VRAI2="$(compte_maj)"
+DECLARES="$(nombre_annonce "$SORTIE_VRAI2")"
+[ "$DECLARES" = "$PROMIS" ] \
+	&& ok "le vrai passage déclare le même nombre que l'essai ($DECLARES)" \
+	|| non "l'essai promettait $PROMIS, le vrai passage déclare « ${DECLARES:-rien} »"
+
+#  ═══ ET SURTOUT : CE QU'ON TROUVE SUR LE DISQUE ═══
+#  C'est le seul des trois nombres que l'outil ne peut pas se raconter à
+#  lui-même. On ne compte ni la trace /etc/lexos/maj, ni les sauvegardes.
+POSES="$(find "$CPT/systeme/usr" -type f ! -name '*.lexos-bak-*' ! -name '*.lexos-neuf-*' 2>/dev/null | wc -l | tr -d ' ')"
+[ "$POSES" = "$ATTENDUS" ] \
+	&& ok "$POSES fichiers sont VRAIMENT sur le disque — annoncé = posé" \
+	|| non "$ATTENDUS annoncés, $POSES posés : la machine se croirait à jour sans l'être"
+
+# =============================================================================
 #  ═══ LE RAPPEL, PARCE QU'UN ❌ A DÉJÀ DÉFILÉ ═══
 #  Quand on colle la fin d'un banc, on colle le résumé. Sans ce rappel, « 1
 #  échoués » ne dit pas lequel, et le diagnostic commence par une devinette.
