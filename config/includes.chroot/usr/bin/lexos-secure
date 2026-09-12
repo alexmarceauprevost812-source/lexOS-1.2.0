@@ -20,8 +20,20 @@ PROG="${0##*/}"
 #  paquet déjà là. rkhunter, fail2ban-client et freshclam vivent dans
 #  /usr/bin : le faux négatif ne frappait que le pare-feu, ce qui le
 #  rendait d'autant plus crédible.
-LEXOS_SECURE_SBIN=1
-case ":$PATH:" in *:/usr/sbin:*) ;; *) PATH="$PATH:/usr/sbin:/sbin" ;; esac
+#  ═══ LA MÊME FORME QUE LES SEPT AUTRES OUTILS, ET C'EST OBLIGATOIRE ═══
+#  Ce fichier avait sa propre version : une variable « LEXOS_SECURE_SBIN=1 »
+#  employée NULLE PART (shellcheck : SC2034) et un « case » sans le seam.
+#  Les deux se payaient tout de suite :
+#    · la CI rougissait sur shellcheck — une variable morte ;
+#    · et le banc test_lexos_path_sbin.sh, qui garde les huit outils comme une
+#      CLASSE, disait « lexos-secure n'a plus de seam : aucun banc ne pourra
+#      simuler un outil absent ». Sans LEXOS_SANS_SBIN, un banc qui restreint
+#      le PATH pour éprouver l'absence d'ufw se retrouve avec les sbin quand
+#      même, et voit présente une commande que la machine réelle n'aurait pas.
+#  Huit outils, huit fois la même ligne : une variante locale n'est pas une
+#  amélioration, c'est le début d'une divergence.
+[ "${LEXOS_SANS_SBIN:-}" = "1" ] || PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
+export PATH
 
 case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
 	*UTF-8*|*utf8*|*UTF8*|*utf-8*) ;;
