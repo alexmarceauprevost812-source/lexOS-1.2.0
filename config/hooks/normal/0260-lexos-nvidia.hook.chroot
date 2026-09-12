@@ -170,18 +170,74 @@ protege_alternative() {
 	rm -rf /usr/lib/nvidia
 }
 
+#  LE NOYAU QUE L'IMAGE DÉMARRERA — PAS CELUI DE LA MACHINE DE CONSTRUCTION.
+#  Dans un chroot, « uname -r » répond le noyau de l'hôte : s'y fier, c'est
+#  vérifier le mauvais. Le bon est celui qui a un dossier sous /lib/modules.
+#
+#  ET IL PEUT Y EN AVOIR DEUX. LEXOS_KERNEL_CHANNEL=backports fait installer
+#  par le hook 0200 un « linux-image-amd64 » de backports PAR-DESSUS celui de
+#  la suite, sans retirer l'ancien : le chroot se retrouve avec deux arbres
+#  sous /lib/modules, et live-build met dans l'image le plus récent.
+#
+#  Le préfixe LEXOS_RACINE est VIDE en usage réel. Il n'existe que pour que le
+#  banc puisse présenter une fausse arborescence de noyaux — même patron que
+#  gpu-garde. Sans lui, la seule façon d'éprouver ce code serait de lancer
+#  deux constructions complètes.
+NOYAUX_DIR="${LEXOS_RACINE:-}/lib/modules"
+noyau_cible() {
+	ls -1 "$NOYAUX_DIR" 2>/dev/null | sort -V | tail -1
+}
+
 #  Une réussite d'apt ne suffit pas : la construction 29 a montré un module
 #  qui ne compile pas. On exige le .ko sur le disque (ou DKMS « installed »).
+#
+#  MAIS POUR LE BON NOYAU. La version d'avant balayait /lib/modules EN ENTIER
+#  et acceptait un nvidia.ko trouvé N'IMPORTE OÙ. Avec deux noyaux dans le
+#  chroot, c'était un vert pour la mauvaise raison, et le pire des verts :
+#  les en-têtes demandés plus bas (« linux-headers-amd64 », sans -t backports)
+#  viennent de la SUITE, donc DKMS compile pour l'ANCIEN noyau ; le module
+#  existe, la porte s'ouvre, la construction est verte — et l'ISO démarre sur
+#  le noyau RÉCENT, où il n'y a aucun module nvidia. Écran noir, exactement
+#  celui qu'on traque depuis le build 29, avec un journal qui dit « ok ».
 verifie_module() {
-	find /lib/modules -name 'nvidia*.ko*' 2>/dev/null | grep -q . && return 0
-	dkms status 2>/dev/null | grep -qi 'nvidia.*installed' && return 0
+	KCIBLE="$(noyau_cible)"
+	if [ -z "$KCIBLE" ]; then
+		echo "[lexos]   !! aucun noyau sous /lib/modules — rien à vérifier"
+		return 1
+	fi
+	#  Le résultat se mesure sur une VARIABLE, pas sur le code de sortie d'un
+	#  tube : « find … | grep -q » rend la main dès la première ligne et tue
+	#  le producteur. C'est la règle du dépôt, et dash n'a pas de here-string.
+	KO="$(find "$NOYAUX_DIR/$KCIBLE" -name 'nvidia*.ko*' -print 2>/dev/null | head -1)"
+	if [ -n "$KO" ]; then
+		echo "[lexos]   module nvidia compilé pour $KCIBLE"
+		return 0
+	fi
+	LIGNE="$(dkms status 2>/dev/null | grep -i nvidia | grep -- "$KCIBLE" \
+		| grep -i installed | head -1)"
+	if [ -n "$LIGNE" ]; then
+		echo "[lexos]   DKMS déclare nvidia installé pour $KCIBLE"
+		return 0
+	fi
+	echo "[lexos]   !! aucun module nvidia pour $KCIBLE (le noyau de l'image)"
 	return 1
 }
 
 # --- Les en-têtes du noyau : sans eux, DKMS ne compile rien -----------------
+#  ON DEMANDE LES EN-TÊTES DU NOYAU CIBLE, NOMMÉMENT. « linux-headers-amd64 »
+#  est un méta-paquet : il suit la suite, pas le noyau réellement installé.
+#  Avec un noyau de backports, il livre les en-têtes de l'ANCIEN — apt réussit,
+#  DKMS compile pour le mauvais noyau, et personne ne le dit. Le repli reste
+#  là, mais il s'annonce comme un repli.
 apt-get update -qq || echo "[lexos]   !! apt-get update a échoué, on tente quand même"
-apt-get install -y linux-headers-amd64 \
-	|| echo "[lexos]   !! linux-headers-amd64 refusé — la compilation DKMS échouera"
+KCIBLE_H="$(noyau_cible)"
+if [ -n "$KCIBLE_H" ] && apt-get install -y "linux-headers-$KCIBLE_H" >/dev/null 2>&1; then
+	echo "[lexos]   en-têtes linux-headers-$KCIBLE_H (noyau de l'image) installés"
+elif apt-get install -y linux-headers-amd64 >/dev/null 2>&1; then
+	echo "[lexos]   !! repli linux-headers-amd64 — peut NE PAS correspondre à ${KCIBLE_H:-?}"
+else
+	echo "[lexos]   !! aucun en-tête noyau — la compilation DKMS échouera"
+fi
 
 # --- Le dépôt officiel NVIDIA -----------------------------------------------
 #  cuda-keyring installe la clé de signature dans /usr/share/keyrings ; la

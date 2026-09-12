@@ -466,6 +466,31 @@ jobs:
           #  déclenchait donc JAMAIS.
           bash tests/test_lexos_optional_firmware.sh
 
+      - name: Le module NVIDIA est vérifié pour le BON noyau — hook 0260 sur un banc
+        if: ${{ !cancelled() }}
+        run: |
+          #  verifie_module() est la porte qui décide si une tentative
+          #  d'installation du pilote NVIDIA est déclarée RÉUSSIE. Tout le
+          #  hook 0260 s'articule dessus : si elle dit oui à tort, la
+          #  construction est verte et l'ISO démarre sans pilote — l'écran
+          #  noir de l'Alienware, avec un journal qui dit « ok ».
+          #
+          #  LE CAS. Le chroot peut contenir DEUX noyaux :
+          #  LEXOS_KERNEL_CHANNEL=backports fait installer par le hook 0200
+          #  un linux-image-amd64 de backports PAR-DESSUS celui de la suite,
+          #  sans retirer l'ancien. Les en-têtes, eux, étaient demandés par
+          #  « linux-headers-amd64 » — un méta-paquet qui suit la SUITE —
+          #  donc DKMS compilait pour l'ANCIEN noyau. La porte balayait
+          #  /lib/modules en entier et trouvait ce module-là : verte. Et
+          #  l'image démarre sur le noyau RÉCENT, où il n'y a rien.
+          #
+          #  Le banc extrait les fonctions DU FICHIER LIVRÉ (pas une copie
+          #  qui vieillirait en silence), leur donne une fausse arborescence
+          #  de noyaux, et joue les DEUX versions de la porte sur la même
+          #  scène : la nouvelle refuse, l'ANCIENNE accepte. C'est cette
+          #  seconde moitié qui prouve que le défaut était réel.
+          bash tests/test_lexos_nvidia_module.sh
+
       - name: Un Windows chiffré n'est pas un disque vide — lexos-dualboot sur un banc
         if: ${{ !cancelled() }}
         run: |
