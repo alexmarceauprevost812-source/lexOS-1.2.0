@@ -302,6 +302,27 @@ ce que la machine sait faire (Vulkan, GameMode, MangoHud) avant de lancer.
 > BIOS — sinon le module ne se charge pas et l'écran reste noir au démarrage.
 > Ce n'est pas un dépannage optionnel : pour le pro, c'est un prérequis.
 
+### Si l'écran reste noir malgré tout
+
+Prends d'abord l'entrée **« mode secours »** du menu de démarrage : elle
+s'arrête en console, sur du texte, sans jamais lancer de bureau. C'est le
+seul état dont on ait la preuve qu'il tient même sur un téléviseur récalcitrant.
+Une fois la console affichée, `lexos tv` lit ce que l'écran réclame, sans
+serveur graphique ni pilote, et `lexos gpu` dit quel pilote tient la carte.
+
+Deux réglages de BIOS reviennent souvent sur les Dell et Alienware. **Ils
+ne sont pas mesurés ici** — Secure Boot et AHCI, eux, l'ont été, sur
+l'Alienware, écran noir à l'appui. Ceux-ci sont à essayer seulement si le
+reste n'a rien donné :
+
+| Réglage | Valeur à essayer | L'idée |
+|---|---|---|
+| **Fastboot** | `Thorough` plutôt que `Minimal` | Le démarrage écourté saute une partie de l'initialisation de la carte graphique. |
+| **Graphics / Optimus** (portables seulement) | `Discrete` | Évite le mode hybride tant qu'aucun pilote n'est chargé. Coûte cher en autonomie : c'est un réglage de diagnostic, pas un réglage de tous les jours. |
+
+Sur une tour, le second ne s'applique pas — il n'y a pas de carte intégrée à
+arbitrer.
+
 ---
 
 ## Sur un Mac
