@@ -491,6 +491,23 @@ jobs:
           #  seconde moitié qui prouve que le défaut était réel.
           bash tests/test_lexos_nvidia_module.sh
 
+      - name: LEXOS PRO — services, gardes structurelles et démarrage graphique
+        if: ${{ !cancelled() }}
+        run: |
+          #  ON INSTALLE PySide6 ICI, ET C'EST LE POINT DE L'ÉTAPE.
+          #  Sans lui, la section 7 du banc se déclare « NON MESURÉ » : le
+          #  démarrage graphique n'est pas vérifié, et la CI passerait au
+          #  vert sans avoir ouvert la fenêtre une seule fois. C'est
+          #  exactement le faux vert qu'on refuse ailleurs dans ce fichier.
+          #  L'installation se fait dans le coureur jetable, par pip, sans
+          #  toucher aux paquets de l'ISO : sur LexOS, python3-pyside6 est
+          #  déjà en liste STRICTE (flavours/standard/desktop.list.chroot).
+          python3 -m pip install --quiet --user 'PySide6>=6.4'
+          #  QT_QPA_PLATFORM=offscreen : le banc ouvre vraiment la fenêtre et
+          #  parcourt les 18 pages, sans serveur X — donc sans xvfb, et sans
+          #  la dépendance libxcb-cursor0 qu'exige le greffon xcb.
+          bash tests/test_lexos_pro.sh
+
       - name: Un Windows chiffré n'est pas un disque vide — lexos-dualboot sur un banc
         if: ${{ !cancelled() }}
         run: |
