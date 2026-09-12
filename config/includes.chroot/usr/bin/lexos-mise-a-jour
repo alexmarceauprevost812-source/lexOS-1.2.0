@@ -100,6 +100,30 @@ AIDE
 
 #  On garde les arguments d'ORIGINE : need_root se relance sous sudo avec
 #  eux, et une boucle qui a déjà consommé « $@ » les aurait perdus.
+# =============================================================================
+#  ═══ TOUT LE TRAVAIL VIT DANS UNE FONCTION, APPELÉE À LA DERNIÈRE LIGNE ═══
+#  C'est la ceinture qui va avec les bretelles du renommage atomique
+#  (voir copier_un). Ce programme se copie sur lui-même : même si la copie est
+#  désormais sûre, un script qui se met à jour lui-même mérite les deux.
+#
+#  POURQUOI ÇA MARCHE. Bash ne charge pas un script d'un coup — il le lit au
+#  fil de l'exécution, en gardant sa position dans le fichier. Mais une
+#  DÉFINITION de fonction est lue et analysée ENTIÈREMENT, d'un bloc. En
+#  mettant le corps du programme dans « principal » et en l'appelant à la toute
+#  dernière ligne, bash doit avoir lu le fichier jusqu'au bout avant de pouvoir
+#  exécuter quoi que ce soit du travail : le contenu est alors entièrement en
+#  mémoire, et plus rien sur le disque ne peut le troubler.
+#  Ce qui reste au-dessus — les couleurs, les quatre fonctions d'affichage, les
+#  coutures du banc — ne fait qu'assigner des variables et définir des
+#  fonctions : rien qui écrive un fichier, rien qui prenne du temps.
+#
+#  ═══ LE CORPS N'EST PAS RÉ-INDENTÉ, ET C'EST DÉLIBÉRÉ ═══
+#  Décaler d'une tabulation les trois cent soixante lignes qui suivent aurait
+#  changé CHAQUE ligne du fichier : le vrai changement — deux lignes — serait
+#  devenu invisible dans le diff, et « git blame » aurait désigné ce commit
+#  pour tout le programme. Bash se moque de l'indentation ; un relecteur, non.
+principal() {
+
 ARGS_ORIGINE=("$@")
 
 while [[ $# -gt 0 ]]; do
@@ -466,3 +490,9 @@ fi
 
 info ""
 info "${D}Avant la prochaine : ${R}${O}sudo miss a jour --essai${R}${D} — on voit d'abord.${R}"
+
+}
+
+#  LA DERNIÈRE LIGNE DU FICHIER, ET C'EST TOUT L'INTÉRÊT : bash a lu ce qui
+#  précède — donc tout le programme — avant de pouvoir l'exécuter.
+principal "$@"

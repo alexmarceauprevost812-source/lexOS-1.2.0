@@ -758,6 +758,41 @@ POSES="$(find "$CPT/systeme/usr" -type f ! -name '*.lexos-bak-*' ! -name '*.lexo
 	|| non "$ATTENDUS annoncés, $POSES posés : la machine se croirait à jour sans l'être"
 
 # =============================================================================
+titre "11. LE CORPS RESTE DANS UNE FONCTION — la ceinture du renommage"
+# =============================================================================
+#  ═══ POURQUOI CETTE GARDE EST STRUCTURELLE, ET ASSUMÉE COMME TELLE ═══
+#  Le renommage atomique de copier_un suffit. Ceci est la ceinture qui va avec
+#  ces bretelles : le corps du programme vit dans « principal », appelée à la
+#  toute dernière ligne, donc bash doit avoir lu le fichier ENTIER avant de
+#  pouvoir exécuter le moindre travail.
+#
+#  MESURÉ, et c'est ce qui justifie de le garder : en remettant la copie
+#  DANGEREUSE d'avant (« cp -a » sur place) mais EN GARDANT la mise en
+#  fonction, le passage survit quand même —
+#      code de sortie = 0 · plaintes de bash : 0 · trace /etc/lexos/maj ÉCRITE
+#  Le filet tient donc tout seul. C'est exactement ce qu'on attend d'un second
+#  filet : il rattrape ce que le premier laisserait passer.
+#
+#  CE CONTRÔLE-CI LIT LE CODE, et il le dit. Reproduire la propriété
+#  demanderait de fabriquer une variante dangereuse de l'outil à chaque
+#  exécution du banc — un contrôle qui recopie la logique qu'il surveille
+#  finit par éprouver sa copie. On garde donc la mesure ci-dessus dans ce
+#  commentaire, et ici on veille seulement à ce que personne ne ressorte le
+#  corps de sa fonction sans s'en apercevoir.
+NU_OUTIL="$(sed 's/[[:space:]]*#.*$//' "$OUTIL")"
+if grep -q '^principal() {' <<< "$NU_OUTIL"; then
+	ok "le corps du programme est dans « principal »"
+else
+	non "plus de fonction « principal » : le corps s'exécute pendant que bash lit le fichier"
+fi
+DERNIERE="$(grep -vE '^[[:space:]]*$' <<< "$NU_OUTIL" | tail -1)"
+if [ "$DERNIERE" = 'principal "$@"' ]; then
+	ok "et elle est appelée à la DERNIÈRE ligne — bash a tout lu avant d'agir"
+else
+	non "la dernière ligne est « $DERNIERE » et non « principal \"\$@\" » : du travail s'exécute avant que le fichier soit lu"
+fi
+
+# =============================================================================
 #  ═══ LE RAPPEL, PARCE QU'UN ❌ A DÉJÀ DÉFILÉ ═══
 #  Quand on colle la fin d'un banc, on colle le résumé. Sans ce rappel, « 1
 #  échoués » ne dit pas lequel, et le diagnostic commence par une devinette.
