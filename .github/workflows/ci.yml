@@ -1210,6 +1210,27 @@ jobs:
           tmux -V
           bash tests/test_lexos_multi.sh
 
+      - name: Le coin actif n'ouvre plus la vue tout seul au démarrage
+        if: ${{ !cancelled() }}
+        run: |
+          #  ALEX : « quand on arrive dans la page de LexOS au début, il nous
+          #  montre toujours la vue qui zoome où la souris. J'aimerais ne plus
+          #  le voir. »
+          #  Le veilleur démarrait ARMÉ : si le pointeur se trouvait déjà dans
+          #  le coin haut-gauche au moment de l'ouverture de session — et
+          #  c'est le coin du bouton Applications — il ouvrait la vue sans
+          #  qu'on ait rien demandé.
+          #
+          #  CE BANC NE LIT PAS LE CODE, IL LE FAIT TOURNER : vrai serveur X,
+          #  vrai pointeur déplacé par XWarpPointer, vrai veilleur, et un faux
+          #  « lexos-apercu » qui note chaque appel. Il éprouve les deux
+          #  moitiés à la fois — rien ne s'ouvre au démarrage, ET le coin
+          #  s'arme tout seul dès qu'on en sort, sinon on aurait échangé un
+          #  défaut contre une fonction morte.
+          sudo apt-get install -y --no-install-recommends xvfb >/dev/null \
+            || { echo "::error::xvfb n'a pas pu être posé — le veilleur ne peut pas être mis en marche"; exit 1; }
+          bash tests/test_lexos_coin_actif.sh
+
       - name: Les deux services qui coûtaient 106 s au démarrage
         if: ${{ !cancelled() }}
         run: |

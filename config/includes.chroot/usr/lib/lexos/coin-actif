@@ -101,7 +101,24 @@ def main():
         return 0
     racine = lib.XDefaultRootWindow(dpy)
 
-    arme = True          # faux tant qu'on n'est pas ressorti du coin
+    #  ═══ ON DÉMARRE DÉSARMÉ, ET C'EST TOUT LE CORRECTIF ═══
+    #  ALEX : « quand on arrive dans la page de LexOS au début, il nous
+    #  montre toujours la vue qui zoome où la souris. J'aimerais ne plus
+    #  le voir. »
+    #  Cette ligne valait « True », et son commentaire disait « faux ». Le
+    #  code ne faisait pas ce que sa propre note décrivait, et c'est cet
+    #  écart qui a laissé passer le défaut pendant des semaines.
+    #  Au démarrage de la session, le veilleur partait donc ARMÉ. Si le
+    #  pointeur se trouvait à moins de 5 px des deux bords — ce qui arrive
+    #  souvent juste après la connexion, et c'est justement le coin où
+    #  habite le bouton Applications — le tout premier sondage le voyait
+    #  dedans, comptait les 140 ms de séjour, et ouvrait la vue. Personne
+    #  n'avait rien demandé.
+    #  Désarmé au départ, le veilleur s'arme tout seul à la première sortie
+    #  du coin (plus bas : « if not dedans: … arme = True »), c'est-à-dire
+    #  au premier mouvement de souris. On ne perd donc rien, et une session
+    #  qui s'ouvre avec le pointeur déjà dans le coin n'ouvre plus rien.
+    arme = False         # s'arme à la première sortie du coin
     entre = None         # instant d'entrée dans le coin
     verif = 0.0          # dernière relecture du fichier d'état
 
