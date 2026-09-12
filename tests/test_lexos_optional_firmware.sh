@@ -178,8 +178,8 @@ if grep -q "MATÉRIEL VITAL ABSENT" <<< "$S" ; then
 else
 	ok "aucune alerte matériel vital quand tout est là"
 fi
-grep -q "matériel vital : 6 paquets, tous présents" <<< "$S" \
-	&& ok "et le journal le confirme positivement (6 paquets vitaux, tous présents)" \
+grep -q "matériel vital : 7 paquets, tous présents" <<< "$S" \
+	&& ok "et le journal le confirme positivement (7 paquets vitaux, tous présents)" \
 	|| non "le message positif attendu est absent"
 
 # =============================================================================
@@ -329,6 +329,90 @@ if grep -q "GREFFON BLUETOOTH ABSENT" <<< "$S" ; then
 else
 	non "greffon Bluetooth absent sans que rien ne le signale :\n$S"
 fi
+
+# =============================================================================
+titre "12. firmware-nvidia-graphics manquant -> c'est du matériel vital, pas un confort"
+# =============================================================================
+#  Le micrologiciel GSP est entré dans 00-core.list au même build que
+#  firmware-sof-signed ; son voisin avait été promu dans MATERIEL_VITAL, pas
+#  lui. Sans ce micrologiciel, nouveau n'allume pas une RTX 20+ : pas de
+#  mode dégradé, un écran noir. Il vivait pourtant dans la liste « au mieux »,
+#  celle dont l'absence se tolère EN SILENCE — même famille de défaut que
+#  exfatprogs, picom et mesa-utils.
+reinit
+pose_listes "firmware-nvidia-graphics" "thunar"
+touch "$CTRL/bulk_echoue"          # force la reprise un par un
+touch "$CTRL/echoue_firmware-nvidia-graphics"
+S="$(lance env)"
+CODE="$(cat "$BANC/code")"
+if grep -q "MATÉRIEL VITAL ABSENT :.*firmware-nvidia-graphics" <<< "$S" ; then
+	ok "l'absence de firmware-nvidia-graphics est signalée EN CLAIR dans le journal"
+else
+	non "le micrologiciel GSP manquant est passé en silence :\n$S"
+fi
+[ "$CODE" = "0" ] \
+	&& ok "sans LEXOS_STRICT_FIRMWARE, la construction continue quand même (code 0)" \
+	|| non "la construction s'est arrêtée sans qu'on le demande (code $CODE)"
+
+reinit
+pose_listes "firmware-nvidia-graphics" "thunar"
+touch "$CTRL/bulk_echoue"
+touch "$CTRL/echoue_firmware-nvidia-graphics"
+S="$(lance env LEXOS_STRICT_FIRMWARE=1)"
+CODE="$(cat "$BANC/code")"
+[ "$CODE" = "1" ] \
+	&& ok "et LEXOS_STRICT_FIRMWARE=1 en fait une construction qui échoue (code 1)" \
+	|| non "attendu code 1 avec LEXOS_STRICT_FIRMWARE=1, obtenu $CODE"
+
+# =============================================================================
+titre "13. Un nom de MATERIEL_VITAL qu'on ne demande nulle part = une garde vide"
+# =============================================================================
+#  LE PIÈGE DE CETTE GARDE : elle ne regarde que $KO_LIST, la liste des
+#  paquets que la reprise a ESSAYÉ d'installer et ratés. Un nom présent dans
+#  MATERIEL_VITAL mais absent des listes optional-packages ne sera jamais
+#  essayé, donc jamais raté, donc jamais signalé : la garde reste verte pour
+#  l'éternité en ne surveillant rien. Le retirer d'une liste « au mieux »
+#  suffirait à la vider — y compris en le PROMOUVANT en liste stricte, le
+#  cas pipewire-audio documenté dans le hook (il a bien fallu le sortir de
+#  MATERIEL_VITAL en même temps).
+#
+#  Ce contrôle-ci lit les VRAIS fichiers du dépôt, pas les faux du banc.
+VITAUX="$(sed -n '/^MATERIEL_VITAL=/,/"[[:space:]]*$/p' "$HOOK" \
+	| tr '\n' ' ' | sed 's/[\]//g; s/^MATERIEL_VITAL="//; s/"[[:space:]]*$//')"
+LISTES_REELLES="$RACINE/config/includes.chroot/usr/share/lexos/optional-packages"
+
+# shellcheck disable=SC2086
+set -- $VITAUX
+#  Le compte EXACT, pas un « au moins » : la première version de ce banc
+#  laissait passer une contre-oblique restée collée à l'extraction, comptée
+#  comme un huitième nom. Un « -ge 7 » l'avait avalée sans rien dire.
+[ "$#" -eq 7 ] \
+	&& ok "MATERIEL_VITAL a bien été relu dans le hook (exactement $# noms)" \
+	|| non "MATERIEL_VITAL mal relu ($# noms : $*) — le contrôle qui suit ne vaudrait rien"
+
+DEMANDES="$(cat "$LISTES_REELLES"/*.list 2>/dev/null | grep -Ev '^[[:space:]]*(#|$)' | sort -u)"
+ORPHELINS=""
+for P in $VITAUX; do
+	grep -qx "$P" <<< "$DEMANDES" || ORPHELINS="${ORPHELINS} $P"
+done
+[ -z "$ORPHELINS" ] \
+	&& ok "chaque nom de MATERIEL_VITAL est réellement demandé par une liste « au mieux »" \
+	|| non "gardés mais jamais demandés (garde vide) :${ORPHELINS}"
+
+grep -qx "firmware-nvidia-graphics" <<< "$DEMANDES" \
+	&& ok "et firmware-nvidia-graphics est bien l'un d'eux" \
+	|| non "firmware-nvidia-graphics n'est plus demandé nulle part"
+
+#  MUTATION : le même calcul sur un nom qui n'existe dans aucune liste DOIT
+#  virer au rouge. Sans ça, le contrôle ci-dessus passerait au vert par
+#  construction et ne prouverait rien.
+MUT_ORPHELINS=""
+for P in $VITAUX firmware-qui-n-existe-pas; do
+	grep -qx "$P" <<< "$DEMANDES" || MUT_ORPHELINS="${MUT_ORPHELINS} $P"
+done
+[ "$MUT_ORPHELINS" = " firmware-qui-n-existe-pas" ] \
+	&& ok "mutation : un nom vital inventé est bien attrapé — le contrôle a des dents" \
+	|| non "mutation ratée : un nom vital inventé n'a PAS été attrapé (${MUT_ORPHELINS:-rien})"
 
 printf '\n\033[1m%d réussis, %d échoués\033[0m\n' "$REUSSIS" "$ECHOUES"
 [ "$ECHOUES" -eq 0 ]

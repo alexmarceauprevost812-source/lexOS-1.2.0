@@ -329,8 +329,27 @@ echo "[lexos]   ${OK_COUNT} installés, ${KO_COUNT} indisponibles (détail : ${R
 #  Ce bloc ne tourne QUE dans la reprise un par un : si la passe groupée plus
 #  haut a réussi (ligne ~120), TOUS les paquets de $WANTED — matériel vital
 #  compris — sont garantis installés, et il n'y a rien à vérifier ici.
+#
+#  firmware-nvidia-graphics : LE MICROLOGICIEL GSP, ET LA NUANCE HONNÊTE.
+#  Il est entré dans 00-core.list au même build que firmware-sof-signed ;
+#  son voisin a été promu ici, pas lui. L'oubli se paie cher : sur les
+#  générations récentes (RTX 20+), le pilote libre nouveau ne sait PAS
+#  allumer la carte sans ce micrologiciel — pas de mode dégradé, pas de
+#  petite résolution, un écran noir.
+#
+#  Sur la saveur PRO, Alex n'y est probablement pas exposé : le pilote
+#  propriétaire (hook 0260) apporte son propre micrologiciel. Le trou
+#  concerne les AUTRES saveurs, celles qui comptent sur nouveau — et la
+#  pro elle-même le jour où le module DKMS est refusé (Secure Boot actif,
+#  noyau trop neuf), c'est-à-dire exactement le jour où nouveau est le
+#  dernier filet.
+#
+#  On le rend BRUYANT, pas obligatoire, pour la raison écrite plus haut :
+#  ce nom-là a déjà changé une fois dans l'archive Debian. En liste
+#  stricte, un nom périmé arrête la construction entière ; ici, il écrit
+#  six lignes qu'on peut lire et corriger.
 MATERIEL_VITAL="firmware-iwlwifi firmware-realtek firmware-misc-nonfree \
-firmware-sof-signed intel-microcode amd64-microcode"
+firmware-sof-signed firmware-nvidia-graphics intel-microcode amd64-microcode"
 
 VITAL_MANQUANT=""
 for P in $MATERIEL_VITAL; do
