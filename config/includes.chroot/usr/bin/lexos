@@ -213,6 +213,7 @@ ${B}STUDIO+${R}
                       ${D}propose d'installer l'atelier s'il manque${R}
 
 ${B}TERMINAL${R}
+  ${A}pro${R}                  LEXOS PRO — tableau de bord du systeme
   ${A}terminal-pro${R}         LexOS Pro Terminal — le terminal officiel
                       ${D}onglets, fenêtres divisibles, vraies commandes${R}
   ${A}terminal-pro --classique${R} Le Terminal classique (xfce4-terminal)
@@ -1159,6 +1160,12 @@ case "$CMD" in
 	#  reste le jour/nuit (ligne au-dessus, depuis avant) ; le voici sous son
 	#  propre nom.
 	terminal-pro|pro-terminal) exec lexos-pro-terminal "$@" ;;
+	#  LEXOS PRO — le tableau de bord natif (PySide6). « pro » tout court
+	#  DOIT venir APRÈS « terminal-pro » dans ce case : bash retient la
+	#  PREMIÈRE branche qui correspond, et les deux motifs sont distincts,
+	#  mais l'ordre reste la façon de lire — le terminal s'est nommé le
+	#  premier, il garde sa place.
+	pro|tableau-de-bord)  exec lexos-pro "$@" ;;
 	#  « multi » : le terminal en volets et en onglets. Il est aussi appelé par
 	#  un alias du shell (interactive.sh) — c'est comme ça qu'on l'écrit au
 	#  quotidien — mais il doit exister ici aussi : tout outil « lexos-* » doit

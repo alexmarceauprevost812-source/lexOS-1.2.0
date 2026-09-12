@@ -176,6 +176,12 @@ lexos-assistants
 lexos-cartes
 lexos-chrome
 lexos-pro-terminal
+#  LEXOS PRO est une APPLICATION, pas un reglage : sa fenetre EST son
+#  interface, et elle contient elle-meme dix pages de parametres. Lui
+#  demander une section dans les Parametres serait demander un bouton
+#  « ouvrir les parametres » DANS les parametres. Elle est atteinte par
+#  « lexos pro », par son lanceur du menu, et par le dock.
+lexos-pro
 lexos-claude
 lexos-claude-terminal
 lexos-opencode

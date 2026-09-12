@@ -502,11 +502,29 @@ jobs:
           #  L'installation se fait dans le coureur jetable, par pip, sans
           #  toucher aux paquets de l'ISO : sur LexOS, python3-pyside6 est
           #  déjà en liste STRICTE (flavours/standard/desktop.list.chroot).
+          #  LES BIBLIOTHÈQUES SYSTÈME DE Qt, ET POURQUOI ELLES SONT LÀ.
+          #  MESURÉ, PAS SUPPOSÉ : sans elles, la CI 592 a rendu
+          #      ImportError: libEGL.so.1: cannot open shared object file
+          #  Qt6Gui se lie à libEGL, libGL, libGLX, libGLdispatch, libdbus-1,
+          #  libfontconfig, libfreetype, libglib-2.0 et libxkbcommon DÈS
+          #  L'IMPORT — y compris pour la plateforme « offscreen », qui
+          #  n'affiche pourtant rien. Le coureur n'a ni libegl1 ni libgl1.
+          #  On ne met QUE ce qui manque : pas de serveur X, pas de xvfb.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1
           python3 -m pip install --quiet --user 'PySide6>=6.4'
-          #  QT_QPA_PLATFORM=offscreen : le banc ouvre vraiment la fenêtre et
-          #  parcourt les 18 pages, sans serveur X — donc sans xvfb, et sans
-          #  la dépendance libxcb-cursor0 qu'exige le greffon xcb.
-          bash tests/test_lexos_pro.sh
+          #  QT_QPA_PLATFORM=offscreen (posé par le banc) : la fenêtre est
+          #  vraiment ouverte et les 18 pages parcourues, sans serveur X —
+          #  donc sans xvfb, et sans libxcb-cursor0 qu'exige le greffon xcb.
+          #
+          #  LEXOS_PRO_EXIGER_MESURE=1 : ICI, un contrôle « non mesuré » est
+          #  un ÉCHEC. C'est tout l'intérêt de cette étape — sans cette
+          #  ligne, une installation ratée ferait sauter le démarrage
+          #  graphique et la CI passerait au vert sans avoir ouvert la
+          #  fenêtre une seule fois. Exactement le faux vert qu'on refuse
+          #  partout ailleurs dans ce fichier.
+          LEXOS_PRO_EXIGER_MESURE=1 bash tests/test_lexos_pro.sh
 
       - name: Un Windows chiffré n'est pas un disque vide — lexos-dualboot sur un banc
         if: ${{ !cancelled() }}
