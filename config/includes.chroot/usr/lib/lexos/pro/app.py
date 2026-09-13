@@ -7,7 +7,7 @@ Paramètres ont leur propre sous-menu de la même forme.
 CE QUE LA FENÊTRE GARANTIT :
   · une seule page visible à la fois, et seule celle-ci rafraîchit ses
     mesures (les minuteurs des autres sont arrêtés) ;
-  · navigation entièrement au clavier (Tab, flèches, Ctrl+1..8) ;
+  · navigation entièrement au clavier (Tab, flèches, Ctrl+1..9) ;
   · taille minimale 1280 × 720, redimensionnable, HiDPI ;
   · rien n'est lancé en root, et aucun mot de passe n'est saisi ici.
 """
@@ -26,7 +26,7 @@ from . import version
 from .services import prefs
 from .ui import theme
 from .ui.pages import (accueil, apropos, developpement, fichiers, navigateur,
-                       securite, terminal)
+                       outils, securite, terminal)
 from .ui.pages.parametres import PageParametres
 
 #  (clé, libellé, icône)
@@ -38,6 +38,10 @@ MENU = (
     ("navigateur", "Navigateur", "navigateur"),
     ("securite", "Sécurité", "securite"),
     ("developpement", "Développement", "developpement"),
+    #  NEUVIÈME ENTRÉE, ajoutée après coup à la demande d'Alex : sa seconde
+    #  planche, 45 tuiles branchées sur les vrais programmes de la machine.
+    #  Placée avant « À propos », qui reste le dernier.
+    ("outils", "Outils", "applications"),
     ("apropos", "À propos", "apropos"),
 )
 
@@ -83,6 +87,7 @@ class Fenetre(QWidget):
             "navigateur": navigateur.PageNavigateur(),
             "securite": securite.PageSecurite(),
             "developpement": developpement.PageDeveloppement(),
+            "outils": outils.PageOutils(self.aller, self._ouvrir_dossier),
             "apropos": apropos.PageApropos(),
         }
         for index, (cle, libelle, ic) in enumerate(MENU):
@@ -164,6 +169,17 @@ class Fenetre(QWidget):
             nouvelle.entrer()
         self.etiquette_page.setText(dict(
             (c, l) for c, l, _ in MENU).get(cle, ""))
+
+    def _ouvrir_dossier(self, chemin):
+        """Une tuile « dossier » ouvre la page Fichiers à cet endroit.
+
+        On passe par NOTRE page, pas par le gestionnaire du bureau : c'est
+        elle qui sait déjà lister, renommer et mettre à la corbeille.
+        """
+        self.aller("fichiers")
+        page = self.pile.currentWidget()
+        if hasattr(page, "_aller"):
+            page._aller(chemin)
 
     def _relire(self):
         page = self.pile.currentWidget()

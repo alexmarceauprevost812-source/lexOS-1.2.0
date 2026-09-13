@@ -466,9 +466,16 @@ def _teinte(couleur: str, facteur: float) -> QColor:
     return QColor.fromHsv(h, s, max(0, min(255, int(v * facteur))), a)
 
 
-def _glyphe(nom: str, p: QPainter, r: QRectF) -> None:
-    """Le symbole blanc au centre, tracé dans le rectangle donné."""
-    stylo = QPen(QColor("#FFFFFF"))
+def _glyphe(nom: str, p: QPainter, r: QRectF, couleur: str = "#FFFFFF") -> None:
+    """Le symbole au centre, tracé dans le rectangle donné.
+
+    La couleur est un PARAMÈTRE et non une constante : le même symbole sert
+    en blanc sur une icône de fichier colorée, et en orange sur une tuile
+    d'outil sombre. Le figer en blanc obligerait à le redessiner une
+    seconde fois — deux copies du même trait qui divergent au premier
+    changement.
+    """
+    stylo = QPen(QColor(couleur))
     stylo.setWidthF(max(1.1, r.width() * 0.075))
     stylo.setCapStyle(Qt.RoundCap)
     stylo.setJoinStyle(Qt.RoundJoin)
@@ -641,5 +648,263 @@ def icone_fichier(nom_fichier: str, taille: int = 40,
         p.setPen(QColor("#FFFFFF"))
         p.drawText(bande, Qt.AlignCenter, texte)
 
+    p.end()
+    return QIcon(pix)
+
+
+# ══ Tuiles d'OUTILS ══════════════════════════════════════════════════════
+#  D'APRÈS LA SECONDE PLANCHE D'ALEX : carré sombre, symbole orange, un
+#  halo discret. Même principe que partout — tracées, donc jamais absentes.
+FOND_TUILE = "#14161A"
+
+
+def _dessiner_outil(nom: str, p: QPainter, r: QRectF) -> None:
+    """Les symboles propres aux tuiles d'outils, dans un carré 24×24
+    ramené au rectangle r. Ceux qui existent déjà ailleurs (menu, types de
+    fichiers) sont réutilisés par icone_outil() plutôt que redessinés."""
+    x, y, l, h = r.x(), r.y(), r.width(), r.height()
+
+    def P(fx, fy):
+        return QPointF(x + l * fx, y + h * fy)
+
+    if nom == "maison":
+        p.drawPolyline([P(0.08, 0.46), P(0.50, 0.10), P(0.92, 0.46)])
+        p.drawPolyline([P(0.20, 0.40), P(0.20, 0.88), P(0.80, 0.88),
+                        P(0.80, 0.40)])
+        p.drawRect(QRectF(x + l * 0.41, y + h * 0.58, l * 0.18, h * 0.30))
+    elif nom == "enveloppe":
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.20, l * 0.88,
+                                 h * 0.58), l * 0.06, l * 0.06)
+        p.drawPolyline([P(0.06, 0.24), P(0.50, 0.56), P(0.94, 0.24)])
+    elif nom == "sacoche":
+        p.drawRoundedRect(QRectF(x + l * 0.08, y + h * 0.32, l * 0.84,
+                                 h * 0.56), l * 0.07, l * 0.07)
+        p.drawPolyline([P(0.34, 0.32), P(0.34, 0.16), P(0.66, 0.16),
+                        P(0.66, 0.32)])
+        p.drawLine(P(0.42, 0.66), P(0.58, 0.66))
+        p.drawPolyline([P(0.50, 0.48), P(0.42, 0.62), P(0.58, 0.62)])
+    elif nom == "corbeille":
+        p.drawPolyline([P(0.20, 0.26), P(0.26, 0.90), P(0.74, 0.90),
+                        P(0.80, 0.26)])
+        p.drawLine(P(0.10, 0.26), P(0.90, 0.26))
+        p.drawPolyline([P(0.38, 0.26), P(0.38, 0.12), P(0.62, 0.12),
+                        P(0.62, 0.26)])
+        for f in (0.40, 0.55, 0.70):
+            p.drawLine(QPointF(x + l * f, y + h * 0.38),
+                       QPointF(x + l * (f + 0.02), y + h * 0.80))
+    elif nom == "globe":
+        p.drawEllipse(P(0.50, 0.50), l * 0.42, h * 0.42)
+        p.drawEllipse(P(0.50, 0.50), l * 0.17, h * 0.42)
+        p.drawLine(P(0.08, 0.50), P(0.92, 0.50))
+        p.drawArc(QRectF(x + l * 0.08, y + h * 0.14, l * 0.84, h * 0.50),
+                  200 * 16, 140 * 16)
+    elif nom == "disque-dur":
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.26, l * 0.88,
+                                 h * 0.48), l * 0.08, l * 0.08)
+        p.drawEllipse(P(0.78, 0.50), l * 0.06, h * 0.06)
+        p.drawLine(P(0.16, 0.50), P(0.60, 0.50))
+    elif nom == "usb":
+        p.drawRoundedRect(QRectF(x + l * 0.34, y + h * 0.30, l * 0.32,
+                                 h * 0.62), l * 0.06, l * 0.06)
+        p.drawRect(QRectF(x + l * 0.42, y + h * 0.10, l * 0.16, h * 0.20))
+        p.drawLine(P(0.42, 0.46), P(0.58, 0.46))
+        p.drawLine(P(0.42, 0.58), P(0.58, 0.58))
+    elif nom == "camera":
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.28, l * 0.88,
+                                 h * 0.56), l * 0.08, l * 0.08)
+        p.drawPolyline([P(0.34, 0.28), P(0.40, 0.16), P(0.60, 0.16),
+                        P(0.66, 0.28)])
+        p.drawEllipse(P(0.50, 0.56), l * 0.16, h * 0.16)
+    elif nom == "telechargement":
+        p.drawLine(P(0.50, 0.10), P(0.50, 0.60))
+        p.drawPolyline([P(0.30, 0.42), P(0.50, 0.62), P(0.70, 0.42)])
+        p.drawPolyline([P(0.14, 0.72), P(0.14, 0.88), P(0.86, 0.88),
+                        P(0.86, 0.72)])
+    elif nom == "nuage":
+        p.drawArc(QRectF(x + l * 0.10, y + h * 0.34, l * 0.44, h * 0.48),
+                  60 * 16, 200 * 16)
+        p.drawArc(QRectF(x + l * 0.34, y + h * 0.20, l * 0.44, h * 0.52),
+                  0, 200 * 16)
+        p.drawLine(P(0.22, 0.78), P(0.80, 0.78))
+        p.drawArc(QRectF(x + l * 0.58, y + h * 0.42, l * 0.34, h * 0.38),
+                  270 * 16, 160 * 16)
+    elif nom == "pinceau":
+        p.drawPolygon([P(0.68, 0.10), P(0.90, 0.30), P(0.44, 0.72),
+                       P(0.26, 0.56)])
+        p.drawPolyline([P(0.26, 0.58), P(0.16, 0.84), P(0.42, 0.74)])
+    elif nom == "manette":
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.32, l * 0.88,
+                                 h * 0.42), h * 0.21, h * 0.21)
+        p.drawLine(P(0.24, 0.44), P(0.24, 0.62))
+        p.drawLine(P(0.15, 0.53), P(0.33, 0.53))
+        p.drawEllipse(P(0.70, 0.46), l * 0.05, h * 0.05)
+        p.drawEllipse(P(0.80, 0.58), l * 0.05, h * 0.05)
+    elif nom == "calculatrice":
+        p.drawRoundedRect(QRectF(x + l * 0.18, y + h * 0.08, l * 0.64,
+                                 h * 0.84), l * 0.07, l * 0.07)
+        p.drawRect(QRectF(x + l * 0.28, y + h * 0.18, l * 0.44, h * 0.16))
+        for fy in (0.50, 0.66, 0.82):
+            for fx in (0.32, 0.50, 0.68):
+                p.drawPoint(P(fx, fy))
+                p.drawEllipse(P(fx, fy), l * 0.028, h * 0.028)
+    elif nom == "calendrier":
+        p.drawRoundedRect(QRectF(x + l * 0.08, y + h * 0.18, l * 0.84,
+                                 h * 0.72), l * 0.07, l * 0.07)
+        p.drawLine(P(0.08, 0.40), P(0.92, 0.40))
+        p.drawLine(P(0.30, 0.08), P(0.30, 0.26))
+        p.drawLine(P(0.70, 0.08), P(0.70, 0.26))
+        for fy in (0.56, 0.74):
+            for fx in (0.28, 0.50, 0.72):
+                p.drawEllipse(P(fx, fy), l * 0.035, h * 0.035)
+    elif nom == "imprimante":
+        p.drawPolyline([P(0.24, 0.34), P(0.24, 0.10), P(0.76, 0.10),
+                        P(0.76, 0.34)])
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.34, l * 0.88,
+                                 h * 0.34), l * 0.06, l * 0.06)
+        p.drawRect(QRectF(x + l * 0.24, y + h * 0.64, l * 0.52, h * 0.26))
+        p.drawEllipse(P(0.82, 0.46), l * 0.035, h * 0.035)
+    elif nom == "bouee":
+        p.drawEllipse(P(0.50, 0.50), l * 0.42, h * 0.42)
+        p.drawEllipse(P(0.50, 0.50), l * 0.18, h * 0.18)
+        import math
+        for i in range(4):
+            a = math.radians(45 + i * 90)
+            p.drawLine(QPointF(x + l * (0.5 + 0.18 * math.cos(a)),
+                               y + h * (0.5 + 0.18 * math.sin(a))),
+                       QPointF(x + l * (0.5 + 0.42 * math.cos(a)),
+                               y + h * (0.5 + 0.42 * math.sin(a))))
+    elif nom == "virtualisation":
+        p.drawRoundedRect(QRectF(x + l * 0.06, y + h * 0.14, l * 0.60,
+                                 h * 0.52), l * 0.06, l * 0.06)
+        p.drawRoundedRect(QRectF(x + l * 0.34, y + h * 0.38, l * 0.60,
+                                 h * 0.52), l * 0.06, l * 0.06)
+    elif nom == "conteneurs":
+        for fx, fy in ((0.10, 0.54), (0.38, 0.54), (0.66, 0.54),
+                       (0.38, 0.28), (0.66, 0.28)):
+            p.drawRect(QRectF(x + l * fx, y + h * fy, l * 0.22, h * 0.20))
+        p.drawArc(QRectF(x + l * 0.04, y + h * 0.74, l * 0.92, h * 0.28),
+                  200 * 16, 140 * 16)
+    elif nom == "base":
+        p.drawEllipse(QRectF(x + l * 0.12, y + h * 0.10, l * 0.76, h * 0.24))
+        p.drawLine(P(0.12, 0.22), P(0.12, 0.78))
+        p.drawLine(P(0.88, 0.22), P(0.88, 0.78))
+        p.drawArc(QRectF(x + l * 0.12, y + h * 0.32, l * 0.76, h * 0.24),
+                  180 * 16, 180 * 16)
+        p.drawArc(QRectF(x + l * 0.12, y + h * 0.66, l * 0.76, h * 0.24),
+                  180 * 16, 180 * 16)
+    elif nom == "cles":
+        p.drawLine(P(0.14, 0.86), P(0.60, 0.40))
+        p.drawPolyline([P(0.54, 0.28), P(0.72, 0.10), P(0.90, 0.28),
+                        P(0.72, 0.46), P(0.54, 0.28)])
+        p.drawLine(P(0.86, 0.86), P(0.52, 0.52))
+        p.drawPolyline([P(0.10, 0.22), P(0.22, 0.10), P(0.40, 0.28)])
+    elif nom == "vpn":
+        p.drawEllipse(P(0.42, 0.46), l * 0.34, h * 0.34)
+        p.drawLine(P(0.08, 0.46), P(0.76, 0.46))
+        p.drawEllipse(P(0.42, 0.46), l * 0.14, h * 0.34)
+        p.drawRoundedRect(QRectF(x + l * 0.60, y + h * 0.60, l * 0.34,
+                                 h * 0.30), l * 0.05, l * 0.05)
+        p.drawArc(QRectF(x + l * 0.67, y + h * 0.46, l * 0.20, h * 0.28),
+                  0, 180 * 16)
+    elif nom == "journal":
+        p.drawRoundedRect(QRectF(x + l * 0.12, y + h * 0.08, l * 0.76,
+                                 h * 0.84), l * 0.06, l * 0.06)
+        for fy in (0.28, 0.44, 0.60, 0.76):
+            p.drawEllipse(P(0.26, fy), l * 0.03, h * 0.03)
+            p.drawLine(P(0.36, fy), P(0.76 if fy != 0.76 else 0.58, fy))
+    elif nom == "cle":
+        p.drawEllipse(P(0.30, 0.30), l * 0.20, h * 0.20)
+        p.drawLine(P(0.44, 0.44), P(0.88, 0.88))
+        p.drawLine(P(0.72, 0.72), P(0.60, 0.84))
+        p.drawLine(P(0.82, 0.82), P(0.70, 0.94))
+    elif nom == "personnes":
+        p.drawEllipse(P(0.36, 0.30), l * 0.17, h * 0.17)
+        p.drawArc(QRectF(x + l * 0.10, y + h * 0.52, l * 0.52, h * 0.56),
+                  0, 180 * 16)
+        p.drawArc(QRectF(x + l * 0.54, y + h * 0.14, l * 0.30, h * 0.30),
+                  270 * 16, 250 * 16)
+        p.drawArc(QRectF(x + l * 0.50, y + h * 0.52, l * 0.46, h * 0.56),
+                  0, 120 * 16)
+    elif nom == "langues":
+        p.drawPolyline([P(0.08, 0.46), P(0.26, 0.10), P(0.44, 0.46)])
+        p.drawLine(P(0.14, 0.34), P(0.38, 0.34))
+        p.drawRect(QRectF(x + l * 0.50, y + h * 0.52, l * 0.42, h * 0.40))
+        p.drawLine(P(0.58, 0.62), P(0.84, 0.62))
+        p.drawLine(P(0.71, 0.62), P(0.71, 0.84))
+        p.drawArc(QRectF(x + l * 0.56, y + h * 0.64, l * 0.30, h * 0.24),
+                  200 * 16, 140 * 16)
+    elif nom == "alimentation":
+        p.drawArc(QRectF(x + l * 0.14, y + h * 0.18, l * 0.72, h * 0.72),
+                  300 * 16, 300 * 16)
+        p.drawLine(P(0.50, 0.08), P(0.50, 0.46))
+    elif nom == "redemarrer":
+        p.drawArc(QRectF(x + l * 0.12, y + h * 0.12, l * 0.76, h * 0.76),
+                  40 * 16, 280 * 16)
+        p.drawPolyline([P(0.66, 0.06), P(0.92, 0.22), P(0.66, 0.34)])
+    elif nom == "sortie":
+        p.drawPolyline([P(0.54, 0.10), P(0.12, 0.10), P(0.12, 0.90),
+                        P(0.54, 0.90)])
+        p.drawLine(P(0.40, 0.50), P(0.90, 0.50))
+        p.drawPolyline([P(0.72, 0.32), P(0.90, 0.50), P(0.72, 0.68)])
+    else:
+        _dessiner(nom, p, TEXTE)   # repli sur les symboles du menu
+
+
+#  Les symboles déjà écrits ailleurs, réutilisés plutôt que redessinés.
+_OUTIL_DEPUIS_MENU = {"fichiers", "terminal", "parametres", "navigateur",
+                      "securite", "developpement", "systeme", "apparence",
+                      "performances", "reseau", "stockage", "applications",
+                      "services", "maj", "accueil", "apropos", "gpu",
+                      "processeur", "memoire", "son", "affichage"}
+_OUTIL_DEPUIS_TYPES = {"image", "video", "audio", "texte", "archive",
+                       "disque"}
+_TYPE_ALIAS = {"cube": "paquet"}
+
+
+def icone_outil(nom: str, taille: int = 56, actif: bool = True) -> QIcon:
+    """Une tuile d'outil : carré sombre, symbole orange, halo discret.
+
+    `actif=False` grise la tuile — c'est ce que voit un outil non installé.
+    On ne la CACHE pas : savoir qu'un outil existe mais n'est pas là vaut
+    mieux que ne rien savoir, et l'infobulle dit ce qui manque.
+    """
+    pix = QPixmap(taille, taille)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.scale(taille / 64.0, taille / 64.0)
+
+    accent = QColor(ORANGE) if actif else QColor(TEXTE_FAIBLE)
+    #  Le fond de la tuile, puis un liseré de l'accent.
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(FOND_TUILE))
+    p.drawRoundedRect(QRectF(2, 2, 60, 60), 13, 13)
+    liseré = QPen(QColor(accent))
+    liseré.setWidthF(1.3)
+    p.setPen(liseré)
+    p.setBrush(Qt.NoBrush)
+    p.setOpacity(0.55 if actif else 0.30)
+    p.drawRoundedRect(QRectF(2.6, 2.6, 58.8, 58.8), 12.5, 12.5)
+    p.setOpacity(1.0)
+
+    stylo = QPen(accent)
+    stylo.setWidthF(2.4)
+    stylo.setCapStyle(Qt.RoundCap)
+    stylo.setJoinStyle(Qt.RoundJoin)
+    p.setPen(stylo)
+    p.setBrush(Qt.NoBrush)
+    zone = QRectF(17, 17, 30, 30)
+    if nom in _OUTIL_DEPUIS_MENU:
+        p.save()
+        p.translate(zone.x(), zone.y())
+        p.scale(zone.width() / 24.0, zone.height() / 24.0)
+        _dessiner(nom, p, accent.name())
+        p.restore()
+    elif nom in _OUTIL_DEPUIS_TYPES or nom in _TYPE_ALIAS:
+        p.save()
+        _glyphe(_TYPE_ALIAS.get(nom, nom), p, zone, accent.name())
+        p.restore()
+    else:
+        _dessiner_outil(nom, p, zone)
     p.end()
     return QIcon(pix)

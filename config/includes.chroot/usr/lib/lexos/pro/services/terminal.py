@@ -98,3 +98,55 @@ def lancer_ti_lex(dossier=None) -> execution.Resultat:
     if not t["trouve"]:
         return execution.Resultat(False, erreur=t["raison"])
     return execution.lancer_detache([t["commande"]])
+
+
+def ouvrir_commande(argv, *, dossier=None) -> execution.Resultat:
+    """Ouvre le VRAI terminal en y lançant une commande, puis le laisse ouvert.
+
+    Pour les outils qui n'ont pas de fenêtre — docker, une base de données.
+    Leur donner une tuile qui « ne fait rien » serait un faux bouton ; leur
+    donner un terminal, c'est les brancher pour de bon.
+
+    LA COMMANDE NE PASSE PAS PAR UNE CHAÎNE DE SHELL. Elle est écrite dans
+    l'environnement, et bash la relit depuis un tableau : un argument
+    contenant « ; » reste un argument. C'est la même précaution que pour le
+    chemin dans _ouvrir_par_cd(), et pour la même raison.
+    """
+    import shutil
+    import subprocess
+    if not argv:
+        return execution.Resultat(False, erreur="Commande vide.")
+    emulateur = capacites.premier_present(capacites.TERMINAUX)
+    if not emulateur:
+        return execution.Resultat(
+            False, erreur="Aucun émulateur de terminal n'est installé : "
+                          "impossible de lancer un outil en ligne de "
+                          "commande.")
+    if not shutil.which("bash"):
+        return execution.Resultat(
+            False, erreur="bash est absent : impossible de tenir le "
+                          "terminal ouvert après la commande.")
+    #  « "${LEXOS_PRO_CMD[@]}" » : bash relit le tableau exporté, élément
+    #  par élément. Aucune ré-interprétation.
+    script = ('printf "\\033[1m$ %s\\033[0m\\n" "${LEXOS_PRO_CMD[*]}"; '
+              '"${LEXOS_PRO_CMD[@]}"; '
+              'printf "\\n[Entrée pour fermer] "; read -r _')
+    env = dict(os.environ)
+    #  Un tableau ne se transmet pas par l'environnement : on passe les
+    #  éléments un par un et bash les réassemble.
+    for i, a in enumerate(argv):
+        env[f"LEXOS_PRO_CMD_{i}"] = str(a)
+    env["LEXOS_PRO_CMD_N"] = str(len(argv))
+    prelude = ('LEXOS_PRO_CMD=(); for i in $(seq 0 $((LEXOS_PRO_CMD_N-1))); '
+               'do eval "LEXOS_PRO_CMD+=(\\"\\$LEXOS_PRO_CMD_$i\\")"; done; ')
+    if dossier and os.path.isdir(str(dossier)):
+        env["LEXOS_PRO_DOSSIER"] = str(dossier)
+        prelude = 'cd -- "$LEXOS_PRO_DOSSIER" || exit 1; ' + prelude
+    try:
+        subprocess.Popen([emulateur, "-e", "bash", "-lc", prelude + script],
+                         start_new_session=True, env=env,
+                         stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        return execution.Resultat(False, erreur=f"{emulateur} : {e}")
+    return execution.Resultat(True, sortie=" ".join(str(a) for a in argv))

@@ -96,6 +96,18 @@ littéralement aucun appel de suppression, et un test le vérifie sur l'arbre
 syntaxique. Les conflits de noms ne sont jamais écrasés en silence : on
 demande.
 
+**Page Outils** — 45 tuiles, d'après la planche de LexOS PRO, **branchées
+sur les vrais programmes de la machine**. Chaque tuile fait l'une de cinq
+choses : ouvrir une page de LEXOS PRO, ouvrir un dossier XDG qui existe
+vraiment, lancer une application installée (une liste de candidats est
+essayée dans l'ordre), lancer un outil en ligne de commande dans le vrai
+terminal, ou demander une action de session. Une tuile dont le programme
+n'est pas installé est **grisée, jamais cachée**, et son infobulle nomme
+tout ce qui a été cherché. La zone de statut annonce combien de tuiles sont
+réellement branchées. Les trois actions de session — éteindre, redémarrer,
+fermer la session — demandent confirmation ; aucune autre ne le fait, pour
+ne pas apprendre à cliquer « oui » sans lire.
+
 **Icônes de types de fichiers** — 42 types reconnus (images, audio, vidéo,
 bureautique, code, archives, paquets, exécutables), plus le dossier et le
 type inconnu. Elles sont **tracées en code**, pas chargées depuis des
@@ -171,7 +183,7 @@ coupure de courant ne le laisse jamais à moitié écrit.
 
 | Touches | Action |
 |---|---|
-| `Ctrl+1` … `Ctrl+8` | aller directement à une page du menu |
+| `Ctrl+1` … `Ctrl+9` | aller directement à une page du menu |
 | `F5` | relire les mesures de la page courante |
 | `Ctrl+Q` | quitter |
 | `Tab` / `Maj+Tab` | parcourir les éléments (l'élément actif est cerclé d'orange) |

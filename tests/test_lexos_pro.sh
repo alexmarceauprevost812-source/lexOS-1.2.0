@@ -272,13 +272,65 @@ for a_, b_ in (("xls", "xlsx"), ("doc", "docx"), ("ppt", "pptx"),
     ib = theme.icone_fichier("x." + b_, 48).pixmap(48, 48).toImage()
     if ia == ib:
         identiques.append(f"{a_}/{b_}")
+#  ── LA PAGE OUTILS ───────────────────────────────────────────────
+#  CHAQUE TUILE FAIT QUELQUE CHOSE, OU DIT POURQUOI NON. On vérifie
+#  qu'aucune n'est un faux bouton : toutes ont une infobulle, celles
+#  qui sont éteintes portent leur raison, et la grille ne déborde pas
+#  horizontalement — défaut mesuré sur capture à 1280x720, où neuf
+#  colonnes figées demandaient 1134 px pour 1070 disponibles.
+from PySide6.QtWidgets import QToolButton, QScrollArea
+from pro.services import outils as _O
+f.resize(1280, 720)
+f.aller('outils')
+for _ in range(30):
+    QCoreApplication.processEvents()
+QThreadPool.globalInstance().waitForDone(20000)
+for _ in range(200):
+    QCoreApplication.processEvents()
+_page = f.pile.currentWidget()
+_tuiles = _page.findChildren(QToolButton)
+_sans_bulle = [t.text() for t in _tuiles if not t.toolTip().strip()]
+_eteintes_muettes = [t.text() for t in _tuiles
+                     if not t.isEnabled() and "Indisponible" not in t.toolTip()]
+_coupes = [t.text() for t in _tuiles
+           if t.fontMetrics().horizontalAdvance(t.text()) > t.width() - 12]
+_sc = _page.findChildren(QScrollArea)[0]
+_deborde = _sc.horizontalScrollBar().maximum() > 0
+print(f"OUTILS_TUILES={len(_tuiles)}/{len(_O.CATALOGUE)}")
+print(f"OUTILS_SANS_BULLE={','.join(_sans_bulle)}")
+print(f"OUTILS_ETEINTES_MUETTES={','.join(_eteintes_muettes)}")
+print(f"OUTILS_LIBELLES_COUPES={','.join(_coupes)}")
+print(f"OUTILS_DEBORDE={'oui' if _deborde else 'non'}")
 print(f"TYPES_INDISTINCTS={','.join(identiques)}")
 print(f"TYPES_VIDES={','.join(vides)}")
 print(f"TYPES_SANS_FAMILLE={','.join(sans_famille)}")
 print(f"TYPES_MAUVAIS_SYMBOLE={','.join(mauvais)}")
-print(f"PAGES={vues}")
+#  ATTENDU CALCULÉ, PAS ÉCRIT EN DUR. La version précédente exigeait
+#  « PAGES=18 » ; ajouter la neuvième entrée de menu l'a fait rougir pour
+#  une bonne nouvelle. Un banc qui punit l'ajout d'une page apprend à
+#  ignorer les rouges.
+attendu = len(A.MENU) + len(SECTIONS)
+print(f"PAGES={vues}/{attendu}")
 PYEOF
 	)"
+	TUILES="$(grep -o 'OUTILS_TUILES=[0-9]*/[0-9]*' <<< "$ESSAI" | cut -d= -f2)"
+	if [ -n "$TUILES" ] && [ "${TUILES%/*}" = "${TUILES#*/}" ]; then
+		ok "la page Outils affiche les ${TUILES%/*} tuiles du catalogue"
+	else
+		non "tuiles manquantes : ${TUILES:-mesure absente}"
+	fi
+	grep -q 'OUTILS_SANS_BULLE=$' <<< "$ESSAI" \
+		&& ok "chaque tuile porte une infobulle" \
+		|| non "tuiles muettes : $(grep -o 'OUTILS_SANS_BULLE=.*' <<< "$ESSAI")"
+	grep -q 'OUTILS_ETEINTES_MUETTES=$' <<< "$ESSAI" \
+		&& ok "et chaque tuile ÉTEINTE dit pourquoi — aucun faux bouton" \
+		|| non "éteintes sans motif : $(grep -o 'OUTILS_ETEINTES_MUETTES=.*' <<< "$ESSAI")"
+	grep -q 'OUTILS_LIBELLES_COUPES=$' <<< "$ESSAI" \
+		&& ok "aucun libellé de tuile n'est tronqué" \
+		|| non "libellés coupés : $(grep -o 'OUTILS_LIBELLES_COUPES=.*' <<< "$ESSAI")"
+	grep -q 'OUTILS_DEBORDE=non' <<< "$ESSAI" \
+		&& ok "et la grille ne déborde pas horizontalement à 1280x720" \
+		|| non "débordement horizontal de la page Outils"
 	grep -q 'TYPES_INDISTINCTS=$' <<< "$ESSAI" \
 		&& ok "deux types d'une même famille restent distinguables (bandeau)" \
 		|| non "icônes identiques : $(grep -o 'TYPES_INDISTINCTS=.*' <<< "$ESSAI")"
@@ -294,8 +346,9 @@ PYEOF
 	#  Chaîne ici-même et non « printf | grep -q » : sous pipefail, grep
 	#  ferme le tube dès la correspondance et tue le producteur. C'est une
 	#  règle du dépôt, et la CI la vérifie sur tous les bancs.
-	if grep -q 'PAGES=18' <<< "$ESSAI"; then
-		ok "la fenêtre s'ouvre et les 18 pages s'affichent (plateforme offscreen)"
+	PAGES="$(grep -o 'PAGES=[0-9]*/[0-9]*' <<< "$ESSAI" | cut -d= -f2)"
+	if [ -n "$PAGES" ] && [ "${PAGES%/*}" = "${PAGES#*/}" ]; then
+		ok "la fenêtre s'ouvre et les ${PAGES%/*} pages s'affichent (offscreen)"
 	else
 		non "le démarrage graphique a échoué :"
 		printf '%s\n' "$ESSAI" | tail -12 | sed 's/^/      /'
