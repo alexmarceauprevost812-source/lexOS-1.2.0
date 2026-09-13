@@ -313,3 +313,333 @@ def icone(nom: str, couleur: str = TEXTE_SECOND, taille: int = 24) -> QIcon:
     _dessiner(nom, peintre, couleur)
     peintre.end()
     return QIcon(pix)
+
+
+# ══ Icônes de TYPES DE FICHIERS ══════════════════════════════════════════
+#  D'APRÈS LA PLANCHE D'ALEX : carré arrondi coloré, coin replié, symbole
+#  blanc au centre, bandeau sombre portant l'extension.
+#
+#  TRACÉES, COMME LES AUTRES, et pour la même raison — mais elle pèse plus
+#  lourd ici : un gestionnaire de fichiers affiche des centaines d'icônes
+#  par dossier. Quarante-neuf fichiers PNG à livrer, c'est quarante-neuf
+#  occasions qu'il en manque un, et une icône manquante dans une liste de
+#  fichiers ne se remarque pas — elle se confond avec « fichier inconnu ».
+#
+#  LA COULEUR DIT LA FAMILLE, PAS L'EXTENSION. .jpg et .jpeg sont la même
+#  chose ; les distinguer par la couleur serait du bruit. Ce qu'on veut
+#  reconnaître d'un coup d'œil, c'est « une image », « une archive », « un
+#  exécutable » — l'extension exacte, le bandeau la donne.
+_FAMILLES = {
+    "image":        ("#FF7A18", "image"),
+    "image2":       ("#F0433A", "image"),
+    "image3":       ("#EC1E79", "image"),
+    "vectoriel":    ("#8B3DEC", "vectoriel"),
+    "photo":        ("#3B3F46", "image"),
+    "video":        ("#E8322B", "video"),
+    "audio":        ("#1F7AE0", "audio"),
+    "audio2":       ("#5BB522", "audio"),
+    "audio3":       ("#8B3DEC", "audio"),
+    "partition":    ("#6B4BB5", "partition"),
+    "texte":        ("#5A6069", "texte"),
+    "document":     ("#1F7AE0", "texte"),
+    "tableur":      ("#3B9B2F", "tableur"),
+    "diapo":        ("#E8721B", "diapo"),
+    "pdf":          ("#D92B2B", "pdf"),
+    "balisage":     ("#8B3DEC", "texte"),
+    "donnees":      ("#2C5BD8", "accolades"),
+    "web":          ("#F07C1B", "chevrons"),
+    "style":        ("#E0452F", "accolades"),
+    "script":       ("#E8901B", "accolades"),
+    "archive":      ("#F0B41B", "archive"),
+    "archive2":     ("#8B3DEC", "archive"),
+    "archive3":     ("#2C6BD8", "archive"),
+    "archive4":     ("#4A4F57", "archive"),
+    "disque":       ("#6E757E", "disque"),
+    "paquet":       ("#19A5CC", "paquet"),
+    "paquet_deb":   ("#3B9B2F", "paquet"),
+    "paquet_snap":  ("#7B3DD8", "paquet"),
+    "paquet_flat":  ("#3BA82F", "paquet"),
+    "binaire":      ("#F07C1B", "engrenage"),
+    "shell":        ("#E8322B", "invite"),
+    "python":       ("#C4651B", "python"),
+    "service":      ("#4A4F57", "engrenage"),
+    "dossier":      ("#F0891B", "dossier"),
+    "inconnu":      ("#5A6069", "texte"),
+    #  CES QUATRE-LÀ SONT NÉS D'UN DÉFAUT VU SUR LA PLANCHE DE CONTRÔLE.
+    #  J'avais rangé .ogg dans « image », .wma dans « image3 » et .m4a dans
+    #  « paquet » parce que la COULEUR de ces familles correspondait à celle
+    #  de la planche d'Alex — en oubliant qu'une famille porte aussi son
+    #  SYMBOLE. Résultat : trois fichiers audio avec une icône de photo ou
+    #  de cube. Une famille, c'est un couple couleur+symbole ; en réutiliser
+    #  une pour sa seule couleur, c'est hériter de l'autre moitié sans le
+    #  vouloir.
+    "audio_ogg":    ("#E8721B", "audio"),
+    "audio_wma":    ("#D4267E", "audio"),
+    "audio_m4a":    ("#19A5CC", "audio"),
+    "texte_rtf":    ("#3B3F46", "texte"),
+}
+
+#  extension -> famille. Les extensions composées (.tar.gz) sont gérées par
+#  la reconnaissance du suffixe dans famille_fichier().
+_EXTENSIONS = {
+    # images
+    "png": "image", "webp": "image", "bmp": "image", "ico": "image",
+    "jpg": "image2", "jpeg": "image2", "heic": "image2", "avif": "image2",
+    "gif": "image3",
+    "svg": "vectoriel", "eps": "vectoriel", "ai": "vectoriel",
+    "tif": "photo", "tiff": "photo",
+    "raw": "photo", "cr2": "photo", "nef": "photo", "arw": "photo",
+    "dng": "photo",
+    # vidéo
+    "mp4": "video", "mkv": "video", "avi": "video", "mov": "video",
+    "webm": "video", "wmv": "video", "m4v": "video", "mpg": "video",
+    "mpeg": "video",
+    # audio
+    "mp3": "audio", "aac": "audio", "opus": "audio",
+    "wav": "audio2", "aiff": "audio2",
+    "flac": "audio3", "ape": "audio3",
+    "ogg": "audio_ogg", "oga": "audio_ogg",
+    "wma": "audio_wma",
+    "mid": "partition", "midi": "partition",
+    "m4a": "audio_m4a",
+    # bureautique
+    "doc": "document", "docx": "document", "odt": "document",
+    "xls": "tableur", "xlsx": "tableur", "ods": "tableur", "csv": "tableur",
+    "tsv": "tableur",
+    "ppt": "diapo", "pptx": "diapo", "odp": "diapo",
+    "pdf": "pdf",
+    # texte et code
+    "txt": "texte", "log": "texte", "conf": "texte", "cfg": "texte",
+    "ini": "texte", "list": "texte",
+    "rtf": "texte_rtf",
+    "md": "balisage", "rst": "balisage", "adoc": "balisage",
+    "json": "donnees", "yaml": "donnees", "yml": "donnees",
+    "toml": "donnees", "xml": "donnees", "sql": "donnees",
+    "html": "web", "htm": "web", "php": "web",
+    "css": "style", "scss": "style", "less": "style",
+    "js": "script", "ts": "script", "jsx": "script", "tsx": "script",
+    "c": "script", "h": "script", "cpp": "script", "hpp": "script",
+    "rs": "script", "go": "script", "java": "script", "rb": "script",
+    "lua": "script", "pl": "script",
+    # archives
+    "zip": "archive",
+    "rar": "archive2",
+    "7z": "archive3",
+    "tar": "archive4", "gz": "archive4", "xz": "archive4", "bz2": "archive4",
+    "zst": "archive4", "tgz": "archive4",
+    "iso": "disque", "img": "disque", "vhd": "disque", "qcow2": "disque",
+    # paquets et exécutables
+    "app": "paquet", "appimage": "archive3",
+    "deb": "paquet_deb", "rpm": "paquet_deb",
+    "snap": "paquet_snap",
+    "flatpak": "paquet_flat", "flatpakref": "paquet_flat",
+    "exe": "binaire", "msi": "binaire", "dll": "binaire",
+    "sh": "shell", "bash": "shell", "zsh": "shell", "fish": "shell",
+    "py": "python", "pyc": "python",
+    "service": "service", "socket": "service", "timer": "service",
+    "target": "service", "mount": "service",
+    "desktop": "paquet",
+}
+
+
+def famille_fichier(nom: str) -> tuple:
+    """(clé de famille, extension affichable) pour un nom de fichier.
+
+    Les archives composées sont reconnues d'abord : « paquet.tar.gz » est une
+    archive TAR.GZ, pas un fichier « GZ ». Sans ce passage, la moitié des
+    archives d'un dossier de développement s'afficheraient sous la mauvaise
+    étiquette.
+    """
+    bas = (nom or "").lower()
+    for compose in ("tar.gz", "tar.xz", "tar.bz2", "tar.zst"):
+        if bas.endswith("." + compose):
+            return "archive4", compose.upper()
+    if "." not in bas.strip("."):
+        return "inconnu", ""
+    ext = bas.rsplit(".", 1)[-1]
+    return _EXTENSIONS.get(ext, "inconnu"), ext.upper()
+
+
+def _teinte(couleur: str, facteur: float) -> QColor:
+    c = QColor(couleur)
+    h, s, v, a = c.getHsv()
+    return QColor.fromHsv(h, s, max(0, min(255, int(v * facteur))), a)
+
+
+def _glyphe(nom: str, p: QPainter, r: QRectF) -> None:
+    """Le symbole blanc au centre, tracé dans le rectangle donné."""
+    stylo = QPen(QColor("#FFFFFF"))
+    stylo.setWidthF(max(1.1, r.width() * 0.075))
+    stylo.setCapStyle(Qt.RoundCap)
+    stylo.setJoinStyle(Qt.RoundJoin)
+    p.setPen(stylo)
+    p.setBrush(Qt.NoBrush)
+    x, y, l, h = r.x(), r.y(), r.width(), r.height()
+
+    def P(fx, fy):
+        return QPointF(x + l * fx, y + h * fy)
+
+    if nom == "image":
+        p.drawRoundedRect(QRectF(x, y, l, h), l * 0.12, l * 0.12)
+        p.drawEllipse(P(0.30, 0.30), l * 0.08, h * 0.08)
+        p.drawPolyline([P(0.10, 0.80), P(0.40, 0.45), P(0.62, 0.66),
+                        P(0.75, 0.54), P(0.92, 0.78)])
+    elif nom == "vectoriel":
+        p.drawPolyline([P(0.18, 0.82), P(0.62, 0.20)])
+        p.drawPolygon([P(0.58, 0.12), P(0.82, 0.30), P(0.70, 0.44),
+                       P(0.48, 0.26)])
+        p.drawEllipse(P(0.20, 0.84), l * 0.07, h * 0.07)
+    elif nom == "video":
+        p.drawRoundedRect(QRectF(x, y + h * 0.10, l, h * 0.80),
+                          l * 0.12, l * 0.12)
+        p.drawPolygon([P(0.40, 0.32), P(0.72, 0.50), P(0.40, 0.68)])
+    elif nom == "audio":
+        p.drawEllipse(P(0.32, 0.74), l * 0.15, h * 0.12)
+        p.drawLine(P(0.47, 0.74), P(0.47, 0.18))
+        p.drawPolyline([P(0.47, 0.18), P(0.86, 0.06), P(0.86, 0.30)])
+    elif nom == "partition":
+        p.drawRect(QRectF(x + l * 0.10, y + h * 0.22, l * 0.80, h * 0.56))
+        for f in (0.28, 0.42, 0.58, 0.72):
+            p.drawLine(P(f, 0.22), P(f, 0.78))
+    elif nom == "texte":
+        for f in (0.24, 0.42, 0.60, 0.78):
+            p.drawLine(P(0.12, f), P(0.88 if f != 0.78 else 0.62, f))
+    elif nom == "tableur":
+        p.drawRect(QRectF(x + l * 0.08, y + h * 0.14, l * 0.84, h * 0.72))
+        for f in (0.38, 0.62):
+            p.drawLine(P(0.08, f), P(0.92, f))
+        for f in (0.36, 0.64):
+            p.drawLine(P(f, 0.14), P(f, 0.86))
+    elif nom == "diapo":
+        p.drawEllipse(P(0.50, 0.50), l * 0.36, h * 0.36)
+        p.drawLine(P(0.50, 0.50), P(0.50, 0.14))
+        p.drawLine(P(0.50, 0.50), P(0.84, 0.58))
+    elif nom == "pdf":
+        #  Le « A » du document imprimé : deux jambages et leur barre. Lisible
+        #  à 20 px, là où l'arc et le chevron de la première version se
+        #  mélangeaient en un gribouillis — vu sur la planche de contrôle.
+        p.drawPolyline([P(0.20, 0.84), P(0.50, 0.16), P(0.80, 0.84)])
+        p.drawLine(P(0.33, 0.60), P(0.67, 0.60))
+    elif nom == "accolades":
+        p.drawPolyline([P(0.38, 0.14), P(0.26, 0.22), P(0.26, 0.42),
+                        P(0.16, 0.50), P(0.26, 0.58), P(0.26, 0.78),
+                        P(0.38, 0.86)])
+        p.drawPolyline([P(0.62, 0.14), P(0.74, 0.22), P(0.74, 0.42),
+                        P(0.84, 0.50), P(0.74, 0.58), P(0.74, 0.78),
+                        P(0.62, 0.86)])
+    elif nom == "chevrons":
+        p.drawPolyline([P(0.34, 0.24), P(0.12, 0.50), P(0.34, 0.76)])
+        p.drawPolyline([P(0.66, 0.24), P(0.88, 0.50), P(0.66, 0.76)])
+        p.drawLine(P(0.58, 0.14), P(0.42, 0.86))
+    elif nom == "archive":
+        p.drawRoundedRect(QRectF(x + l * 0.14, y, l * 0.72, h), l * 0.10,
+                          l * 0.10)
+        p.drawLine(P(0.50, 0.02), P(0.50, 0.46))
+        p.drawRect(QRectF(x + l * 0.40, y + h * 0.48, l * 0.20, h * 0.26))
+    elif nom == "disque":
+        p.drawEllipse(P(0.50, 0.50), l * 0.40, h * 0.40)
+        p.drawEllipse(P(0.50, 0.50), l * 0.10, h * 0.10)
+    elif nom == "paquet":
+        p.drawPolygon([P(0.50, 0.06), P(0.92, 0.28), P(0.92, 0.72),
+                       P(0.50, 0.94), P(0.08, 0.72), P(0.08, 0.28)])
+        p.drawPolyline([P(0.08, 0.28), P(0.50, 0.50), P(0.92, 0.28)])
+        p.drawLine(P(0.50, 0.50), P(0.50, 0.94))
+    elif nom == "engrenage":
+        import math
+        p.drawEllipse(P(0.50, 0.50), l * 0.16, h * 0.16)
+        p.drawEllipse(P(0.50, 0.50), l * 0.34, h * 0.34)
+        for i in range(6):
+            a = math.radians(i * 60)
+            p.drawLine(QPointF(x + l * (0.5 + 0.34 * math.cos(a)),
+                               y + h * (0.5 + 0.34 * math.sin(a))),
+                       QPointF(x + l * (0.5 + 0.46 * math.cos(a)),
+                               y + h * (0.5 + 0.46 * math.sin(a))))
+    elif nom == "invite":
+        p.drawPolyline([P(0.16, 0.28), P(0.44, 0.50), P(0.16, 0.72)])
+        p.drawLine(P(0.52, 0.74), P(0.86, 0.74))
+    elif nom == "python":
+        p.drawArc(QRectF(x + l * 0.16, y + h * 0.08, l * 0.68, h * 0.50),
+                  0, 180 * 16)
+        p.drawArc(QRectF(x + l * 0.16, y + h * 0.42, l * 0.68, h * 0.50),
+                  180 * 16, 180 * 16)
+        p.drawLine(P(0.16, 0.33), P(0.50, 0.33))
+        p.drawLine(P(0.50, 0.67), P(0.84, 0.67))
+    elif nom == "dossier":
+        p.drawPolygon([P(0.06, 0.22), P(0.42, 0.22), P(0.52, 0.36),
+                       P(0.94, 0.36), P(0.94, 0.82), P(0.06, 0.82)])
+    else:
+        p.drawRoundedRect(QRectF(x + l * 0.14, y + h * 0.06,
+                                 l * 0.72, h * 0.88), l * 0.08, l * 0.08)
+
+
+def icone_fichier(nom_fichier: str, taille: int = 40,
+                  dossier: bool = False) -> QIcon:
+    """L'icône d'un fichier d'après son nom. Ne lit JAMAIS le fichier.
+
+    Deux rendus selon la place disponible, et c'est une décision, pas une
+    approximation : en dessous de 30 px, le bandeau d'extension serait
+    illisible — trois lettres dans six pixels de haut donnent une bouillie
+    grise qui salit la liste. On garde alors le symbole seul, qui reste
+    reconnaissable. Au-dessus, le bandeau apparaît.
+    """
+    if dossier:
+        cle, etiquette = "dossier", ""
+    else:
+        cle, etiquette = famille_fichier(nom_fichier)
+    couleur, glyphe = _FAMILLES.get(cle, _FAMILLES["inconnu"])
+
+    pix = QPixmap(taille, taille)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    p.scale(taille / 64.0, taille / 64.0)
+
+    grand = taille >= 30
+    corps = QRectF(4, 2, 56, 60)
+    rayon = 9.0
+
+    #  Le corps, avec un dégradé vertical léger — la planche d'Alex en a un,
+    #  et sans lui les icônes paraissent plates à côté du reste du thème.
+    from PySide6.QtGui import QLinearGradient
+    degrade = QLinearGradient(corps.topLeft(), corps.bottomLeft())
+    degrade.setColorAt(0.0, _teinte(couleur, 1.18))
+    degrade.setColorAt(1.0, _teinte(couleur, 0.88))
+    p.setPen(Qt.NoPen)
+    p.setBrush(degrade)
+    p.drawRoundedRect(corps, rayon, rayon)
+
+    #  Le coin replié, en haut à droite.
+    pli = QPainterPath()
+    pli.moveTo(60 - 16, 2)
+    pli.lineTo(60, 2 + 16)
+    pli.lineTo(60, 2 + rayon)
+    pli.quadTo(60, 2, 60 - rayon, 2)
+    pli.closeSubpath()
+    p.setBrush(_teinte(couleur, 0.66))
+    p.drawPath(pli)
+
+    #  Le symbole. Il monte un peu quand le bandeau prend le bas.
+    zone = QRectF(17, 13, 30, 30) if grand else QRectF(15, 16, 34, 34)
+    _glyphe(glyphe, p, zone)
+
+    if grand and etiquette:
+        bande = QRectF(4, 45, 56, 17)
+        chemin = QPainterPath()
+        chemin.addRoundedRect(bande, rayon * 0.7, rayon * 0.7)
+        p.setPen(Qt.NoPen)
+        p.setBrush(_teinte(couleur, 0.52))
+        p.drawPath(chemin)
+        #  L'étiquette rétrécit si elle est longue (« FLATPAKREF », « TAR.GZ »)
+        #  plutôt que de déborder du bandeau.
+        texte = etiquette[:9]
+        f = QFont()
+        f.setBold(True)
+        f.setPointSizeF(11.0 if len(texte) <= 4 else
+                        (9.0 if len(texte) <= 6 else 7.0))
+        p.setFont(f)
+        p.setPen(QColor("#FFFFFF"))
+        p.drawText(bande, Qt.AlignCenter, texte)
+
+    p.end()
+    return QIcon(pix)

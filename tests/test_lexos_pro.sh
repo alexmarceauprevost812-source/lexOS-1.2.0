@@ -207,9 +207,90 @@ for cle, libelle, _, _ in SECTIONS:
 QThreadPool.globalInstance().waitForDone(25000)
 for _ in range(300):
     QCoreApplication.processEvents()
+#  ── LES ICÔNES DE TYPES DE FICHIERS ─────────────────────────────
+#  UNE ICÔNE VIDE NE SE REMARQUE PAS dans une liste de fichiers : elle
+#  ressemble à « type inconnu », qui est un résultat légitime. C'est
+#  exactement le genre de défaut qui vit des mois. On compte donc les
+#  pixels opaques de chacune.
+from pro.ui import theme
+TYPES = ["png","jpg","gif","svg","tiff","raw","mp4","mp3","wav","flac",
+         "ogg","wma","midi","m4a","doc","docx","xls","xlsx","ppt","pptx",
+         "pdf","txt","rtf","md","json","html","css","js","zip","rar",
+         "7z","tar","iso","app","deb","exe","sh","py","appimage","snap",
+         "flatpak","service"]
+
+#  UN SEUIL DE COUVERTURE, PAS « PLUS DE ZÉRO PIXEL ».
+#  La première version comptait « au moins 40 pixels opaques ». Elle
+#  n'attrapait qu'une icône ENTIÈREMENT vide — le cas le plus rare. La
+#  mutation qui supprimait le CORPS coloré la laissait verte : le symbole
+#  et le bandeau suffisaient à passer. Mesuré : une icône entière couvre
+#  82-83 % de sa boîte, une icône sans corps 9 à 44 %. Le seuil est à
+#  65 %, avec de la marge des deux côtés.
+def couverture(nom, dossier=False, t=48):
+    im = theme.icone_fichier(nom, t, dossier).pixmap(t, t).toImage()
+    points = [(x, y) for y in range(0, t, 2) for x in range(0, t, 2)]
+    opaques = sum(1 for x, y in points if im.pixelColor(x, y).alpha() > 0)
+    return 100 * opaques // len(points)
+
+SEUIL = 65
+vides, sans_famille = [], []
+for ext in TYPES:
+    if theme.famille_fichier("essai." + ext)[0] == "inconnu":
+        sans_famille.append(ext)
+    c = couverture("essai." + ext)
+    if c < SEUIL:
+        vides.append(f"{ext}({c}%)")
+#  Le dossier et le type inconnu doivent AUSSI donner une icône : ce sont
+#  les deux cas les plus fréquents d'un vrai dossier.
+for nom, dossier in (("Mes documents", True), ("sans-extension", False),
+                     ("truc.xyzinconnu", False)):
+    c = couverture(nom, dossier)
+    if c < SEUIL:
+        vides.append(f"{nom}({c}%)")
+#  Une famille est un couple COULEUR + SYMBOLE. En réutiliser une pour sa
+#  seule couleur fait hériter du mauvais symbole — c'est arrivé à .ogg,
+#  .wma, .m4a et .rtf, qui portaient une photo ou un cube.
+mauvais = []
+for ext, attendu in (("ogg", "audio"), ("wma", "audio"), ("m4a", "audio"),
+                     ("mp3", "audio"), ("rtf", "texte"), ("txt", "texte"),
+                     ("png", "image"), ("pdf", "pdf"), ("zip", "archive"),
+                     ("iso", "disque"), ("py", "python"), ("sh", "invite")):
+    cle = theme.famille_fichier("x." + ext)[0]
+    if theme._FAMILLES.get(cle, ("", ""))[1] != attendu:
+        mauvais.append(ext)
+#  LE BANDEAU EST CE QUI DISTINGUE .xls DE .xlsx — même famille, même
+#  couleur, même symbole : seule l'étiquette les sépare. Le supprimer ne
+#  change quasiment pas la COUVERTURE (il est dans le corps), donc le
+#  contrôle ci-dessus le laissait passer. Ici on compare deux icônes de
+#  même famille : elles DOIVENT différer en grand format.
+identiques = []
+for a_, b_ in (("xls", "xlsx"), ("doc", "docx"), ("ppt", "pptx"),
+               ("tar", "gz"), ("html", "php")):
+    if theme.famille_fichier("x." + a_)[0] != theme.famille_fichier("x." + b_)[0]:
+        continue          # familles différentes : la couleur suffit déjà
+    ia = theme.icone_fichier("x." + a_, 48).pixmap(48, 48).toImage()
+    ib = theme.icone_fichier("x." + b_, 48).pixmap(48, 48).toImage()
+    if ia == ib:
+        identiques.append(f"{a_}/{b_}")
+print(f"TYPES_INDISTINCTS={','.join(identiques)}")
+print(f"TYPES_VIDES={','.join(vides)}")
+print(f"TYPES_SANS_FAMILLE={','.join(sans_famille)}")
+print(f"TYPES_MAUVAIS_SYMBOLE={','.join(mauvais)}")
 print(f"PAGES={vues}")
 PYEOF
 	)"
+	grep -q 'TYPES_INDISTINCTS=$' <<< "$ESSAI" \
+		&& ok "deux types d'une même famille restent distinguables (bandeau)" \
+		|| non "icônes identiques : $(grep -o 'TYPES_INDISTINCTS=.*' <<< "$ESSAI")"
+	grep -q 'TYPES_VIDES=$' <<< "$ESSAI" \
+		&& ok "les 42 icônes de types se dessinent ENTIÈREMENT (> 65 % de leur boîte)" \
+		|| non "icônes vides : $(grep -o 'TYPES_VIDES=.*' <<< "$ESSAI")"
+	grep -q 'TYPES_SANS_FAMILLE=$' <<< "$ESSAI" \
+		&& ok "chaque extension de la planche est reconnue" \
+		|| non "non reconnues : $(grep -o 'TYPES_SANS_FAMILLE=.*' <<< "$ESSAI")"
+	grep -q 'TYPES_MAUVAIS_SYMBOLE=$' <<< "$ESSAI" \
+		&& ok "et chacune porte le SYMBOLE de sa famille, pas que sa couleur" \
+		|| non "symbole incohérent : $(grep -o 'TYPES_MAUVAIS_SYMBOLE=.*' <<< "$ESSAI")"
 	#  Chaîne ici-même et non « printf | grep -q » : sous pipefail, grep
 	#  ferme le tube dès la correspondance et tue le producteur. C'est une
 	#  règle du dépôt, et la CI la vérifie sur tous les bancs.

@@ -135,17 +135,21 @@ class PageFichiers(widgets.Page):
             quand = (time.strftime("%d/%m/%Y %H:%M", time.localtime(e.modifie))
                      if e.modifie else "—")
             item = QTreeWidgetItem([e.nom, taille, quand])
-            item.setIcon(0, theme.icone("fichiers" if e.dossier else "apropos",
-                                        theme.ORANGE if e.dossier
-                                        else theme.TEXTE_SECOND, 18))
+            #  L'icône DIT LE TYPE. Avant, tout fichier portait le même
+            #  rond générique : un dossier de cinquante éléments se lisait
+            #  comme cinquante fois la même chose, et l'œil n'avait aucun
+            #  point d'accroche. La couleur donne la famille d'un coup
+            #  d'œil, l'extension le détail.
+            item.setIcon(0, theme.icone_fichier(e.nom, 20, e.dossier))
             item.setData(0, _ROLE, e)
             if not e.lisible:
                 item.setToolTip(0, "Élément illisible (droits insuffisants).")
             self.vue_liste.addTopLevelItem(item)
 
-            ic = QListWidgetItem(theme.icone(
-                "fichiers" if e.dossier else "apropos",
-                theme.ORANGE if e.dossier else theme.TEXTE_SECOND, 42), e.nom)
+            #  48 px : au-dessus du seuil de 30, donc le bandeau
+            #  d'extension s'affiche — c'est la vue où on a la place.
+            ic = QListWidgetItem(
+                theme.icone_fichier(e.nom, 48, e.dossier), e.nom)
             ic.setData(_ROLE, e)
             ic.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             self.vue_icones.addItem(ic)

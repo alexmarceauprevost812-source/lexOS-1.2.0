@@ -96,6 +96,15 @@ littéralement aucun appel de suppression, et un test le vérifie sur l'arbre
 syntaxique. Les conflits de noms ne sont jamais écrasés en silence : on
 demande.
 
+**Icônes de types de fichiers** — 42 types reconnus (images, audio, vidéo,
+bureautique, code, archives, paquets, exécutables), plus le dossier et le
+type inconnu. Elles sont **tracées en code**, pas chargées depuis des
+fichiers : un gestionnaire de fichiers affiche des centaines d'icônes par
+dossier, et une icône manquante ne se remarquerait pas — elle se
+confondrait avec « type inconnu ». La couleur donne la famille, le bandeau
+donne l'extension exacte. En dessous de 30 px le bandeau disparaît : trois
+lettres dans six pixels de haut ne se lisent pas.
+
 **Terminal** — aucune imitation de terminal dans une zone de texte. LEXOS
 PRO ouvre l'émulateur réellement installé, dans le dossier choisi, et le
 dit à l'écran.
